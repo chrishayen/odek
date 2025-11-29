@@ -2,12 +2,21 @@ package widgets
 
 import "../core"
 import "../render"
+import "core:path/filepath"
+
+// Grid item type
+Grid_Item_Type :: enum {
+    Image,
+    Folder,
+}
 
 // Grid item
 Grid_Item :: struct {
+    type:      Grid_Item_Type,
     image:     ^render.Image,  // Reference to image (not owned)
     thumbnail: ^render.Image,  // Reference to thumbnail for display (not owned)
     path:      string,         // File path for identification
+    name:      string,         // Display name (for folders)
     user_data: rawptr,         // User-defined data
 }
 
@@ -17,6 +26,9 @@ Image_Grid :: struct {
 
     // Items
     items: [dynamic]Grid_Item,
+
+    // Font for labels
+    font: ^render.Font,
 
     // Layout configuration
     cell_width:  i32,     // Width of each cell
@@ -42,6 +54,7 @@ Image_Grid :: struct {
 
     // Callbacks
     on_click:            proc(grid: ^Image_Grid, index: i32, item: ^Grid_Item),
+    on_folder_click:     proc(grid: ^Image_Grid, path: string),
     on_selection_change: proc(grid: ^Image_Grid, old_idx, new_idx: i32),
 }
 
@@ -84,10 +97,22 @@ image_grid_create :: proc() -> ^Image_Grid {
 // Add an image to the grid
 image_grid_add_item :: proc(g: ^Image_Grid, img: ^render.Image, thumbnail: ^render.Image = nil, path: string = "", user_data: rawptr = nil) {
     item := Grid_Item{
+        type = .Image,
         image = img,
         thumbnail = thumbnail if thumbnail != nil else img,
         path = path,
         user_data = user_data,
+    }
+    append(&g.items, item)
+    widget_mark_dirty(g)
+}
+
+// Add a folder to the grid
+image_grid_add_folder :: proc(g: ^Image_Grid, name: string, path: string) {
+    item := Grid_Item{
+        type = .Folder,
+        path = path,
+        name = name,
     }
     append(&g.items, item)
     widget_mark_dirty(g)
@@ -251,6 +276,34 @@ image_grid_point_in_scrollbar :: proc(g: ^Image_Grid, x, y: i32) -> bool {
     return x >= sb.x && x < sb.x + sb.width && y >= sb.y && y < sb.y + sb.height
 }
 
+// Draw a folder icon in the given rect
+draw_folder_icon :: proc(ctx: ^render.Draw_Context, rect: core.Rect) {
+    // Folder colors
+    folder_body := core.color_hex(0x5B9BD5)     // Blue folder body
+    folder_tab := core.color_hex(0x4A8AC4)      // Slightly darker tab
+    folder_shadow := core.color_hex(0x3A7AB4)   // Shadow/depth
+
+    // Calculate icon dimensions (centered, 60% of cell size)
+    icon_w := rect.width * 60 / 100
+    icon_h := rect.height * 50 / 100
+    icon_x := rect.x + (rect.width - icon_w) / 2
+    icon_y := rect.y + (rect.height - icon_h) / 2
+
+    // Draw tab (top-left portion)
+    tab_w := icon_w * 35 / 100
+    tab_h := icon_h * 15 / 100
+    tab_rect := core.Rect{icon_x, icon_y, tab_w, tab_h}
+    render.fill_rect(ctx, tab_rect, folder_tab)
+
+    // Draw main folder body
+    body_rect := core.Rect{icon_x, icon_y + tab_h, icon_w, icon_h - tab_h}
+    render.fill_rect(ctx, body_rect, folder_body)
+
+    // Draw bottom edge for depth
+    edge_rect := core.Rect{icon_x, icon_y + icon_h - 4, icon_w, 4}
+    render.fill_rect(ctx, edge_rect, folder_shadow)
+}
+
 // Draw function
 image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
     g := cast(^Image_Grid)w
@@ -301,16 +354,53 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
             render.fill_rect_blend(ctx, item_abs, g.hover_color)
         }
 
-        // Draw image (use thumbnail if available)
         item := &g.items[i]
-        display_img := item.thumbnail if item.thumbnail != nil else item.image
-        if display_img != nil {
-            render.draw_image_scaled(ctx, display_img, item_abs)
+
+        // Reserve space for label at bottom
+        label_height: i32 = 20 if g.font != nil else 0
+        icon_rect := core.Rect{
+            x = item_abs.x,
+            y = item_abs.y,
+            width = item_abs.width,
+            height = item_abs.height - label_height,
+        }
+
+        if item.type == .Folder {
+            // Draw folder icon
+            draw_folder_icon(ctx, icon_rect)
+        } else {
+            // Draw image (use thumbnail if available)
+            display_img := item.thumbnail if item.thumbnail != nil else item.image
+            if display_img != nil {
+                render.draw_image_scaled(ctx, display_img, icon_rect)
+            }
         }
 
         // Draw selection border
         if i == g.selected_idx {
             render.draw_rect(ctx, item_abs, g.selection_color, 2)
+        }
+
+        // Draw label
+        if g.font != nil {
+            label_text: string
+            if item.type == .Folder {
+                label_text = item.name
+            } else {
+                // Extract filename from path
+                label_text = filepath.base(item.path)
+            }
+
+            if len(label_text) > 0 {
+                // Measure and center the text
+                text_width := render.text_measure(g.font, label_text)
+                text_x := item_abs.x + (item_abs.width - text_width) / 2
+                text_y := item_abs.y + item_abs.height - label_height + 2
+
+                // Truncate if too wide (simple approach: just let it clip)
+                label_color := core.color_hex(0xCCCCCC)
+                render.draw_text_top(ctx, g.font, label_text, text_x, text_y, label_color)
+            }
         }
     }
 
@@ -424,8 +514,15 @@ image_grid_handle_event :: proc(w: ^Widget, event: ^core.Event) -> bool {
             clicked_idx := image_grid_get_item_at(g, local_x, local_y)
             if clicked_idx >= 0 {
                 image_grid_set_selected(g, clicked_idx)
-                if g.on_click != nil {
-                    g.on_click(g, clicked_idx, &g.items[clicked_idx])
+                item := &g.items[clicked_idx]
+                if item.type == .Folder {
+                    if g.on_folder_click != nil {
+                        g.on_folder_click(g, item.path)
+                    }
+                } else {
+                    if g.on_click != nil {
+                        g.on_click(g, clicked_idx, item)
+                    }
                 }
             }
             return true

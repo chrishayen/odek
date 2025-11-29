@@ -23,13 +23,21 @@ App_State :: struct {
     focus_manager: widgets.Focus_Manager,
     hit_state:     widgets.Hit_Test_State,
 
-    // Labels
+    // Header widgets
+    back_button:   ^widgets.Button,
     header_label:  ^widgets.Label,
+
+    // Footer
     footer_label:  ^widgets.Label,
 
     // Image grid
     image_cache:   ^render.Image_Cache,
     image_grid:    ^widgets.Image_Grid,
+
+    // Navigation
+    current_directory:  string,
+    directory_history:  [dynamic]string,
+    window:             ^core.Window,  // Store window reference for callbacks
 }
 
 g_state: App_State
@@ -77,6 +85,7 @@ main :: proc() {
         fmt.eprintln("Failed to create window")
         return
     }
+    g_state.window = window
 
     // Build widget tree
     build_ui(window.width, window.height)
@@ -162,17 +171,39 @@ build_ui :: proc(width, height: i32) {
 
     // Add label widgets if font is loaded
     if g_state.font_loaded {
+        // Back button
+        g_state.back_button = widgets.button_create("<", &g_state.font)
+        g_state.back_button.min_size = core.Size{36, 30}
+        g_state.back_button.on_click = back_button_callback
+        widgets.button_set_colors(g_state.back_button,
+            core.color_hex(0x505050),  // Normal - subtle gray
+            core.color_hex(0x606060),  // Hover
+            core.color_hex(0x404040))  // Pressed
+        widgets.widget_add_child(g_state.header, g_state.back_button)
+
         // Header label
         g_state.header_label = widgets.label_create("Odek Image Grid Demo", &g_state.font)
         widgets.label_set_color(g_state.header_label, core.COLOR_WHITE)
         widgets.widget_add_child(g_state.header, g_state.header_label)
 
-        // Sidebar labels
-        sidebar_items := []string{"Gallery", "Recent", "Favorites"}
-        for item in sidebar_items {
-            label := widgets.label_create(item, &g_state.font)
-            widgets.label_set_color(label, core.color_hex(0xCCCCCC))
-            widgets.widget_add_child(g_state.sidebar, label)
+        // Sidebar bookmark buttons
+        Bookmark :: struct { name: string, path: cstring }
+        bookmarks := []Bookmark{
+            {"Home", "/home/chris"},
+            {"Pictures", "/home/chris/Pictures"},
+            {"Downloads", "/home/chris/Downloads"},
+            {"Code", "/home/chris/Code"},
+        }
+        for bm in bookmarks {
+            btn := widgets.button_create(bm.name, &g_state.font)
+            btn.user_data = rawptr(bm.path)
+            btn.on_click = bookmark_callback
+            btn.min_size = core.Size{0, 32}
+            widgets.button_set_colors(btn,
+                core.color_hex(0x444444),  // Normal - match sidebar
+                core.color_hex(0x555555),  // Hover
+                core.color_hex(0x333333))  // Pressed
+            widgets.widget_add_child(g_state.sidebar, btn)
         }
 
         // Footer label
@@ -188,10 +219,14 @@ build_ui :: proc(width, height: i32) {
     g_state.image_grid.spacing = 10
     g_state.image_grid.padding = widgets.edges_all(10)
     g_state.image_grid.on_click = image_grid_click_callback
+    g_state.image_grid.on_folder_click = folder_click_callback
+    if g_state.font_loaded {
+        g_state.image_grid.font = &g_state.font
+    }
     widgets.widget_add_child(g_state.main_area, g_state.image_grid)
 
-    // Load images from Pictures directory
-    load_images_from_directory("/home/chris/Pictures")
+    // Load initial directory (home has folders to test navigation)
+    navigate_to_directory("/home/chris", add_to_history = false)
 
     // Initialize focus manager
     g_state.focus_manager = widgets.focus_manager_init(g_state.root)
@@ -200,8 +235,22 @@ build_ui :: proc(width, height: i32) {
     widgets.widget_layout(g_state.root)
 }
 
-// Load images from a directory into the grid
-load_images_from_directory :: proc(dir_path: string) {
+// Navigate to a directory - clears grid and loads contents
+navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
+    // Push current directory to history before navigating
+    if add_to_history && len(g_state.current_directory) > 0 {
+        append(&g_state.directory_history, strings.clone(g_state.current_directory))
+    }
+
+    // Update current directory
+    if len(g_state.current_directory) > 0 {
+        delete(g_state.current_directory)
+    }
+    g_state.current_directory = strings.clone(dir_path)
+
+    // Clear the grid
+    widgets.image_grid_clear(g_state.image_grid)
+
     handle, err := os.open(dir_path)
     if err != nil {
         fmt.eprintln("Failed to open directory:", dir_path)
@@ -216,7 +265,28 @@ load_images_from_directory :: proc(dir_path: string) {
     }
     defer delete(entries)
 
+    folder_count := 0
     image_count := 0
+
+    // First pass: add folders (skip hidden)
+    for entry in entries {
+        if !entry.is_dir {
+            continue
+        }
+        if strings.has_prefix(entry.name, ".") {
+            continue  // Skip hidden folders
+        }
+
+        full_path := filepath.join({dir_path, entry.name})
+        name_clone := strings.clone(entry.name)
+        path_clone := strings.clone(full_path)
+        delete(full_path)
+
+        widgets.image_grid_add_folder(g_state.image_grid, name_clone, path_clone)
+        folder_count += 1
+    }
+
+    // Second pass: add images
     for entry in entries {
         if entry.is_dir {
             continue
@@ -232,16 +302,54 @@ load_images_from_directory :: proc(dir_path: string) {
 
             img, thumb, ok := render.image_cache_load(g_state.image_cache, full_path)
             if ok {
-                // Clone the path for storage
                 path_clone := strings.clone(full_path)
                 widgets.image_grid_add_item(g_state.image_grid, img, thumb, path_clone)
                 image_count += 1
-                fmt.printf("Loaded: %s\n", entry.name)
             }
         }
     }
 
-    fmt.printf("Loaded %d images\n", image_count)
+    fmt.printf("Loaded %d folders, %d images from %s\n", folder_count, image_count, dir_path)
+
+    // Update header to show current path
+    if g_state.header_label != nil {
+        widgets.label_set_text(g_state.header_label, dir_path)
+    }
+
+    // Request redraw
+    if g_state.window != nil {
+        core.window_request_redraw(g_state.window)
+    }
+}
+
+// Navigate back to previous directory
+navigate_back :: proc() {
+    if len(g_state.directory_history) == 0 {
+        return
+    }
+
+    prev := pop(&g_state.directory_history)
+    navigate_to_directory(prev, add_to_history = false)
+    delete(prev)
+}
+
+// Folder click callback - navigate into folder
+folder_click_callback :: proc(grid: ^widgets.Image_Grid, path: string) {
+    fmt.printf("Navigating to folder: %s\n", path)
+    navigate_to_directory(path)
+}
+
+// Back button callback
+back_button_callback :: proc(button: ^widgets.Button) {
+    navigate_back()
+}
+
+// Bookmark button callback - navigate to stored path
+bookmark_callback :: proc(button: ^widgets.Button) {
+    path := cast(cstring)button.user_data
+    if path != nil {
+        navigate_to_directory(string(path))
+    }
 }
 
 // Image grid click callback
