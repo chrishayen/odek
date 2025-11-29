@@ -31,6 +31,17 @@ Align :: enum {
     Stretch,
 }
 
+// Cursor type for widget hover
+Cursor :: enum {
+    Arrow,      // Default arrow cursor
+    Hand,       // Pointing hand for clickable items
+    Text,       // I-beam for text input
+    Wait,       // Busy/loading
+    Crosshair,  // Crosshair
+    Move,       // Move/drag
+    Grab,       // Grabbing
+}
+
 // Base widget structure
 Widget :: struct {
     vtable:   ^Widget_VTable,
@@ -56,6 +67,9 @@ Widget :: struct {
     focused:  bool,
     hovered:  bool,
     focusable: bool,          // can receive keyboard focus
+
+    // Cursor to show when hovering
+    cursor:   Cursor,
 
     // Widget-specific data
     user_data: rawptr,

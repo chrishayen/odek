@@ -240,12 +240,26 @@ Cursor_Shape :: enum u32 {
     Zoom_Out = 34,
 }
 
-// wp_cursor_shape_manager_v1 interface (defined manually since wayland-protocols doesn't provide it)
+// wp_cursor_shape_manager_v1 requests: destroy, get_pointer
+@(private)
+cursor_shape_manager_requests := [2]Wl_Message{
+    {name = "destroy", signature = "", types = nil},
+    {name = "get_pointer", signature = "no", types = nil},
+}
+
+// wp_cursor_shape_device_v1 requests: set_shape, destroy
+@(private)
+cursor_shape_device_requests := [2]Wl_Message{
+    {name = "set_shape", signature = "uu", types = nil},
+    {name = "destroy", signature = "", types = nil},
+}
+
+// wp_cursor_shape_manager_v1 interface
 wp_cursor_shape_manager_v1_interface := Wl_Interface{
     name = "wp_cursor_shape_manager_v1",
     version = 1,
-    method_count = 2,  // destroy, get_pointer
-    methods = nil,
+    method_count = 2,
+    methods = &cursor_shape_manager_requests[0],
     event_count = 0,
     events = nil,
 }
@@ -254,16 +268,20 @@ wp_cursor_shape_manager_v1_interface := Wl_Interface{
 wp_cursor_shape_device_v1_interface := Wl_Interface{
     name = "wp_cursor_shape_device_v1",
     version = 1,
-    method_count = 2,  // set_shape, destroy
-    methods = nil,
+    method_count = 2,
+    methods = &cursor_shape_device_requests[0],
     event_count = 0,
     events = nil,
 }
 
 // Get cursor shape device for a pointer (opcode 1)
 cursor_shape_manager_get_pointer :: proc(manager: ^Wp_Cursor_Shape_Manager, pointer: ^Wl_Pointer) -> ^Wp_Cursor_Shape_Device {
-    return cast(^Wp_Cursor_Shape_Device)wl_proxy_marshal_flags(
-        manager, 1, &wp_cursor_shape_device_v1_interface, wl_proxy_get_version(manager), 0, pointer)
+    // Use array version for proper argument passing with new_id
+    args: [2]Wl_Argument
+    args[0].o = nil  // new_id placeholder
+    args[1].o = pointer
+    return cast(^Wp_Cursor_Shape_Device)wl_proxy_marshal_array_flags(
+        manager, 1, &wp_cursor_shape_device_v1_interface, wl_proxy_get_version(manager), 0, &args[0])
 }
 
 // Destroy cursor shape manager (opcode 0)

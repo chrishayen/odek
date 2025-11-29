@@ -22,9 +22,10 @@ App :: struct {
     pointer:  ^wl.Wl_Pointer,
     keyboard: ^wl.Wl_Keyboard,
 
-    // Cursor
-    cursor_shape_manager: ^wl.Wp_Cursor_Shape_Manager,
-    cursor_shape_device:  ^wl.Wp_Cursor_Shape_Device,
+    // Cursor (libwayland-cursor based)
+    cursor_theme:   ^wl.Wl_Cursor_Theme,
+    cursor_surface: ^wl.Wl_Surface,
+    current_cursor: wl.Cursor_Type,
 
     // XKB state
     xkb: wl.Xkb_Handler,
@@ -192,6 +193,17 @@ init :: proc() -> ^App {
     // Roundtrip to get globals
     wl.wl_display_roundtrip(app.display)
 
+    // Load cursor theme (needs shm which is available after roundtrip)
+    if app.shm != nil {
+        // Try to load the default cursor theme, size 24
+        app.cursor_theme = wl.wl_cursor_theme_load(nil, 24, app.shm)
+        if app.cursor_theme != nil {
+            // Create a surface for the cursor
+            if app.compositor != nil {
+                app.cursor_surface = wl.compositor_create_surface(app.compositor)
+            }
+        }
+    }
 
     // Check we have required globals
     if app.compositor == nil {
@@ -225,6 +237,14 @@ shutdown :: proc(app: ^App) {
         window_destroy(win)
     }
     delete(app.windows)
+
+    // Destroy cursor resources
+    if app.cursor_surface != nil {
+        wl.surface_destroy(app.cursor_surface)
+    }
+    if app.cursor_theme != nil {
+        wl.wl_cursor_theme_destroy(app.cursor_theme)
+    }
 
     // Destroy input devices
     if app.keyboard != nil {
@@ -700,6 +720,50 @@ is_super_pressed :: proc(app: ^App) -> bool {
     return wl.xkb_handler_is_super_active(&app.xkb)
 }
 
+// Set the cursor type
+set_cursor :: proc(app: ^App, cursor_type: wl.Cursor_Type) {
+    if app == nil || app.cursor_theme == nil || app.cursor_surface == nil || app.pointer == nil {
+        return
+    }
+
+    // Get cursor name from type
+    cursor_name := wl.cursor_type_to_name(cursor_type)
+    cursor := wl.wl_cursor_theme_get_cursor(app.cursor_theme, cursor_name)
+    if cursor == nil {
+        // Try fallback to default
+        cursor = wl.wl_cursor_theme_get_cursor(app.cursor_theme, wl.CURSOR_LEFT_PTR)
+        if cursor == nil {
+            return
+        }
+    }
+
+    // Get the first image (index 0)
+    if cursor.image_count == 0 || cursor.images == nil {
+        return
+    }
+    image := cursor.images[0]
+    if image == nil {
+        return
+    }
+
+    // Get the buffer for this cursor image
+    buffer := wl.wl_cursor_image_get_buffer(image)
+    if buffer == nil {
+        return
+    }
+
+    // Update cursor surface
+    wl.surface_attach(app.cursor_surface, buffer, 0, 0)
+    wl.surface_damage(app.cursor_surface, 0, 0, i32(image.width), i32(image.height))
+    wl.surface_commit(app.cursor_surface)
+
+    // Set the cursor on the pointer
+    wl.pointer_set_cursor(app.pointer, app.pointer_serial, app.cursor_surface,
+                          i32(image.hotspot_x), i32(image.hotspot_y))
+
+    app.current_cursor = cursor_type
+}
+
 // ============================================================================
 // Internal handlers
 // ============================================================================
@@ -730,8 +794,6 @@ registry_global_handler :: proc "c" (
             registry, name, &wl.wl_seat_interface, min(version, 8))
         wl.seat_add_listener(app.seat, &app.seat_listener, app)
     }
-    // Note: wp_cursor_shape_manager_v1 requires proper protocol bindings
-    // TODO: Implement cursor support via libwayland-cursor instead
 }
 
 registry_global_remove_handler :: proc "c" (data: rawptr, registry: ^wl.Wl_Registry, name: u32) {
@@ -810,10 +872,6 @@ seat_capabilities_handler :: proc "c" (data: rawptr, seat: ^wl.Wl_Seat, capabili
         app.pointer = wl.seat_get_pointer(seat)
         wl.pointer_add_listener(app.pointer, &app.pointer_listener, app)
     } else if !has_pointer && app.pointer != nil {
-        if app.cursor_shape_device != nil {
-            wl.cursor_shape_device_destroy(app.cursor_shape_device)
-            app.cursor_shape_device = nil
-        }
         wl.pointer_release(app.pointer)
         app.pointer = nil
     }
@@ -862,9 +920,8 @@ pointer_enter_handler :: proc "c" (
     app.pointer_x = wl.wl_fixed_to_double(surface_x)
     app.pointer_y = wl.wl_fixed_to_double(surface_y)
 
-    // Note: Cursor shape requires either wp_cursor_shape_manager_v1 protocol
-    // or loading cursors via libwayland-cursor. For now, we keep the system default.
-    // TODO: Implement proper cursor support via libwayland-cursor
+    // Set default arrow cursor when pointer enters window
+    set_cursor(app, .Arrow)
 
     win := find_window_by_surface(app, surface)
     if win != nil && win.on_pointer_enter != nil {

@@ -2,6 +2,7 @@ package main
 
 import "core"
 import "render"
+import "wayland"
 import "widgets"
 import "core:fmt"
 import "core:os"
@@ -418,6 +419,8 @@ pointer_leave_callback :: proc(win: ^core.Window) {
     fmt.println("Pointer left window")
     // Clear hover state by passing coordinates outside window
     widgets.update_hover(&g_state.hit_state, g_state.root, -1, -1)
+    // Reset cursor to arrow
+    core.set_cursor(win.app, .Arrow)
     // Redraw to show cleared hover state
     core.window_request_redraw(win)
 }
@@ -438,7 +441,41 @@ pointer_motion_callback :: proc(win: ^core.Window, x, y: f64) {
     }
 
     // Update hover state in widget tree
-    widgets.update_hover(&g_state.hit_state, g_state.root, i32(x), i32(y))
+    hovered := widgets.update_hover(&g_state.hit_state, g_state.root, i32(x), i32(y))
+
+    // Update cursor based on hovered widget
+    update_cursor_for_widget(win.app, hovered)
+}
+
+// Update cursor based on widget's cursor type
+update_cursor_for_widget :: proc(app: ^core.App, w: ^widgets.Widget) {
+    cursor_type: wayland.Cursor_Type
+    if w != nil {
+        // Map widget cursor to wayland cursor
+        switch w.cursor {
+        case .Arrow:
+            cursor_type = .Arrow
+        case .Hand:
+            cursor_type = .Hand
+        case .Text:
+            cursor_type = .Text
+        case .Wait:
+            cursor_type = .Wait
+        case .Crosshair:
+            cursor_type = .Crosshair
+        case .Move:
+            cursor_type = .Move
+        case .Grab:
+            cursor_type = .Grab
+        }
+    } else {
+        cursor_type = .Arrow
+    }
+
+    // Only update if cursor changed
+    if cursor_type != app.current_cursor {
+        core.set_cursor(app, cursor_type)
+    }
 }
 
 pointer_button_callback :: proc(win: ^core.Window, button: u32, pressed: bool) {
