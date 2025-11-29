@@ -4,8 +4,35 @@ import "core"
 import "render"
 import "core:fmt"
 
+// Global state for text rendering
+g_text_renderer: render.Text_Renderer
+g_font: render.Font
+g_font_loaded: bool
+
 main :: proc() {
     fmt.println("Odek - Odin Native Wayland Toolkit")
+
+    // Initialize text rendering
+    text_renderer, text_ok := render.text_renderer_init()
+    if !text_ok {
+        fmt.eprintln("Failed to initialize text renderer")
+        return
+    }
+    g_text_renderer = text_renderer
+    defer render.text_renderer_destroy(&g_text_renderer)
+
+    // Try to load a font
+    font, font_ok := render.font_load(&g_text_renderer, "/usr/share/fonts/noto/NotoSans-Regular.ttf\x00", 16)
+    if font_ok {
+        g_font = font
+        g_font_loaded = true
+        fmt.println("Font loaded successfully")
+    } else {
+        fmt.eprintln("Warning: Could not load font, text will not be displayed")
+    }
+    defer if g_font_loaded {
+        render.font_destroy(&g_font)
+    }
 
     // Initialize application
     app := core.init()
@@ -55,6 +82,11 @@ draw_callback :: proc(win: ^core.Window, pixels: [^]u32, width, height, stride: 
     // Draw a title bar area
     render.fill_rect(&ctx, core.Rect{0, 0, width, 40}, core.color_hex(0x404040))
 
+    // Draw title text
+    if g_font_loaded {
+        render.draw_text_top(&ctx, &g_font, "Odek Demo", 12, 12, core.COLOR_WHITE)
+    }
+
     // Draw some example content
     center_x := width / 2
     center_y := height / 2
@@ -65,6 +97,21 @@ draw_callback :: proc(win: ^core.Window, pixels: [^]u32, width, height, stride: 
 
     // Draw a border around the button
     render.draw_rect(&ctx, button_rect, core.color_hex(0x3A7BC8), 2)
+
+    // Draw button text (centered)
+    if g_font_loaded {
+        button_text := "Click Me!"
+        text_width := render.text_measure(&g_font, button_text)
+        text_x := center_x - text_width / 2
+        text_y := center_y + g_font.line_height / 4  // Approximate vertical centering
+        render.draw_text(&ctx, &g_font, button_text, text_x, text_y, core.COLOR_WHITE)
+    }
+
+    // Draw info text
+    if g_font_loaded {
+        render.draw_text_top(&ctx, &g_font, "Press any key or move the mouse to see events in console", 12, 60, core.color_hex(0xAAAAAA))
+        render.draw_text_top(&ctx, &g_font, "Text rendering with FreeType", 12, 85, core.color_hex(0x88CC88))
+    }
 
     // Draw some decorative elements
     for i in 0 ..< 5 {
