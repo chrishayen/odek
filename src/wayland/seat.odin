@@ -194,3 +194,89 @@ wl_double_to_fixed :: proc(d: f64) -> i32 {
 BTN_LEFT :: 0x110
 BTN_RIGHT :: 0x111
 BTN_MIDDLE :: 0x112
+
+// ============================================================================
+// wp_cursor_shape_manager_v1 protocol
+// ============================================================================
+
+// Cursor shape device (per-pointer)
+Wp_Cursor_Shape_Device :: struct {}
+
+// Cursor shapes (wp_cursor_shape_device_v1.shape enum)
+Cursor_Shape :: enum u32 {
+    Default = 1,
+    Context_Menu = 2,
+    Help = 3,
+    Pointer = 4,
+    Progress = 5,
+    Wait = 6,
+    Cell = 7,
+    Crosshair = 8,
+    Text = 9,
+    Vertical_Text = 10,
+    Alias = 11,
+    Copy = 12,
+    Move = 13,
+    No_Drop = 14,
+    Not_Allowed = 15,
+    Grab = 16,
+    Grabbing = 17,
+    E_Resize = 18,
+    N_Resize = 19,
+    NE_Resize = 20,
+    NW_Resize = 21,
+    S_Resize = 22,
+    SE_Resize = 23,
+    SW_Resize = 24,
+    W_Resize = 25,
+    EW_Resize = 26,
+    NS_Resize = 27,
+    NESW_Resize = 28,
+    NWSE_Resize = 29,
+    Col_Resize = 30,
+    Row_Resize = 31,
+    All_Scroll = 32,
+    Zoom_In = 33,
+    Zoom_Out = 34,
+}
+
+// wp_cursor_shape_manager_v1 interface (defined manually since wayland-protocols doesn't provide it)
+wp_cursor_shape_manager_v1_interface := Wl_Interface{
+    name = "wp_cursor_shape_manager_v1",
+    version = 1,
+    method_count = 2,  // destroy, get_pointer
+    methods = nil,
+    event_count = 0,
+    events = nil,
+}
+
+// wp_cursor_shape_device_v1 interface
+wp_cursor_shape_device_v1_interface := Wl_Interface{
+    name = "wp_cursor_shape_device_v1",
+    version = 1,
+    method_count = 2,  // set_shape, destroy
+    methods = nil,
+    event_count = 0,
+    events = nil,
+}
+
+// Get cursor shape device for a pointer (opcode 1)
+cursor_shape_manager_get_pointer :: proc(manager: ^Wp_Cursor_Shape_Manager, pointer: ^Wl_Pointer) -> ^Wp_Cursor_Shape_Device {
+    return cast(^Wp_Cursor_Shape_Device)wl_proxy_marshal_flags(
+        manager, 1, &wp_cursor_shape_device_v1_interface, wl_proxy_get_version(manager), 0, pointer)
+}
+
+// Destroy cursor shape manager (opcode 0)
+cursor_shape_manager_destroy :: proc(manager: ^Wp_Cursor_Shape_Manager) {
+    wl_proxy_marshal_flags(manager, 0, nil, wl_proxy_get_version(manager), WL_MARSHAL_FLAG_DESTROY)
+}
+
+// Set cursor shape (opcode 0)
+cursor_shape_device_set_shape :: proc(device: ^Wp_Cursor_Shape_Device, serial: u32, shape: Cursor_Shape) {
+    wl_proxy_marshal_flags(device, 0, nil, wl_proxy_get_version(device), 0, serial, u32(shape))
+}
+
+// Destroy cursor shape device (opcode 1)
+cursor_shape_device_destroy :: proc(device: ^Wp_Cursor_Shape_Device) {
+    wl_proxy_marshal_flags(device, 1, nil, wl_proxy_get_version(device), WL_MARSHAL_FLAG_DESTROY)
+}

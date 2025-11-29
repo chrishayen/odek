@@ -21,6 +21,10 @@ App :: struct {
     pointer:  ^wl.Wl_Pointer,
     keyboard: ^wl.Wl_Keyboard,
 
+    // Cursor
+    cursor_shape_manager: ^wl.Wp_Cursor_Shape_Manager,
+    cursor_shape_device:  ^wl.Wp_Cursor_Shape_Device,
+
     // XKB state
     xkb: wl.Xkb_Handler,
 
@@ -546,6 +550,8 @@ registry_global_handler :: proc "c" (
             registry, name, &wl.wl_seat_interface, min(version, 8))
         wl.seat_add_listener(app.seat, &app.seat_listener, app)
     }
+    // Note: wp_cursor_shape_manager_v1 requires proper protocol bindings
+    // TODO: Implement cursor support via libwayland-cursor instead
 }
 
 registry_global_remove_handler :: proc "c" (data: rawptr, registry: ^wl.Wl_Registry, name: u32) {
@@ -672,6 +678,10 @@ seat_capabilities_handler :: proc "c" (data: rawptr, seat: ^wl.Wl_Seat, capabili
         app.pointer = wl.seat_get_pointer(seat)
         wl.pointer_add_listener(app.pointer, &app.pointer_listener, app)
     } else if !has_pointer && app.pointer != nil {
+        if app.cursor_shape_device != nil {
+            wl.cursor_shape_device_destroy(app.cursor_shape_device)
+            app.cursor_shape_device = nil
+        }
         wl.pointer_release(app.pointer)
         app.pointer = nil
     }
@@ -719,6 +729,10 @@ pointer_enter_handler :: proc "c" (
     app.pointer_serial = serial
     app.pointer_x = wl.wl_fixed_to_double(surface_x)
     app.pointer_y = wl.wl_fixed_to_double(surface_y)
+
+    // Note: Cursor shape requires either wp_cursor_shape_manager_v1 protocol
+    // or loading cursors via libwayland-cursor. For now, we keep the system default.
+    // TODO: Implement proper cursor support via libwayland-cursor
 
     win := find_window_by_surface(app, surface)
     if win != nil && win.on_pointer_enter != nil {

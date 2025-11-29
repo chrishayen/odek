@@ -20,6 +20,9 @@ Xdg_Wm_Base :: struct {}
 Xdg_Surface :: struct {}
 Xdg_Toplevel :: struct {}
 
+// Cursor shape protocol
+Wp_Cursor_Shape_Manager :: struct {}
+
 // Wayland proxy (base type for all objects)
 Wl_Proxy :: struct {}
 

@@ -26,29 +26,38 @@
 - [x] Glyph caching for performance
 - [x] Text measurement for layout
 
-## Remaining
-
 ### Phase 4: Widget System
-- [ ] Base Widget struct with vtable
-- [ ] Widget tree (parent/children)
-- [ ] Event dispatch and hit testing
-- [ ] Focus management
-- [ ] Simple box layout (padding, margin)
-- [ ] Damage tracking
+- [x] Base Widget struct with vtable
+- [x] Widget tree (parent/children)
+- [x] Event dispatch and hit testing
+- [x] Focus management
+- [x] Flexbox-lite layout (padding, margin, direction, alignment, flex grow)
+- [x] Immediate damage tracking (dirty flag propagation)
+
+## Remaining
 
 ### Phase 5: MVP Widgets
 - [ ] Label - text content, font/size/color, alignment
 - [ ] Button - normal/hover/pressed states, on_click callback
 - [ ] Text Input - cursor, single-line editing, on_change/on_submit
-- [ ] Container - vertical/horizontal box layout with spacing
+
+### Future: Cursor Support
+- [ ] Implement libwayland-cursor for proper cursor theming
+- [ ] Or implement wp_cursor_shape_manager_v1 protocol bindings
+
+## Known Issues
+
+- **Cursor shows as text cursor**: Requires libwayland-cursor implementation (cursor theme loading)
+- **Demo sidebar items don't navigate**: These are static text, not Button widgets (Button is Phase 5)
 
 ## Test Status
 
-- 31 tests passing
+- 57 tests passing
 - Core types: rect math, color conversion
 - Rendering: fill rect, clipping
 - Input: fixed-point conversion, button codes, state enums
 - Text: renderer init, font loading, glyph caching, text measurement, text drawing
+- Widgets: creation/destruction, parent/child, hit testing, focus, container layout, alignment
 
 ## Files
 
@@ -68,12 +77,18 @@ src/
     buffer.odin   - Software rendering primitives
     freetype.odin - FreeType FFI bindings
     text.odin     - Text rendering, font loading, glyph caching
+  widgets/
+    widget.odin   - Base Widget struct, vtable, core operations
+    container.odin - Container with flexbox-lite layout
+    hit_test.odin - Hit testing and event dispatch
+    focus.odin    - Focus management
   main.odin       - Demo application
 tests/
   core_test.odin
   render_test.odin
   input_test.odin
   text_test.odin
+  widget_test.odin
 ```
 
 ## Dependencies
