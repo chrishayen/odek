@@ -22,9 +22,14 @@ main :: proc() {
         return
     }
 
-    // Set up draw callback
+    // Set up callbacks
     window.on_draw = draw_callback
     window.on_close = close_callback
+    window.on_pointer_enter = pointer_enter_callback
+    window.on_pointer_leave = pointer_leave_callback
+    window.on_pointer_motion = pointer_motion_callback
+    window.on_pointer_button = pointer_button_callback
+    window.on_key = key_callback
 
     // Trigger initial draw now that callback is set
     pixels, width, height, stride := core.window_get_buffer(window)
@@ -71,4 +76,39 @@ draw_callback :: proc(win: ^core.Window, pixels: [^]u32, width, height, stride: 
 
 close_callback :: proc(win: ^core.Window) {
     fmt.println("Window close requested")
+}
+
+pointer_enter_callback :: proc(win: ^core.Window, x, y: f64) {
+    fmt.printf("Pointer entered at (%.1f, %.1f)\n", x, y)
+}
+
+pointer_leave_callback :: proc(win: ^core.Window) {
+    fmt.println("Pointer left window")
+}
+
+pointer_motion_callback :: proc(win: ^core.Window, x, y: f64) {
+    // Uncomment to see motion events (very verbose)
+    // fmt.printf("Motion: (%.1f, %.1f)\n", x, y)
+}
+
+pointer_button_callback :: proc(win: ^core.Window, button: u32, pressed: bool) {
+    action := "pressed" if pressed else "released"
+    button_name: string
+    switch button {
+    case 0x110: button_name = "Left"
+    case 0x111: button_name = "Right"
+    case 0x112: button_name = "Middle"
+    case: button_name = "Unknown"
+    }
+    fmt.printf("%s button %s\n", button_name, action)
+}
+
+key_callback :: proc(win: ^core.Window, key: u32, pressed: bool, utf8: string) {
+    if pressed {
+        if len(utf8) > 0 {
+            fmt.printf("Key %d pressed: '%s'\n", key, utf8)
+        } else {
+            fmt.printf("Key %d pressed (no printable char)\n", key)
+        }
+    }
 }
