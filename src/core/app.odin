@@ -55,6 +55,20 @@ App :: struct {
     windows: [dynamic]^Window,
 }
 
+// Pending resize request
+Pending_Resize :: struct {
+    width:  i32,
+    height: i32,
+}
+
+// Render state machine
+Render_State :: enum {
+    Idle,          // No frame in flight, nothing to draw
+    Dirty,         // Need redraw, no frame in flight (transient - immediately renders)
+    Pending_Frame, // Waiting for frame callback
+    Pending_Dirty, // Frame in flight AND new changes arrived
+}
+
 // Window state
 Window :: struct {
     app: ^App,
@@ -73,18 +87,18 @@ Window :: struct {
     pool: ^wl.Shm_Pool,
     buffers: [2]^wl.Buffer,
     current_buffer: int,
-    frame_pending: bool,  // True if waiting for frame callback
+
+    // Render state
+    render_state: Render_State,
+    pending_resize: Maybe(Pending_Resize),
 
     // Dimensions
     width: i32,
     height: i32,
     configured: bool,
-    pending_width: i32,
-    pending_height: i32,
 
     // State
     closed: bool,
-    needs_redraw: bool,
 
     // Callbacks
     on_draw: proc(win: ^Window, pixels: [^]u32, width, height, stride: i32),
@@ -247,7 +261,7 @@ create_window :: proc(app: ^App, title: string, width, height: i32) -> ^Window {
     win.app = app
     win.width = width
     win.height = height
-    win.needs_redraw = true
+    win.render_state = .Idle
 
     // Create surface
     win.surface = wl.compositor_create_surface(app.compositor)
@@ -414,20 +428,50 @@ window_can_draw :: proc(win: ^Window) -> bool {
 
 // Request a redraw - will draw on next available frame
 window_request_redraw :: proc(win: ^Window) {
-    win.needs_redraw = true
-
-    // If no frame callback is pending, kick off the render loop
-    if !win.frame_pending {
-        pixels, width, height, stride := window_get_buffer(win)
-        if pixels != nil && win.on_draw != nil {
-            win.on_draw(win, pixels, width, height, stride)
-            window_present(win)
-        }
+    #partial switch win.render_state {
+    case .Idle:
+        // No frame in flight, render immediately
+        window_do_render(win)
+    case .Pending_Frame:
+        // Frame in flight, mark that we need another render
+        win.render_state = .Pending_Dirty
+    case .Pending_Dirty:
+        // Already marked dirty, nothing to do
+    case .Dirty:
+        // Already rendering, nothing to do
     }
-    // Otherwise, the pending frame callback will handle the redraw
 }
 
-// Draw and present the window
+// Single entry point for rendering - handles resize, draw, and present
+window_do_render :: proc(win: ^Window) -> bool {
+    pixels, width, height, stride := window_get_buffer(win)
+    if pixels == nil {
+        return false
+    }
+
+    // Handle pending resize
+    if resize, ok := win.pending_resize.?; ok {
+        if resize.width != win.width || resize.height != win.height {
+            window_resize_buffer(win, resize.width, resize.height)
+            pixels, width, height, stride = window_get_buffer(win)
+            if pixels == nil {
+                return false
+            }
+        }
+        win.pending_resize = nil
+    }
+
+    // Draw
+    if win.on_draw != nil {
+        win.on_draw(win, pixels, width, height, stride)
+    }
+
+    // Present
+    window_present(win)
+    return true
+}
+
+// Present the current buffer and request frame callback
 window_present :: proc(win: ^Window) {
     buf := win.buffers[win.current_buffer]
     if buf == nil || buf.busy {
@@ -446,8 +490,7 @@ window_present :: proc(win: ^Window) {
     wl.surface_commit(win.surface)
 
     buf.busy = true
-    win.frame_pending = true
-    win.needs_redraw = false
+    win.render_state = .Pending_Frame
 }
 
 // Resize the window buffers
@@ -629,23 +672,25 @@ xdg_surface_configure_handler :: proc "c" (data: rawptr, xdg_surface: ^wl.Xdg_Su
     win := cast(^Window)data
 
     // Check if we need to resize
-    new_width := win.pending_width if win.pending_width > 0 else win.width
-    new_height := win.pending_height if win.pending_height > 0 else win.height
+    resize, has_resize := win.pending_resize.?
+    new_width := resize.width if has_resize else win.width
+    new_height := resize.height if has_resize else win.height
 
     // Only resize if buffer exists and size actually changed
     if win.buffers[0] != nil && (new_width != win.width || new_height != win.height) {
-        // Can't resize while buffer is busy - store pending size for later
+        // Can't resize while buffer is busy - keep pending for later
         buf := win.buffers[0]
         if buf.busy {
-            win.pending_width = new_width
-            win.pending_height = new_height
+            // pending_resize already set, will be handled in frame callback
         } else {
             window_resize_buffer(win, new_width, new_height)
+            win.pending_resize = nil
         }
     } else if win.buffers[0] == nil {
         // First configure - just update the size, buffer will be created in create_window
         win.width = new_width
         win.height = new_height
+        win.pending_resize = nil
     }
 
     win.configured = true
@@ -653,11 +698,7 @@ xdg_surface_configure_handler :: proc "c" (data: rawptr, xdg_surface: ^wl.Xdg_Su
 
     // Trigger redraw if callback is set
     if win.on_draw != nil && win.buffers[0] != nil {
-        pixels, width, height, stride := window_get_buffer(win)
-        if pixels != nil {
-            win.on_draw(win, pixels, width, height, stride)
-            window_present(win)
-        }
+        window_do_render(win)
     }
 }
 
@@ -672,8 +713,7 @@ xdg_toplevel_configure_handler :: proc "c" (
 
     // Store compositor's suggested size (0 means "you choose")
     if width > 0 && height > 0 {
-        win.pending_width = width
-        win.pending_height = height
+        win.pending_resize = Pending_Resize{width, height}
     }
 }
 
@@ -700,8 +740,6 @@ frame_done_handler :: proc "c" (data: rawptr, callback: ^wl.Wl_Callback, time: u
     win := cast(^Window)data
     wl.callback_destroy(callback)
 
-    win.frame_pending = false
-
     // Mark all buffers as not busy (frame callback means compositor is done with them)
     for &buf in win.buffers {
         if buf != nil {
@@ -709,20 +747,13 @@ frame_done_handler :: proc "c" (data: rawptr, callback: ^wl.Wl_Callback, time: u
         }
     }
 
-    // Check if we have a deferred resize
-    if win.pending_width > 0 && win.pending_height > 0 &&
-       (win.pending_width != win.width || win.pending_height != win.height) {
-        window_resize_buffer(win, win.pending_width, win.pending_height)
-        win.needs_redraw = true
-    }
+    // Handle state transitions
+    was_dirty := win.render_state == .Pending_Dirty
+    win.render_state = .Idle
 
-    // Redraw if needed
-    if win.needs_redraw && win.on_draw != nil {
-        pixels, width, height, stride := window_get_buffer(win)
-        if pixels != nil {
-            win.on_draw(win, pixels, width, height, stride)
-            window_present(win)
-        }
+    // Render again if dirty
+    if was_dirty {
+        window_do_render(win)
     }
 }
 
