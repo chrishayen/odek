@@ -41,6 +41,7 @@ Image_Loader :: struct {
     // Worker thread control
     active:         bool,
     workers:        [NUM_WORKERS]^thread.Thread,
+    work_cond:      sync.Cond,  // Signal workers when work available
 
     // Event notification (for waking main thread)
     notify_fd:      linux.Fd,
@@ -84,6 +85,7 @@ image_loader_destroy :: proc(loader: ^Image_Loader) {
 
     // Signal workers to stop
     loader.active = false
+    sync.cond_broadcast(&loader.work_cond)  // Wake all workers so they can exit
 
     // Wait for all workers to finish
     for i in 0..<NUM_WORKERS {
@@ -136,6 +138,7 @@ image_loader_queue :: proc(loader: ^Image_Loader, path: string, grid_index: i32)
 
     sync.mutex_lock(&loader.pending_lock)
     append(&loader.pending, req)
+    sync.cond_signal(&loader.work_cond)  // Wake a worker
     sync.mutex_unlock(&loader.pending_lock)
 }
 
@@ -147,6 +150,14 @@ worker_proc :: proc(loader: ^Image_Loader) {
         has_task := false
 
         sync.mutex_lock(&loader.pending_lock)
+        for len(loader.pending) == 0 && loader.active {
+            // No work, wait for signal
+            sync.cond_wait(&loader.work_cond, &loader.pending_lock)
+        }
+        if !loader.active {
+            sync.mutex_unlock(&loader.pending_lock)
+            break
+        }
         if len(loader.pending) > 0 {
             req = loader.pending[0]
             ordered_remove(&loader.pending, 0)
@@ -155,8 +166,6 @@ worker_proc :: proc(loader: ^Image_Loader) {
         sync.mutex_unlock(&loader.pending_lock)
 
         if !has_task {
-            // No work, sleep briefly
-            thread.yield()
             continue
         }
 

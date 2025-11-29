@@ -529,23 +529,75 @@ window_resize_buffer :: proc(win: ^Window, new_width, new_height: i32) {
     win.buffers[1] = buf2
 }
 
-// Run the main event loop - simple fixed FPS
+// Run the main event loop
 run :: proc(app: ^App) {
-    for app.running {
-        // 1. Process all pending Wayland events (non-blocking)
-        wl.wl_display_flush(app.display)
-        for wl.wl_display_dispatch_pending(app.display) > 0 {}
+    wl_fd := linux.Fd(wl.wl_display_get_fd(app.display))
 
-        // 2. Process extra FD events (non-blocking poll with timeout=0)
-        if len(app.poll_fds) > 0 {
+    for app.running {
+        // Check if any window can render
+        can_render := false
+        for win in app.windows {
+            if win.on_draw != nil && !win.closed && !win.frame_pending {
+                can_render = true
+                break
+            }
+        }
+
+        if can_render {
+            // Process pending events without blocking
+            wl.wl_display_flush(app.display)
+            wl.wl_display_dispatch_pending(app.display)
+
+            // Poll extra fds without blocking
+            if len(app.poll_fds) > 0 {
+                poll_fds := make([dynamic]linux.Poll_Fd, context.temp_allocator)
+                for entry in app.poll_fds {
+                    append(&poll_fds, linux.Poll_Fd{fd = entry.fd, events = {.IN}})
+                }
+                linux.poll(poll_fds[:], 0)
+                for i := 0; i < len(poll_fds); i += 1 {
+                    if .IN in poll_fds[i].revents {
+                        entry := app.poll_fds[i]
+                        if entry.callback != nil {
+                            entry.callback(app, entry.user_data)
+                        }
+                    }
+                }
+            }
+
+            // Render windows that can render
+            for win in app.windows {
+                if win.on_draw != nil && !win.closed && !win.frame_pending {
+                    window_handle_resize(win)
+                    pixels, w, h, stride := window_get_buffer(win)
+                    if pixels != nil {
+                        win.on_draw(win, pixels, w, h, stride)
+                        window_present(win)
+                    }
+                }
+            }
+        } else {
+            // All windows waiting for vsync - block until events arrive
+            wl.wl_display_flush(app.display)
+
+            // Poll Wayland fd + extra fds, blocking
             poll_fds := make([dynamic]linux.Poll_Fd, context.temp_allocator)
+            append(&poll_fds, linux.Poll_Fd{fd = wl_fd, events = {.IN}})
             for entry in app.poll_fds {
                 append(&poll_fds, linux.Poll_Fd{fd = entry.fd, events = {.IN}})
             }
-            linux.poll(poll_fds[:], 0)  // Non-blocking
-            for i := 0; i < len(poll_fds); i += 1 {
+
+            linux.poll(poll_fds[:], -1)  // Block
+
+            // Process Wayland events
+            if .IN in poll_fds[0].revents {
+                wl.wl_display_dispatch(app.display)
+            }
+
+            // Process extra fd callbacks
+            for i := 1; i < len(poll_fds); i += 1 {
                 if .IN in poll_fds[i].revents {
-                    entry := app.poll_fds[i]
+                    entry := app.poll_fds[i - 1]
                     if entry.callback != nil {
                         entry.callback(app, entry.user_data)
                     }
@@ -553,24 +605,7 @@ run :: proc(app: ^App) {
             }
         }
 
-        // 3. Render windows that aren't waiting for vsync
-        for win in app.windows {
-            if win.on_draw != nil && !win.closed && !win.frame_pending {
-                window_handle_resize(win)
-                pixels, w, h, stride := window_get_buffer(win)
-                if pixels != nil {
-                    win.on_draw(win, pixels, w, h, stride)
-                    window_present(win)
-                }
-            }
-        }
-
-        // 4. Wait for vsync (blocking dispatch waits for frame callback)
-        if wl.wl_display_dispatch(app.display) < 0 {
-            break
-        }
-
-        // 5. Check for closed windows
+        // Check for closed windows
         all_closed := true
         for win in app.windows {
             if !win.closed {
