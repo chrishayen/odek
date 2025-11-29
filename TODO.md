@@ -38,7 +38,7 @@
 
 ### Phase 5: MVP Widgets
 - [x] Label - text content, font/size/color, alignment, word wrapping
-- [ ] Button - normal/hover/pressed states, on_click callback
+- [x] Button - normal/hover/pressed states, on_click callback, focus support
 - [ ] Text Input - cursor, single-line editing, on_change/on_submit
 
 ### Future: Cursor Support
@@ -48,17 +48,18 @@
 ## Known Issues
 
 - **Cursor shows as text cursor**: Requires libwayland-cursor implementation (cursor theme loading)
-- **Demo sidebar items don't navigate**: These are static text, not Button widgets (Button is Phase 5)
+- **Demo sidebar items are labels**: Could be converted to buttons for navigation
 
 ## Test Status
 
-- 76 tests passing
+- 93 tests passing
 - Core types: rect math, color conversion
 - Rendering: fill rect, clipping
 - Input: fixed-point conversion, button codes, state enums
 - Text: renderer init, font loading, glyph caching, text measurement, text drawing
 - Widgets: creation/destruction, parent/child, hit testing, focus, container layout, alignment
 - Labels: creation, property setters, word wrapping, measurement, cache invalidation
+- Buttons: creation, state transitions, click handling, measurement
 
 ## Files
 
@@ -82,6 +83,7 @@ src/
     widget.odin   - Base Widget struct, vtable, core operations
     container.odin - Container with flexbox-lite layout
     label.odin    - Label widget with text and word wrapping
+    button.odin   - Button widget with click handling
     hit_test.odin - Hit testing and event dispatch
     focus.odin    - Focus management
   main.odin       - Demo application
@@ -92,6 +94,7 @@ tests/
   text_test.odin
   widget_test.odin
   label_test.odin
+  button_test.odin
 ```
 
 ## Dependencies

@@ -164,32 +164,44 @@ build_ui :: proc(width, height: i32) {
         }
 
         // Main area labels
-        title := widgets.label_create("Phase 5: Label Widget", &g_state.font)
+        title := widgets.label_create("Phase 5: MVP Widgets", &g_state.font)
         widgets.label_set_color(title, core.COLOR_WHITE)
         widgets.widget_add_child(g_state.main_area, title)
 
-        subtitle := widgets.label_create("Text labels with word wrapping support", &g_state.font)
+        subtitle := widgets.label_create("Labels and Buttons with interactive states", &g_state.font)
         widgets.label_set_color(subtitle, core.color_hex(0x88CC88))
         widgets.widget_add_child(g_state.main_area, subtitle)
 
-        features := []string{
-            "- Multi-line text with automatic word wrapping",
-            "- Horizontal alignment (Start, Center, End)",
-            "- Font and color customization",
-            "- Respects newlines in text",
-        }
-        for feature in features {
-            label := widgets.label_create(feature, &g_state.font)
-            widgets.label_set_color(label, core.color_hex(0xAAAAAA))
-            widgets.widget_add_child(g_state.main_area, label)
-        }
+        // Button row
+        button_row := widgets.container_create(.Row)
+        button_row.spacing = 10
+        button_row.align_items = .Center
+        widgets.widget_add_child(g_state.main_area, button_row)
 
-        // Demo of word wrapping
-        wrap_demo := widgets.label_create("This label demonstrates word wrapping. When the text is longer than the available width, it automatically breaks at word boundaries to create multiple lines.", &g_state.font)
-        wrap_demo.padding = widgets.edges_all(10)
-        wrap_demo.min_size = core.Size{0, 60}
-        widgets.label_set_color(wrap_demo, core.color_hex(0xCCCCFF))
-        widgets.widget_add_child(g_state.main_area, wrap_demo)
+        // Create some demo buttons
+        btn1 := widgets.button_create("Primary", &g_state.font)
+        widgets.button_set_on_click(btn1, demo_button_click)
+        widgets.widget_add_child(button_row, btn1)
+
+        btn2 := widgets.button_create("Secondary", &g_state.font)
+        widgets.button_set_colors(btn2, core.color_hex(0x606060), core.color_hex(0x707070), core.color_hex(0x505050))
+        widgets.button_set_on_click(btn2, demo_button_click)
+        widgets.widget_add_child(button_row, btn2)
+
+        btn3 := widgets.button_create("Success", &g_state.font)
+        widgets.button_set_colors(btn3, core.color_hex(0x28A745), core.color_hex(0x38B755), core.color_hex(0x189735))
+        widgets.button_set_on_click(btn3, demo_button_click)
+        widgets.widget_add_child(button_row, btn3)
+
+        btn4 := widgets.button_create("Danger", &g_state.font)
+        widgets.button_set_colors(btn4, core.color_hex(0xDC3545), core.color_hex(0xEC4555), core.color_hex(0xCC2535))
+        widgets.button_set_on_click(btn4, demo_button_click)
+        widgets.widget_add_child(button_row, btn4)
+
+        // Info text
+        info := widgets.label_create("Buttons support hover and pressed states. Click to see callback.", &g_state.font)
+        widgets.label_set_color(info, core.color_hex(0xAAAAAA))
+        widgets.widget_add_child(g_state.main_area, info)
 
         // Footer label
         g_state.footer_label = widgets.label_create("Press any key or move mouse to see events", &g_state.font)
@@ -202,6 +214,11 @@ build_ui :: proc(width, height: i32) {
 
     // Perform initial layout
     widgets.widget_layout(g_state.root)
+}
+
+// Demo button click callback
+demo_button_click :: proc(button: ^widgets.Button) {
+    fmt.printf("Button clicked: '%s'\n", button.text)
 }
 
 draw_callback :: proc(win: ^core.Window, pixels: [^]u32, width, height, stride: i32) {
@@ -246,15 +263,14 @@ pointer_button_callback :: proc(win: ^core.Window, button: u32, pressed: bool) {
     fmt.printf("%s button %s\n", button_name, action)
 
     // Dispatch to widget system
-    if pressed {
-        x, y := core.get_pointer_pos(win.app)
-        event := core.Event{
-            type = .Pointer_Button_Press,
-            pointer_x = i32(x),
-            pointer_y = i32(y),
-        }
-        widgets.dispatch_pointer_event(&g_state.hit_state, g_state.root, &event)
+    x, y := core.get_pointer_pos(win.app)
+    event := core.Event{
+        type = pressed ? .Pointer_Button_Press : .Pointer_Button_Release,
+        button = core.Mouse_Button(button),
+        pointer_x = i32(x),
+        pointer_y = i32(y),
     }
+    widgets.dispatch_pointer_event(&g_state.hit_state, g_state.root, &event)
 }
 
 key_callback :: proc(win: ^core.Window, key: u32, pressed: bool, utf8: string) {
