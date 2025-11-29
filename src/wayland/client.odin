@@ -75,6 +75,9 @@ foreign wayland_client {
     wl_display_roundtrip :: proc(display: ^Wl_Display) -> c.int ---
     wl_display_flush :: proc(display: ^Wl_Display) -> c.int ---
     wl_display_get_fd :: proc(display: ^Wl_Display) -> c.int ---
+    wl_display_prepare_read :: proc(display: ^Wl_Display) -> c.int ---
+    wl_display_read_events :: proc(display: ^Wl_Display) -> c.int ---
+    wl_display_cancel_read :: proc(display: ^Wl_Display) ---
 
     // Proxy (generic object operations)
     wl_proxy_marshal_flags :: proc(

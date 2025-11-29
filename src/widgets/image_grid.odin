@@ -17,6 +17,7 @@ Grid_Item :: struct {
     thumbnail: ^render.Image,  // Reference to thumbnail for display (not owned)
     path:      string,         // File path for identification
     name:      string,         // Display name (for folders)
+    loading:   bool,           // True while async loading in progress
     user_data: rawptr,         // User-defined data
 }
 
@@ -115,6 +116,31 @@ image_grid_add_folder :: proc(g: ^Image_Grid, name: string, path: string) {
         name = name,
     }
     append(&g.items, item)
+    widget_mark_dirty(g)
+}
+
+// Add a placeholder image item (for async loading)
+// Returns the index of the added item
+image_grid_add_placeholder :: proc(g: ^Image_Grid, name: string, path: string) -> i32 {
+    item := Grid_Item{
+        type = .Image,
+        path = path,
+        name = name,
+        loading = true,
+    }
+    append(&g.items, item)
+    widget_mark_dirty(g)
+    return i32(len(g.items) - 1)
+}
+
+// Set image for a grid item (call when async load completes)
+image_grid_set_image :: proc(g: ^Image_Grid, index: i32, img: ^render.Image, thumbnail: ^render.Image) {
+    if index < 0 || index >= i32(len(g.items)) {
+        return
+    }
+    g.items[index].image = img
+    g.items[index].thumbnail = thumbnail
+    g.items[index].loading = false
     widget_mark_dirty(g)
 }
 
@@ -276,6 +302,22 @@ image_grid_point_in_scrollbar :: proc(g: ^Image_Grid, x, y: i32) -> bool {
     return x >= sb.x && x < sb.x + sb.width && y >= sb.y && y < sb.y + sb.height
 }
 
+// Draw a loading placeholder in the given rect
+draw_loading_placeholder :: proc(ctx: ^render.Draw_Context, rect: core.Rect) {
+    // Dark background
+    bg_color := core.color_hex(0x3A3A3A)
+    render.fill_rect(ctx, rect, bg_color)
+
+    // Draw a simple loading indicator (gray box with lighter center)
+    center_size := min(rect.width, rect.height) * 30 / 100
+    center_x := rect.x + (rect.width - center_size) / 2
+    center_y := rect.y + (rect.height - center_size) / 2
+
+    indicator_rect := core.Rect{center_x, center_y, center_size, center_size}
+    indicator_color := core.color_hex(0x555555)
+    render.fill_rect(ctx, indicator_rect, indicator_color)
+}
+
 // Draw a folder icon in the given rect
 draw_folder_icon :: proc(ctx: ^render.Draw_Context, rect: core.Rect) {
     // Folder colors
@@ -368,6 +410,9 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         if item.type == .Folder {
             // Draw folder icon
             draw_folder_icon(ctx, icon_rect)
+        } else if item.loading {
+            // Draw loading placeholder
+            draw_loading_placeholder(ctx, icon_rect)
         } else {
             // Draw image (use thumbnail if available)
             display_img := item.thumbnail if item.thumbnail != nil else item.image

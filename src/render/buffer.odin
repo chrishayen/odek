@@ -1,6 +1,8 @@
 package render
 
 import "../core"
+import "base:intrinsics"
+import "core:slice"
 
 // Draw context for software rendering
 Draw_Context :: struct {
@@ -38,9 +40,8 @@ clear :: proc(ctx: ^Draw_Context, color: core.Color) {
     fill_rect(ctx, core.Rect{0, 0, ctx.width, ctx.height}, color)
 }
 
-// Fill a rectangle with a solid color
+// Fill a rectangle with a solid color (optimized)
 fill_rect :: proc(ctx: ^Draw_Context, rect: core.Rect, color: core.Color) {
-    // Clip the rectangle
     clipped, ok := core.rect_intersection(rect, ctx.clip)
     if !ok {
         return
@@ -48,12 +49,24 @@ fill_rect :: proc(ctx: ^Draw_Context, rect: core.Rect, color: core.Color) {
 
     pixel := core.color_to_argb(color)
     stride_pixels := ctx.stride / 4
+    w := int(clipped.width)
+    h := clipped.height
 
-    for y in clipped.y ..< clipped.y + clipped.height {
-        row_start := y * stride_pixels + clipped.x
-        for x in 0 ..< clipped.width {
-            ctx.pixels[row_start + x] = pixel
-        }
+    if w <= 0 || h <= 0 {
+        return
+    }
+
+    // Fill first row using slice.fill
+    first_row := clipped.y * stride_pixels + clipped.x
+    first_row_slice := ctx.pixels[first_row:][:w]
+    slice.fill(first_row_slice, pixel)
+
+    // Copy first row to remaining rows
+    row_bytes := w * size_of(u32)
+    src := rawptr(&ctx.pixels[first_row])
+    for y in 1 ..< h {
+        dst_offset := (clipped.y + y) * stride_pixels + clipped.x
+        intrinsics.mem_copy(rawptr(&ctx.pixels[dst_offset]), src, row_bytes)
     }
 }
 

@@ -1,6 +1,7 @@
 package render
 
 import "../core"
+import "core:strings"
 import stbi "vendor:stb/image"
 
 // Image data structure (owns pixel data)
@@ -15,8 +16,12 @@ Image :: struct {
 image_load :: proc(path: string) -> (Image, bool) {
     width, height, channels: i32
 
+    // Create properly null-terminated cstring
+    cpath := strings.clone_to_cstring(path)
+    defer delete(cpath)
+
     // Request 4 channels (RGBA)
-    data := stbi.load(cstring(raw_data(path)), &width, &height, &channels, 4)
+    data := stbi.load(cpath, &width, &height, &channels, 4)
     if data == nil {
         return {}, false
     }

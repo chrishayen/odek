@@ -32,6 +32,7 @@ App_State :: struct {
 
     // Image grid
     image_cache:   ^render.Image_Cache,
+    image_loader:  ^render.Image_Loader,
     image_grid:    ^widgets.Image_Grid,
 
     // Navigation
@@ -67,9 +68,12 @@ main :: proc() {
         render.font_destroy(&g_state.font)
     }
 
-    // Initialize image cache
+    // Initialize image cache and async loader
     g_state.image_cache = render.image_cache_create(50, 150)
     defer render.image_cache_destroy(g_state.image_cache)
+
+    g_state.image_loader = render.image_loader_create(256)
+    defer render.image_loader_destroy(g_state.image_loader)
 
     // Initialize application
     app := core.init()
@@ -101,12 +105,12 @@ main :: proc() {
     window.on_scroll = scroll_callback
     window.on_key = key_callback
 
-    // Trigger initial draw now that callback is set
-    pixels, width, height, stride := core.window_get_buffer(window)
-    if pixels != nil {
-        draw_callback(window, pixels, width, height, stride)
-        core.window_present(window)
-    }
+    // Trigger initial draw through proper render path
+    core.window_do_render(window)
+
+    // Register image loader notification FD for event-driven updates
+    loader_fd := render.image_loader_get_fd(g_state.image_loader)
+    core.app_add_poll_fd(app, loader_fd, image_load_complete_callback)
 
     fmt.println("Window created, entering event loop...")
     fmt.println("Widget system active with flexbox layout")
@@ -139,6 +143,7 @@ build_ui :: proc(width, height: i32) {
     content := widgets.container_create(.Row)
     content.flex = 1  // Take remaining space
     content.spacing = 10
+    content.align_items = .Stretch  // Children fill height
     widgets.widget_add_child(g_state.root, content)
 
     // Sidebar (column)
@@ -214,6 +219,7 @@ build_ui :: proc(width, height: i32) {
 
     // Create image grid in main area
     g_state.image_grid = widgets.image_grid_create()
+    g_state.image_grid.flex = 1  // Fill available space, scroll internally
     g_state.image_grid.cell_width = 150
     g_state.image_grid.cell_height = 150
     g_state.image_grid.spacing = 10
@@ -225,7 +231,7 @@ build_ui :: proc(width, height: i32) {
     }
     widgets.widget_add_child(g_state.main_area, g_state.image_grid)
 
-    // Load initial directory (home has folders to test navigation)
+    // Load initial directory
     navigate_to_directory("/home/chris", add_to_history = false)
 
     // Initialize focus manager
@@ -248,8 +254,9 @@ navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
     }
     g_state.current_directory = strings.clone(dir_path)
 
-    // Clear the grid
+    // Clear the grid and pending loads
     widgets.image_grid_clear(g_state.image_grid)
+    render.image_loader_clear(g_state.image_loader)
 
     handle, err := os.open(dir_path)
     if err != nil {
@@ -286,7 +293,7 @@ navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
         folder_count += 1
     }
 
-    // Second pass: add images
+    // Second pass: add image placeholders and queue async loads
     for entry in entries {
         if entry.is_dir {
             continue
@@ -298,14 +305,14 @@ navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
 
         if ext == ".png" || ext == ".jpg" || ext == ".jpeg" {
             full_path := filepath.join({dir_path, entry.name})
-            defer delete(full_path)
+            name_clone := strings.clone(entry.name)
+            path_clone := strings.clone(full_path)
 
-            img, thumb, ok := render.image_cache_load(g_state.image_cache, full_path)
-            if ok {
-                path_clone := strings.clone(full_path)
-                widgets.image_grid_add_item(g_state.image_grid, img, thumb, path_clone)
-                image_count += 1
-            }
+            // Add placeholder and queue async load
+            idx := widgets.image_grid_add_placeholder(g_state.image_grid, name_clone, path_clone)
+            render.image_loader_queue(g_state.image_loader, full_path, idx)
+            delete(full_path)
+            image_count += 1
         }
     }
 
@@ -360,11 +367,17 @@ image_grid_click_callback :: proc(grid: ^widgets.Image_Grid, index: i32, item: ^
 draw_callback :: proc(win: ^core.Window, pixels: [^]u32, width, height, stride: i32) {
     ctx := render.context_create(pixels, width, height, stride)
 
+    // Clear buffer to background color FIRST - prevents stale pixels from previous frames
+    bg_color := core.color_hex(0x2D2D2D)
+    render.fill_rect(&ctx, core.Rect{0, 0, width, height}, bg_color)
+
     // Update root size if window resized
     if g_state.root.rect.width != width || g_state.root.rect.height != height {
         g_state.root.rect = core.Rect{0, 0, width, height}
-        widgets.widget_layout(g_state.root)
     }
+
+    // Always do layout before drawing to ensure scrollbars etc are up to date
+    widgets.widget_layout(g_state.root)
 
     // Draw widget tree (containers and labels)
     widgets.widget_draw(g_state.root, &ctx)
@@ -380,6 +393,10 @@ pointer_enter_callback :: proc(win: ^core.Window, x, y: f64) {
 
 pointer_leave_callback :: proc(win: ^core.Window) {
     fmt.println("Pointer left window")
+    // Clear hover state by passing coordinates outside window
+    widgets.update_hover(&g_state.hit_state, g_state.root, -1, -1)
+    // Redraw to show cleared hover state
+    core.window_request_redraw(win)
 }
 
 pointer_motion_callback :: proc(win: ^core.Window, x, y: f64) {
@@ -445,5 +462,30 @@ key_callback :: proc(win: ^core.Window, key: u32, pressed: bool, utf8: string) {
             keycode = key,
         }
         widgets.focus_handle_tab(&g_state.focus_manager, &event)
+    }
+}
+
+// Called when image loader has completed work (event-driven via eventfd)
+image_load_complete_callback :: proc(app: ^core.App, user_data: rawptr) {
+    render.image_loader_acknowledge(g_state.image_loader)
+
+    // Process completed images
+    completed := render.image_loader_get_completed(g_state.image_loader)
+    if completed == nil || len(completed) == 0 {
+        return
+    }
+
+    for result in completed {
+        if result.success {
+            widgets.image_grid_set_image(g_state.image_grid, result.grid_index,
+                                         result.image, result.thumbnail)
+        }
+        delete(result.path)
+    }
+    delete(completed)
+
+    // Request redraw - layout will happen in draw_callback
+    if g_state.window != nil {
+        core.window_request_redraw(g_state.window)
     }
 }
