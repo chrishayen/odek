@@ -183,7 +183,7 @@ widget_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
     }
 
     // Restore clip
-    ctx.clip = old_clip
+    render.context_set_clip(ctx, old_clip)
     w.dirty = false
 }
 

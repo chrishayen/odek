@@ -4,6 +4,9 @@ import "core"
 import "render"
 import "widgets"
 import "core:fmt"
+import "core:os"
+import "core:strings"
+import "core:path/filepath"
 
 // Application state
 App_State :: struct {
@@ -23,6 +26,10 @@ App_State :: struct {
     // Labels
     header_label:  ^widgets.Label,
     footer_label:  ^widgets.Label,
+
+    // Image grid
+    image_cache:   ^render.Image_Cache,
+    image_grid:    ^widgets.Image_Grid,
 }
 
 g_state: App_State
@@ -52,6 +59,10 @@ main :: proc() {
         render.font_destroy(&g_state.font)
     }
 
+    // Initialize image cache
+    g_state.image_cache = render.image_cache_create(50, 150)
+    defer render.image_cache_destroy(g_state.image_cache)
+
     // Initialize application
     app := core.init()
     if app == nil {
@@ -78,6 +89,7 @@ main :: proc() {
     window.on_pointer_leave = pointer_leave_callback
     window.on_pointer_motion = pointer_motion_callback
     window.on_pointer_button = pointer_button_callback
+    window.on_scroll = scroll_callback
     window.on_key = key_callback
 
     // Trigger initial draw now that callback is set
@@ -151,63 +163,35 @@ build_ui :: proc(width, height: i32) {
     // Add label widgets if font is loaded
     if g_state.font_loaded {
         // Header label
-        g_state.header_label = widgets.label_create("Odek Widget Demo", &g_state.font)
+        g_state.header_label = widgets.label_create("Odek Image Grid Demo", &g_state.font)
         widgets.label_set_color(g_state.header_label, core.COLOR_WHITE)
         widgets.widget_add_child(g_state.header, g_state.header_label)
 
         // Sidebar labels
-        sidebar_items := []string{"Dashboard", "Widgets", "Settings", "About"}
+        sidebar_items := []string{"Gallery", "Recent", "Favorites"}
         for item in sidebar_items {
             label := widgets.label_create(item, &g_state.font)
             widgets.label_set_color(label, core.color_hex(0xCCCCCC))
             widgets.widget_add_child(g_state.sidebar, label)
         }
 
-        // Main area labels
-        title := widgets.label_create("Phase 5: MVP Widgets", &g_state.font)
-        widgets.label_set_color(title, core.COLOR_WHITE)
-        widgets.widget_add_child(g_state.main_area, title)
-
-        subtitle := widgets.label_create("Labels and Buttons with interactive states", &g_state.font)
-        widgets.label_set_color(subtitle, core.color_hex(0x88CC88))
-        widgets.widget_add_child(g_state.main_area, subtitle)
-
-        // Button row
-        button_row := widgets.container_create(.Row)
-        button_row.spacing = 10
-        button_row.align_items = .Center
-        widgets.widget_add_child(g_state.main_area, button_row)
-
-        // Create some demo buttons
-        btn1 := widgets.button_create("Primary", &g_state.font)
-        widgets.button_set_on_click(btn1, demo_button_click)
-        widgets.widget_add_child(button_row, btn1)
-
-        btn2 := widgets.button_create("Secondary", &g_state.font)
-        widgets.button_set_colors(btn2, core.color_hex(0x606060), core.color_hex(0x707070), core.color_hex(0x505050))
-        widgets.button_set_on_click(btn2, demo_button_click)
-        widgets.widget_add_child(button_row, btn2)
-
-        btn3 := widgets.button_create("Success", &g_state.font)
-        widgets.button_set_colors(btn3, core.color_hex(0x28A745), core.color_hex(0x38B755), core.color_hex(0x189735))
-        widgets.button_set_on_click(btn3, demo_button_click)
-        widgets.widget_add_child(button_row, btn3)
-
-        btn4 := widgets.button_create("Danger", &g_state.font)
-        widgets.button_set_colors(btn4, core.color_hex(0xDC3545), core.color_hex(0xEC4555), core.color_hex(0xCC2535))
-        widgets.button_set_on_click(btn4, demo_button_click)
-        widgets.widget_add_child(button_row, btn4)
-
-        // Info text
-        info := widgets.label_create("Buttons support hover and pressed states. Click to see callback.", &g_state.font)
-        widgets.label_set_color(info, core.color_hex(0xAAAAAA))
-        widgets.widget_add_child(g_state.main_area, info)
-
         // Footer label
-        g_state.footer_label = widgets.label_create("Press any key or move mouse to see events", &g_state.font)
+        g_state.footer_label = widgets.label_create("Click an image to select, scroll to navigate", &g_state.font)
         widgets.label_set_color(g_state.footer_label, core.color_hex(0x888888))
         widgets.widget_add_child(g_state.footer, g_state.footer_label)
     }
+
+    // Create image grid in main area
+    g_state.image_grid = widgets.image_grid_create()
+    g_state.image_grid.cell_width = 150
+    g_state.image_grid.cell_height = 150
+    g_state.image_grid.spacing = 10
+    g_state.image_grid.padding = widgets.edges_all(10)
+    g_state.image_grid.on_click = image_grid_click_callback
+    widgets.widget_add_child(g_state.main_area, g_state.image_grid)
+
+    // Load images from Pictures directory
+    load_images_from_directory("/home/chris/Pictures")
 
     // Initialize focus manager
     g_state.focus_manager = widgets.focus_manager_init(g_state.root)
@@ -216,9 +200,53 @@ build_ui :: proc(width, height: i32) {
     widgets.widget_layout(g_state.root)
 }
 
-// Demo button click callback
-demo_button_click :: proc(button: ^widgets.Button) {
-    fmt.printf("Button clicked: '%s'\n", button.text)
+// Load images from a directory into the grid
+load_images_from_directory :: proc(dir_path: string) {
+    handle, err := os.open(dir_path)
+    if err != nil {
+        fmt.eprintln("Failed to open directory:", dir_path)
+        return
+    }
+    defer os.close(handle)
+
+    entries, read_err := os.read_dir(handle, -1)
+    if read_err != nil {
+        fmt.eprintln("Failed to read directory")
+        return
+    }
+    defer delete(entries)
+
+    image_count := 0
+    for entry in entries {
+        if entry.is_dir {
+            continue
+        }
+
+        // Check for image extensions
+        ext := strings.to_lower(filepath.ext(entry.name))
+        defer delete(ext)
+
+        if ext == ".png" || ext == ".jpg" || ext == ".jpeg" {
+            full_path := filepath.join({dir_path, entry.name})
+            defer delete(full_path)
+
+            img, thumb, ok := render.image_cache_load(g_state.image_cache, full_path)
+            if ok {
+                // Clone the path for storage
+                path_clone := strings.clone(full_path)
+                widgets.image_grid_add_item(g_state.image_grid, img, thumb, path_clone)
+                image_count += 1
+                fmt.printf("Loaded: %s\n", entry.name)
+            }
+        }
+    }
+
+    fmt.printf("Loaded %d images\n", image_count)
+}
+
+// Image grid click callback
+image_grid_click_callback :: proc(grid: ^widgets.Image_Grid, index: i32, item: ^widgets.Grid_Item) {
+    fmt.printf("Image clicked: index=%d, path=%s\n", index, item.path)
 }
 
 draw_callback :: proc(win: ^core.Window, pixels: [^]u32, width, height, stride: i32) {
@@ -247,22 +275,25 @@ pointer_leave_callback :: proc(win: ^core.Window) {
 }
 
 pointer_motion_callback :: proc(win: ^core.Window, x, y: f64) {
+    // Dispatch motion to image grid (for scrollbar dragging)
+    if g_state.image_grid != nil && g_state.image_grid.scrollbar_dragging {
+        event := core.Event{
+            type = .Pointer_Motion,
+            pointer_x = i32(x),
+            pointer_y = i32(y),
+        }
+        if widgets.widget_handle_event(g_state.image_grid, &event) {
+            // Just request redraw - let frame callback handle it
+            core.window_request_redraw(win)
+            return
+        }
+    }
+
     // Update hover state in widget tree
     widgets.update_hover(&g_state.hit_state, g_state.root, i32(x), i32(y))
 }
 
 pointer_button_callback :: proc(win: ^core.Window, button: u32, pressed: bool) {
-    action := "pressed" if pressed else "released"
-    button_name: string
-    switch button {
-    case 0x110: button_name = "Left"
-    case 0x111: button_name = "Right"
-    case 0x112: button_name = "Middle"
-    case: button_name = "Unknown"
-    }
-    fmt.printf("%s button %s\n", button_name, action)
-
-    // Dispatch to widget system
     x, y := core.get_pointer_pos(win.app)
     event := core.Event{
         type = pressed ? .Pointer_Button_Press : .Pointer_Button_Release,
@@ -270,7 +301,26 @@ pointer_button_callback :: proc(win: ^core.Window, button: u32, pressed: bool) {
         pointer_x = i32(x),
         pointer_y = i32(y),
     }
+
+    // Handle scrollbar drag release
+    if !pressed && g_state.image_grid != nil && g_state.image_grid.scrollbar_dragging {
+        widgets.widget_handle_event(g_state.image_grid, &event)
+        return
+    }
+
+    // Dispatch to widget system
     widgets.dispatch_pointer_event(&g_state.hit_state, g_state.root, &event)
+}
+
+scroll_callback :: proc(win: ^core.Window, delta: i32, axis: u32) {
+    // Dispatch scroll event to image grid
+    if g_state.image_grid != nil {
+        x, y := core.get_pointer_pos(win.app)
+        event := core.event_scroll(delta, axis, i32(x), i32(y))
+        if widgets.widget_handle_event(g_state.image_grid, &event) {
+            core.window_request_redraw(win)
+        }
+    }
 }
 
 key_callback :: proc(win: ^core.Window, key: u32, pressed: bool, utf8: string) {

@@ -73,6 +73,7 @@ Window :: struct {
     pool: ^wl.Shm_Pool,
     buffers: [2]^wl.Buffer,
     current_buffer: int,
+    frame_pending: bool,  // True if waiting for frame callback
 
     // Dimensions
     width: i32,
@@ -92,6 +93,7 @@ Window :: struct {
     on_pointer_leave: proc(win: ^Window),
     on_pointer_motion: proc(win: ^Window, x, y: f64),
     on_pointer_button: proc(win: ^Window, button: u32, pressed: bool),
+    on_scroll: proc(win: ^Window, delta: i32, axis: u32),
     on_key: proc(win: ^Window, key: u32, pressed: bool, utf8: string),
     user_data: rawptr,
 }
@@ -143,11 +145,11 @@ init :: proc() -> ^App {
         button = pointer_button_handler,
         axis = pointer_axis_handler,
         frame = pointer_frame_handler,
-        axis_source = nil,
-        axis_stop = nil,
-        axis_discrete = nil,
-        axis_value120 = nil,
-        axis_relative_direction = nil,
+        axis_source = pointer_axis_source_handler,
+        axis_stop = pointer_axis_stop_handler,
+        axis_discrete = pointer_axis_discrete_handler,
+        axis_value120 = pointer_axis_value120_handler,
+        axis_relative_direction = pointer_axis_relative_direction_handler,
     }
 
     // Set up keyboard listener
@@ -306,8 +308,8 @@ create_window :: proc(app: ^App, title: string, width, height: i32) -> ^Window {
     // Wait for configure - this will update win.width/height to compositor's size
     wl.wl_display_roundtrip(app.display)
 
-    // Create SHM pool and buffers using the configured size
-    buffer_size := int(win.width * win.height * 4)
+    // Create SHM pool for double buffers
+    buffer_size := int(win.width * win.height * 4 * 2)  // Space for 2 buffers
     pool, ok := wl.shm_pool_create(app.shm, buffer_size)
     if !ok {
         fmt.eprintln("Failed to create SHM pool")
@@ -319,7 +321,7 @@ create_window :: proc(app: ^App, title: string, width, height: i32) -> ^Window {
     }
     win.pool = pool
 
-    // Create buffer at configured size
+    // Create double buffers at configured size
     buf1, ok1 := wl.buffer_create(pool, win.width, win.height, .ARGB8888)
     if !ok1 {
         fmt.eprintln("Failed to create buffer 1")
@@ -331,6 +333,19 @@ create_window :: proc(app: ^App, title: string, width, height: i32) -> ^Window {
         return nil
     }
     win.buffers[0] = buf1
+
+    buf2, ok2 := wl.buffer_create(pool, win.width, win.height, .ARGB8888)
+    if !ok2 {
+        fmt.eprintln("Failed to create buffer 2")
+        wl.buffer_destroy_internal(buf1)
+        wl.shm_pool_destroy(pool)
+        wl.xdg_toplevel_destroy(win.xdg_toplevel)
+        wl.xdg_surface_destroy(win.xdg_surface)
+        wl.surface_destroy(win.surface)
+        free(win)
+        return nil
+    }
+    win.buffers[1] = buf2
 
     append(&app.windows, win)
     return win
@@ -367,18 +382,49 @@ window_destroy :: proc(win: ^Window) {
     free(win)
 }
 
-// Get the current buffer for drawing
+// Get a free buffer for drawing (double buffering)
 window_get_buffer :: proc(win: ^Window) -> (pixels: [^]u32, width, height, stride: i32) {
+    // Try current buffer first
     buf := win.buffers[win.current_buffer]
-    if buf == nil {
-        return nil, 0, 0, 0
+    if buf != nil && !buf.busy {
+        return buf.data, win.width, win.height, win.width * 4
     }
-    return buf.data, win.width, win.height, win.width * 4
+
+    // Try the other buffer
+    other := 1 - win.current_buffer
+    buf = win.buffers[other]
+    if buf != nil && !buf.busy {
+        win.current_buffer = other
+        return buf.data, win.width, win.height, win.width * 4
+    }
+
+    // Both buffers busy
+    return nil, 0, 0, 0
 }
 
-// Request a redraw
+// Check if window can be drawn to (at least one buffer not busy)
+window_can_draw :: proc(win: ^Window) -> bool {
+    for buf in win.buffers {
+        if buf != nil && !buf.busy {
+            return true
+        }
+    }
+    return false
+}
+
+// Request a redraw - will draw on next available frame
 window_request_redraw :: proc(win: ^Window) {
     win.needs_redraw = true
+
+    // If no frame callback is pending, kick off the render loop
+    if !win.frame_pending {
+        pixels, width, height, stride := window_get_buffer(win)
+        if pixels != nil && win.on_draw != nil {
+            win.on_draw(win, pixels, width, height, stride)
+            window_present(win)
+        }
+    }
+    // Otherwise, the pending frame callback will handle the redraw
 }
 
 // Draw and present the window
@@ -400,15 +446,18 @@ window_present :: proc(win: ^Window) {
     wl.surface_commit(win.surface)
 
     buf.busy = true
+    win.frame_pending = true
     win.needs_redraw = false
 }
 
-// Resize the window buffer
+// Resize the window buffers
 window_resize_buffer :: proc(win: ^Window, new_width, new_height: i32) {
-    // Destroy old buffer
-    if win.buffers[0] != nil {
-        wl.buffer_destroy_internal(win.buffers[0])
-        win.buffers[0] = nil
+    // Destroy old buffers
+    for i in 0..<len(win.buffers) {
+        if win.buffers[i] != nil {
+            wl.buffer_destroy_internal(win.buffers[i])
+            win.buffers[i] = nil
+        }
     }
 
     // Destroy old pool
@@ -420,22 +469,34 @@ window_resize_buffer :: proc(win: ^Window, new_width, new_height: i32) {
     // Update size
     win.width = new_width
     win.height = new_height
+    win.current_buffer = 0
 
-    // Create new pool and buffer at new size
-    buffer_size := int(new_width * new_height * 4)
+    // Create new pool for double buffers
+    buffer_size := int(new_width * new_height * 4 * 2)  // Space for 2 buffers
     pool, ok := wl.shm_pool_create(win.app.shm, buffer_size)
     if !ok {
         return
     }
     win.pool = pool
 
-    buf, ok2 := wl.buffer_create(pool, new_width, new_height, .ARGB8888)
-    if !ok2 {
+    // Create both buffers
+    buf1, ok1 := wl.buffer_create(pool, new_width, new_height, .ARGB8888)
+    if !ok1 {
         wl.shm_pool_destroy(pool)
         win.pool = nil
         return
     }
-    win.buffers[0] = buf
+    win.buffers[0] = buf1
+
+    buf2, ok2 := wl.buffer_create(pool, new_width, new_height, .ARGB8888)
+    if !ok2 {
+        wl.buffer_destroy_internal(buf1)
+        win.buffers[0] = nil
+        wl.shm_pool_destroy(pool)
+        win.pool = nil
+        return
+    }
+    win.buffers[1] = buf2
 }
 
 // Run the main event loop
@@ -639,10 +700,13 @@ frame_done_handler :: proc "c" (data: rawptr, callback: ^wl.Wl_Callback, time: u
     win := cast(^Window)data
     wl.callback_destroy(callback)
 
-    // Mark buffer as not busy
-    buf := win.buffers[win.current_buffer]
-    if buf != nil {
-        buf.busy = false
+    win.frame_pending = false
+
+    // Mark all buffers as not busy (frame callback means compositor is done with them)
+    for &buf in win.buffers {
+        if buf != nil {
+            buf.busy = false
+        }
     }
 
     // Check if we have a deferred resize
@@ -821,12 +885,72 @@ pointer_axis_handler :: proc "c" (
     axis: u32,
     value: i32,
 ) {
-    // TODO: Handle scroll events
+    context = runtime.default_context()
+    app := cast(^App)data
+    if app == nil {
+        return
+    }
+
+    // Wayland sends axis values in fixed-point (8.24 format)
+    // Divide by 256 to get reasonable pixel scroll amounts
+    delta := value / 256
+
+    // Call callback on window under pointer
+    win := find_window_by_surface(app, app.pointer_surface)
+    if win != nil && win.on_scroll != nil {
+        win.on_scroll(win, delta, axis)
+    }
 }
 
 pointer_frame_handler :: proc "c" (data: rawptr, pointer: ^wl.Wl_Pointer) {
     // Frame marks the end of a set of pointer events
     // Can be used to batch updates
+}
+
+pointer_axis_source_handler :: proc "c" (data: rawptr, pointer: ^wl.Wl_Pointer, axis_source: u32) {
+    // Axis source (wheel, finger, continuous, etc.)
+}
+
+pointer_axis_stop_handler :: proc "c" (data: rawptr, pointer: ^wl.Wl_Pointer, time: u32, axis: u32) {
+    // Axis movement stopped
+}
+
+pointer_axis_discrete_handler :: proc "c" (data: rawptr, pointer: ^wl.Wl_Pointer, axis: u32, discrete: i32) {
+    // Discrete axis step (deprecated in favor of axis_value120)
+    // Use 40 pixels per discrete step
+    context = runtime.default_context()
+    app := cast(^App)data
+    if app == nil {
+        return
+    }
+
+    delta := discrete * 40
+
+    win := find_window_by_surface(app, app.pointer_surface)
+    if win != nil && win.on_scroll != nil {
+        win.on_scroll(win, delta, axis)
+    }
+}
+
+pointer_axis_value120_handler :: proc "c" (data: rawptr, pointer: ^wl.Wl_Pointer, axis: u32, value120: i32) {
+    // High-resolution axis value (120 units per wheel notch)
+    // Convert to pixels: 120 units = 1 notch = ~40 pixels
+    context = runtime.default_context()
+    app := cast(^App)data
+    if app == nil {
+        return
+    }
+
+    delta := (value120 * 40) / 120
+
+    win := find_window_by_surface(app, app.pointer_surface)
+    if win != nil && win.on_scroll != nil {
+        win.on_scroll(win, delta, axis)
+    }
+}
+
+pointer_axis_relative_direction_handler :: proc "c" (data: rawptr, pointer: ^wl.Wl_Pointer, axis: u32, direction: u32) {
+    // Relative direction for natural scrolling
 }
 
 // ============================================================================

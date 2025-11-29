@@ -22,6 +22,9 @@ Event_Type :: enum {
     Key_Release,
     Text_Input,
 
+    // Scroll events
+    Scroll,
+
     // Frame/redraw events
     Frame,
 }
@@ -64,6 +67,10 @@ Event :: struct {
     modifiers: Modifier_Flags,
     text: [32]u8, // UTF-8 encoded text input
     text_len: int,
+
+    // Scroll events
+    scroll_delta: i32,   // Scroll amount (negative = up, positive = down)
+    scroll_axis: u32,    // 0 = vertical, 1 = horizontal
 
     // Timing
     time: u32,
@@ -122,4 +129,14 @@ event_text_input :: proc(text: []u8) -> Event {
 
 event_frame :: proc() -> Event {
     return Event{type = .Frame}
+}
+
+event_scroll :: proc(delta: i32, axis: u32 = 0, x: i32 = 0, y: i32 = 0) -> Event {
+    return Event{
+        type = .Scroll,
+        scroll_delta = delta,
+        scroll_axis = axis,
+        pointer_x = x,
+        pointer_y = y,
+    }
 }
