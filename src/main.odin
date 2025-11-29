@@ -136,6 +136,7 @@ build_ui :: proc(width, height: i32) {
     g_state.header.min_size = core.Size{0, 50}
     g_state.header.background = core.color_hex(0x404040)
     g_state.header.padding = widgets.edges_symmetric(15, 10)
+    g_state.header.spacing = 10
     g_state.header.align_items = .Center
     widgets.widget_add_child(g_state.root, g_state.header)
 
@@ -261,6 +262,14 @@ navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
     handle, err := os.open(dir_path)
     if err != nil {
         fmt.eprintln("Failed to open directory:", dir_path)
+        // Show error in footer
+        if g_state.footer_label != nil {
+            widgets.label_set_text(g_state.footer_label, fmt.tprintf("Error: Cannot open %s", dir_path))
+            widgets.label_set_color(g_state.footer_label, core.color_hex(0xFF6666))
+        }
+        if g_state.window != nil {
+            core.window_request_redraw(g_state.window)
+        }
         return
     }
     defer os.close(handle)
@@ -268,6 +277,14 @@ navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
     entries, read_err := os.read_dir(handle, -1)
     if read_err != nil {
         fmt.eprintln("Failed to read directory")
+        // Show error in footer
+        if g_state.footer_label != nil {
+            widgets.label_set_text(g_state.footer_label, fmt.tprintf("Error: Cannot read %s", dir_path))
+            widgets.label_set_color(g_state.footer_label, core.color_hex(0xFF6666))
+        }
+        if g_state.window != nil {
+            core.window_request_redraw(g_state.window)
+        }
         return
     }
     defer delete(entries)
@@ -318,9 +335,15 @@ navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
 
     fmt.printf("Loaded %d folders, %d images from %s\n", folder_count, image_count, dir_path)
 
-    // Update header to show current path
+    // Update header to show current path (use cloned current_directory, not dir_path which may be freed)
     if g_state.header_label != nil {
-        widgets.label_set_text(g_state.header_label, dir_path)
+        widgets.label_set_text(g_state.header_label, g_state.current_directory)
+    }
+
+    // Reset footer to normal state (clear any previous error)
+    if g_state.footer_label != nil {
+        widgets.label_set_text(g_state.footer_label, "Click an image to select, scroll to navigate")
+        widgets.label_set_color(g_state.footer_label, core.color_hex(0x888888))
     }
 
     // Request redraw

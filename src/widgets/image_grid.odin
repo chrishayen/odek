@@ -2,6 +2,7 @@ package widgets
 
 import "../core"
 import "../render"
+import "core:fmt"
 import "core:path/filepath"
 
 // Grid item type
@@ -437,14 +438,36 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
             }
 
             if len(label_text) > 0 {
-                // Measure and center the text
+                max_width := g.cell_width - 10  // 5px padding on each side
                 text_width := render.text_measure(g.font, label_text)
+
+                // Truncate with ellipsis if too wide
+                display_text := label_text
+                truncated_buf: [256]u8
+                if text_width > max_width {
+                    ellipsis :: "..."
+                    ellipsis_width := render.text_measure(g.font, ellipsis)
+                    target_width := max_width - ellipsis_width
+
+                    // Find truncation point
+                    for i := len(label_text) - 1; i > 0; i -= 1 {
+                        truncated := label_text[:i]
+                        width := render.text_measure(g.font, truncated)
+                        if width <= target_width {
+                            // Build truncated string with ellipsis
+                            display_text = fmt.bprintf(truncated_buf[:], "%s...", truncated)
+                            break
+                        }
+                    }
+                    text_width = render.text_measure(g.font, display_text)
+                }
+
+                // Center the text
                 text_x := item_abs.x + (item_abs.width - text_width) / 2
                 text_y := item_abs.y + item_abs.height - label_height + 2
 
-                // Truncate if too wide (simple approach: just let it clip)
                 label_color := core.color_hex(0xCCCCCC)
-                render.draw_text_top(ctx, g.font, label_text, text_x, text_y, label_color)
+                render.draw_text_top(ctx, g.font, display_text, text_x, text_y, label_color)
             }
         }
     }
