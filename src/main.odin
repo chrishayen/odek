@@ -19,6 +19,10 @@ App_State :: struct {
     footer:        ^widgets.Container,
     focus_manager: widgets.Focus_Manager,
     hit_state:     widgets.Hit_Test_State,
+
+    // Labels
+    header_label:  ^widgets.Label,
+    footer_label:  ^widgets.Label,
 }
 
 g_state: App_State
@@ -100,6 +104,7 @@ build_ui :: proc(width, height: i32) {
     g_state.root.padding = widgets.edges_all(10)
     g_state.root.background = core.color_hex(0x2D2D2D)
     g_state.root.spacing = 10
+    g_state.root.align_items = .Stretch  // Children fill width
 
     // Header container (row)
     g_state.header = widgets.container_create(.Row)
@@ -129,6 +134,7 @@ build_ui :: proc(width, height: i32) {
     g_state.main_area.background = core.color_hex(0x333333)
     g_state.main_area.padding = widgets.edges_all(20)
     g_state.main_area.spacing = 15
+    g_state.main_area.align_items = .Stretch  // Labels fill width for word wrapping
     widgets.widget_add_child(content, g_state.main_area)
 
     // Footer
@@ -138,6 +144,58 @@ build_ui :: proc(width, height: i32) {
     g_state.footer.padding = widgets.edges_symmetric(15, 5)
     g_state.footer.align_items = .Center
     widgets.widget_add_child(g_state.root, g_state.footer)
+
+    // Perform initial layout to set container rects before adding labels
+    widgets.widget_layout(g_state.root)
+
+    // Add label widgets if font is loaded
+    if g_state.font_loaded {
+        // Header label
+        g_state.header_label = widgets.label_create("Odek Widget Demo", &g_state.font)
+        widgets.label_set_color(g_state.header_label, core.COLOR_WHITE)
+        widgets.widget_add_child(g_state.header, g_state.header_label)
+
+        // Sidebar labels
+        sidebar_items := []string{"Dashboard", "Widgets", "Settings", "About"}
+        for item in sidebar_items {
+            label := widgets.label_create(item, &g_state.font)
+            widgets.label_set_color(label, core.color_hex(0xCCCCCC))
+            widgets.widget_add_child(g_state.sidebar, label)
+        }
+
+        // Main area labels
+        title := widgets.label_create("Phase 5: Label Widget", &g_state.font)
+        widgets.label_set_color(title, core.COLOR_WHITE)
+        widgets.widget_add_child(g_state.main_area, title)
+
+        subtitle := widgets.label_create("Text labels with word wrapping support", &g_state.font)
+        widgets.label_set_color(subtitle, core.color_hex(0x88CC88))
+        widgets.widget_add_child(g_state.main_area, subtitle)
+
+        features := []string{
+            "- Multi-line text with automatic word wrapping",
+            "- Horizontal alignment (Start, Center, End)",
+            "- Font and color customization",
+            "- Respects newlines in text",
+        }
+        for feature in features {
+            label := widgets.label_create(feature, &g_state.font)
+            widgets.label_set_color(label, core.color_hex(0xAAAAAA))
+            widgets.widget_add_child(g_state.main_area, label)
+        }
+
+        // Demo of word wrapping
+        wrap_demo := widgets.label_create("This label demonstrates word wrapping. When the text is longer than the available width, it automatically breaks at word boundaries to create multiple lines.", &g_state.font)
+        wrap_demo.padding = widgets.edges_all(10)
+        wrap_demo.min_size = core.Size{0, 60}
+        widgets.label_set_color(wrap_demo, core.color_hex(0xCCCCFF))
+        widgets.widget_add_child(g_state.main_area, wrap_demo)
+
+        // Footer label
+        g_state.footer_label = widgets.label_create("Press any key or move mouse to see events", &g_state.font)
+        widgets.label_set_color(g_state.footer_label, core.color_hex(0x888888))
+        widgets.widget_add_child(g_state.footer, g_state.footer_label)
+    }
 
     // Initialize focus manager
     g_state.focus_manager = widgets.focus_manager_init(g_state.root)
@@ -155,71 +213,8 @@ draw_callback :: proc(win: ^core.Window, pixels: [^]u32, width, height, stride: 
         widgets.widget_layout(g_state.root)
     }
 
-    // Draw widget tree (this draws backgrounds)
+    // Draw widget tree (containers and labels)
     widgets.widget_draw(g_state.root, &ctx)
-
-    // Draw text overlays (since we don't have Label widgets yet)
-    if g_state.font_loaded {
-        // Get absolute positions of widgets
-        header_rect := widgets.widget_get_absolute_rect(g_state.header)
-        sidebar_rect := widgets.widget_get_absolute_rect(g_state.sidebar)
-        main_rect := widgets.widget_get_absolute_rect(g_state.main_area)
-        footer_rect := widgets.widget_get_absolute_rect(g_state.footer)
-
-        // Header text (centered vertically in header)
-        header_text_y := header_rect.y + (header_rect.height - g_state.font.line_height) / 2
-        render.draw_text_top(&ctx, &g_state.font, "Odek Widget Demo",
-            header_rect.x + g_state.header.padding.left,
-            header_text_y,
-            core.COLOR_WHITE)
-
-        // Sidebar items (relative to sidebar)
-        sidebar_text_x := sidebar_rect.x + g_state.sidebar.padding.left
-        sidebar_text_y := sidebar_rect.y + g_state.sidebar.padding.top
-        items := []string{"Dashboard", "Widgets", "Settings", "About"}
-        for item in items {
-            render.draw_text_top(&ctx, &g_state.font, item, sidebar_text_x, sidebar_text_y, core.color_hex(0xCCCCCC))
-            sidebar_text_y += g_state.font.line_height + g_state.sidebar.spacing
-        }
-
-        // Main area text (relative to main area)
-        main_text_x := main_rect.x + g_state.main_area.padding.left
-        main_text_y := main_rect.y + g_state.main_area.padding.top
-        line_spacing := g_state.font.line_height + 8
-
-        render.draw_text_top(&ctx, &g_state.font, "Phase 4: Widget System", main_text_x, main_text_y, core.COLOR_WHITE)
-        main_text_y += line_spacing
-        render.draw_text_top(&ctx, &g_state.font, "Flexbox-lite layout with containers", main_text_x, main_text_y, core.color_hex(0x88CC88))
-        main_text_y += line_spacing
-        render.draw_text_top(&ctx, &g_state.font, "- Row and Column directions", main_text_x, main_text_y, core.color_hex(0xAAAAAA))
-        main_text_y += line_spacing - 4
-        render.draw_text_top(&ctx, &g_state.font, "- Flex grow for dynamic sizing", main_text_x, main_text_y, core.color_hex(0xAAAAAA))
-        main_text_y += line_spacing - 4
-        render.draw_text_top(&ctx, &g_state.font, "- Cross-axis alignment", main_text_x, main_text_y, core.color_hex(0xAAAAAA))
-        main_text_y += line_spacing - 4
-        render.draw_text_top(&ctx, &g_state.font, "- Padding and spacing", main_text_x, main_text_y, core.color_hex(0xAAAAAA))
-        main_text_y += line_spacing + 10
-
-        // Draw a demo button (centered in remaining main area space)
-        button_width: i32 = 180
-        button_height: i32 = 45
-        button_x := main_rect.x + (main_rect.width - button_width) / 2
-        button_y := main_text_y + 10
-        button_rect := core.Rect{button_x, button_y, button_width, button_height}
-        render.fill_rounded_rect(&ctx, button_rect, 6, core.color_hex(0x4A90D9))
-        button_text := "Demo Button"
-        text_width := render.text_measure(&g_state.font, button_text)
-        text_x := button_rect.x + (button_rect.width - text_width) / 2
-        text_y := button_rect.y + (button_rect.height + g_state.font.line_height) / 2 - 2
-        render.draw_text_top(&ctx, &g_state.font, button_text, text_x, text_y - g_state.font.line_height + 5, core.COLOR_WHITE)
-
-        // Footer text (centered vertically in footer)
-        footer_text_y := footer_rect.y + (footer_rect.height - g_state.font.line_height) / 2
-        render.draw_text_top(&ctx, &g_state.font, "Press any key or move mouse to see events",
-            footer_rect.x + g_state.footer.padding.left,
-            footer_text_y,
-            core.color_hex(0x888888))
-    }
 }
 
 close_callback :: proc(win: ^core.Window) {

@@ -37,7 +37,7 @@
 ## Remaining
 
 ### Phase 5: MVP Widgets
-- [ ] Label - text content, font/size/color, alignment
+- [x] Label - text content, font/size/color, alignment, word wrapping
 - [ ] Button - normal/hover/pressed states, on_click callback
 - [ ] Text Input - cursor, single-line editing, on_change/on_submit
 
@@ -52,12 +52,13 @@
 
 ## Test Status
 
-- 57 tests passing
+- 76 tests passing
 - Core types: rect math, color conversion
 - Rendering: fill rect, clipping
 - Input: fixed-point conversion, button codes, state enums
 - Text: renderer init, font loading, glyph caching, text measurement, text drawing
 - Widgets: creation/destruction, parent/child, hit testing, focus, container layout, alignment
+- Labels: creation, property setters, word wrapping, measurement, cache invalidation
 
 ## Files
 
@@ -80,6 +81,7 @@ src/
   widgets/
     widget.odin   - Base Widget struct, vtable, core operations
     container.odin - Container with flexbox-lite layout
+    label.odin    - Label widget with text and word wrapping
     hit_test.odin - Hit testing and event dispatch
     focus.odin    - Focus management
   main.odin       - Demo application
@@ -89,6 +91,7 @@ tests/
   input_test.odin
   text_test.odin
   widget_test.odin
+  label_test.odin
 ```
 
 ## Dependencies
