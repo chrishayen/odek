@@ -20,16 +20,12 @@ App_State :: struct {
     header:        ^widgets.Container,
     sidebar:       ^widgets.Container,
     main_area:     ^widgets.Container,
-    footer:        ^widgets.Container,
     focus_manager: widgets.Focus_Manager,
     hit_state:     widgets.Hit_Test_State,
 
     // Header widgets
     back_button:   ^widgets.Button,
     header_label:  ^widgets.Label,
-
-    // Footer
-    footer_label:  ^widgets.Label,
 
     // Image grid
     image_cache:   ^render.Image_Cache,
@@ -172,13 +168,6 @@ build_ui :: proc(width, height: i32) {
     g_state.main_area.align_items = .Stretch  // Labels fill width for word wrapping
     widgets.widget_add_child(content, g_state.main_area)
 
-    // Footer
-    g_state.footer = widgets.container_create(.Row)
-    g_state.footer.min_size = core.Size{0, 30}
-    g_state.footer.background = core.color_hex(0x404040)
-    g_state.footer.padding = widgets.edges_symmetric(15, 5)
-    g_state.footer.align_items = .Center
-    widgets.widget_add_child(g_state.root, g_state.footer)
 
     // Perform initial layout to set container rects before adding labels
     widgets.widget_layout(g_state.root)
@@ -220,10 +209,6 @@ build_ui :: proc(width, height: i32) {
             widgets.widget_add_child(g_state.sidebar, btn)
         }
 
-        // Footer label
-        g_state.footer_label = widgets.label_create("Click an image to select, scroll to navigate", &g_state.font)
-        widgets.label_set_color(g_state.footer_label, core.color_hex(0x888888))
-        widgets.widget_add_child(g_state.footer, g_state.footer_label)
     }
 
     // Create image grid in main area
@@ -270,11 +255,6 @@ navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
     handle, err := os.open(dir_path)
     if err != nil {
         fmt.eprintln("Failed to open directory:", dir_path)
-        // Show error in footer
-        if g_state.footer_label != nil {
-            widgets.label_set_text(g_state.footer_label, fmt.tprintf("Error: Cannot open %s", dir_path))
-            widgets.label_set_color(g_state.footer_label, core.color_hex(0xFF6666))
-        }
         if g_state.window != nil {
             core.window_request_redraw(g_state.window)
         }
@@ -285,11 +265,6 @@ navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
     entries, read_err := os.read_dir(handle, -1)
     if read_err != nil {
         fmt.eprintln("Failed to read directory")
-        // Show error in footer
-        if g_state.footer_label != nil {
-            widgets.label_set_text(g_state.footer_label, fmt.tprintf("Error: Cannot read %s", dir_path))
-            widgets.label_set_color(g_state.footer_label, core.color_hex(0xFF6666))
-        }
         if g_state.window != nil {
             core.window_request_redraw(g_state.window)
         }
@@ -346,12 +321,6 @@ navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
     // Update header to show current path (use cloned current_directory, not dir_path which may be freed)
     if g_state.header_label != nil {
         widgets.label_set_text(g_state.header_label, g_state.current_directory)
-    }
-
-    // Reset footer to normal state (clear any previous error)
-    if g_state.footer_label != nil {
-        widgets.label_set_text(g_state.footer_label, "Click an image to select, scroll to navigate")
-        widgets.label_set_color(g_state.footer_label, core.color_hex(0x888888))
     }
 
     // Request redraw
