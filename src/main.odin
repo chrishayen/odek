@@ -680,6 +680,13 @@ key_callback :: proc(win: ^core.Window, key: u32, pressed: bool, utf8: string) {
         return
     }
 
+    // Handle Backspace - go up a directory
+    if key == 14 {
+        navigate_back()
+        core.window_request_redraw(win)
+        return
+    }
+
     // Handle Enter - open folder or preview image
     if key == 28 {
         if g_state.image_grid != nil {
