@@ -4,6 +4,9 @@ import "../ffmpeg"
 import "core:fmt"
 import "core:strings"
 import "core:mem"
+import "core:time"
+import "core:thread"
+import "core:sync"
 
 // Video decoder for thumbnail playback
 Video_Decoder :: struct {
@@ -25,10 +28,14 @@ Video_Decoder :: struct {
 	rgba_buffer:      []u8,  // Final cropped square buffer
 	// Frame timing
 	frame_duration:   f64,  // seconds per frame
-	accumulated_time: f64,  // time since last frame
 	// State
 	is_open:          bool,
 	path:             string,
+	// Threading
+	decode_thread:    ^thread.Thread,
+	frame_mutex:      sync.Mutex,
+	has_new_frame:    bool,  // Set by decode thread, cleared by main thread
+	thread_running:   bool,  // Signal thread to exit
 }
 
 // Open a video file for decoding
@@ -118,6 +125,11 @@ video_decoder_open :: proc(path: string, thumb_size: i32 = 128) -> ^Video_Decode
 	}
 
 	decoder.is_open = true
+
+	// Start decode thread
+	decoder.thread_running = true
+	decoder.decode_thread = thread.create_and_start_with_poly_data(decoder, decode_thread_proc)
+
 	return decoder
 }
 
@@ -175,31 +187,6 @@ video_decoder_read_frame :: proc(decoder: ^Video_Decoder) -> (pixels: []u8, widt
 	}
 }
 
-// Check if enough time has passed to decode next frame
-// Returns number of frames to skip to maintain real-time playback
-video_decoder_update :: proc(decoder: ^Video_Decoder, delta_time: f64) -> int {
-	if decoder == nil || !decoder.is_open {
-		return 0
-	}
-
-	decoder.accumulated_time += delta_time
-
-	// Target 30 FPS for smooth display
-	target_frame_time := 1.0 / 30.0
-
-	if decoder.accumulated_time >= target_frame_time {
-		// Calculate how many source frames to skip for real-time playback
-		// If video is 30 FPS and we display at 12 FPS, skip ~2.5 frames per update
-		frames_to_skip := int(decoder.accumulated_time / decoder.frame_duration)
-		if frames_to_skip < 1 {
-			frames_to_skip = 1
-		}
-		decoder.accumulated_time = 0
-		return frames_to_skip
-	}
-	return 0
-}
-
 // Seek to start of video
 video_decoder_seek_start :: proc(decoder: ^Video_Decoder) {
 	if decoder == nil || !decoder.is_open {
@@ -215,10 +202,128 @@ video_decoder_seek_start :: proc(decoder: ^Video_Decoder) {
 	ffmpeg.flush_buffers(decoder.codec_ctx)
 }
 
+// Decode thread - continuously decodes frames at video's native FPS
+decode_thread_proc :: proc(decoder: ^Video_Decoder) {
+	for decoder.thread_running {
+		start := time.now()
+
+		// Decode a frame
+		pixels, _, _ := video_decoder_read_frame_internal(decoder)
+		if pixels != nil {
+			// Mark new frame available (main thread will read it)
+			sync.mutex_lock(&decoder.frame_mutex)
+			decoder.has_new_frame = true
+			sync.mutex_unlock(&decoder.frame_mutex)
+		}
+
+		// Sleep to maintain video's native frame rate
+		frame_time := time.Duration(i64(decoder.frame_duration * 1_000_000_000.0))
+		elapsed := time.diff(start, time.now())
+		if elapsed < frame_time {
+			time.sleep(frame_time - elapsed)
+		}
+	}
+}
+
+// Internal frame read (called from decode thread)
+@(private)
+video_decoder_read_frame_internal :: proc(decoder: ^Video_Decoder) -> (pixels: []u8, width, height: i32) {
+	if decoder == nil || !decoder.is_open {
+		return nil, 0, 0
+	}
+
+	for {
+		// Try to receive a decoded frame
+		ret := ffmpeg.receive_frame(decoder.codec_ctx, decoder.frame)
+		if ret == 0 {
+			// Got a frame - convert to RGBA and crop
+			sync.mutex_lock(&decoder.frame_mutex)
+			convert_frame_to_rgba(decoder)
+			sync.mutex_unlock(&decoder.frame_mutex)
+			return decoder.rgba_buffer, decoder.crop_size, decoder.crop_size
+		}
+
+		if ret != ffmpeg.AVERROR_EAGAIN {
+			// Error or EOF
+			if ret == ffmpeg.AVERROR_EOF {
+				// Loop back to start
+				video_decoder_seek_start(decoder)
+				continue
+			}
+			return nil, 0, 0
+		}
+
+		// Need more data - read a packet
+		ret = ffmpeg.read_frame(decoder.format_ctx, decoder.packet)
+		if ret < 0 {
+			if ret == ffmpeg.AVERROR_EOF {
+				// End of file - loop
+				video_decoder_seek_start(decoder)
+				continue
+			}
+			return nil, 0, 0
+		}
+
+		// Only process video packets
+		if decoder.packet.stream_index != decoder.video_stream_idx {
+			ffmpeg.packet_unref(decoder.packet)
+			continue
+		}
+
+		// Send packet to decoder
+		ret = ffmpeg.send_packet(decoder.codec_ctx, decoder.packet)
+		ffmpeg.packet_unref(decoder.packet)
+
+		if ret < 0 {
+			return nil, 0, 0
+		}
+	}
+}
+
+// Get the latest frame (thread-safe, called from main thread)
+// Returns true if a new frame was available
+video_decoder_get_frame :: proc(decoder: ^Video_Decoder, out_pixels: ^[]u8) -> bool {
+	if decoder == nil || !decoder.is_open {
+		return false
+	}
+
+	sync.mutex_lock(&decoder.frame_mutex)
+	defer sync.mutex_unlock(&decoder.frame_mutex)
+
+	if !decoder.has_new_frame {
+		return false
+	}
+
+	// Copy the buffer
+	if len(decoder.rgba_buffer) > 0 {
+		out_pixels^ = decoder.rgba_buffer
+		decoder.has_new_frame = false
+		return true
+	}
+
+	return false
+}
+
+// Get frame dimensions
+video_decoder_get_size :: proc(decoder: ^Video_Decoder) -> (width, height: i32) {
+	if decoder == nil {
+		return 0, 0
+	}
+	return decoder.crop_size, decoder.crop_size
+}
+
 // Close the decoder and free resources
 video_decoder_close :: proc(decoder: ^Video_Decoder) {
 	if decoder == nil {
 		return
+	}
+
+	// Stop decode thread first
+	if decoder.decode_thread != nil {
+		decoder.thread_running = false
+		thread.join(decoder.decode_thread)
+		thread.destroy(decoder.decode_thread)
+		decoder.decode_thread = nil
 	}
 
 	if decoder.sws_ctx != nil {

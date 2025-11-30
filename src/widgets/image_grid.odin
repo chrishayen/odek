@@ -49,9 +49,9 @@ Image_Grid :: struct {
     hover_color:     core.Color,
 
     // State
-    scroll:       Scroll_State,
-    selected_idx: i32,    // -1 = none selected
-    hovered_idx:  i32,    // -1 = none hovered
+    scroll:              Scroll_State,
+    selected_idx:        i32,    // -1 = none selected
+    hovered_idx:         i32,    // -1 = none hovered
 
     // Scrollbar state
     scrollbar_width:    i32,
@@ -211,17 +211,14 @@ image_grid_clear :: proc(g: ^Image_Grid) {
     widget_mark_dirty(g)
 }
 
-// Update video thumbnails for visible items
-// Call this from the main loop with delta_time
+// Update video thumbnails (non-blocking)
+// Threads decode frames continuously; this just checks for new frames
 image_grid_update_videos :: proc(g: ^Image_Grid, delta_time: f64) -> bool {
     if g == nil || len(g.items) == 0 {
         return false
     }
 
     needs_redraw := false
-    abs_rect := widget_get_absolute_rect(g)
-    content_top := abs_rect.y + g.padding.top
-    content_bottom := abs_rect.y + abs_rect.height - g.padding.bottom
 
     for i in 0 ..< i32(len(g.items)) {
         item := &g.items[i]
@@ -229,37 +226,17 @@ image_grid_update_videos :: proc(g: ^Image_Grid, delta_time: f64) -> bool {
             continue
         }
 
-        // Check if item is visible
-        item_rect := image_grid_get_item_rect(g, i)
-        item_top := abs_rect.y + item_rect.y
-        item_bottom := item_top + item_rect.height
-
-        // Skip if not visible
-        if item_bottom < content_top || item_top > content_bottom {
-            continue
-        }
-
-        // Update video decoder timing - returns frames to skip for real-time playback
-        frames_to_skip := render.video_decoder_update(item.video_decoder, delta_time)
-        if frames_to_skip > 0 {
-            // Decode frames, keeping only the last one for display
-            pixels: []u8
-            width, height: i32
-            for _ in 0 ..< frames_to_skip {
-                pixels, width, height = render.video_decoder_read_frame(item.video_decoder)
-                if pixels == nil {
-                    break
-                }
+        // Check if decoder has a new frame ready
+        pixels: []u8
+        if render.video_decoder_get_frame(item.video_decoder, &pixels) {
+            width, height := render.video_decoder_get_size(item.video_decoder)
+            // Create or update frame image with the latest frame
+            if item.video_frame == nil {
+                item.video_frame = render.image_create_from_rgba(pixels, width, height)
+            } else {
+                render.image_update_rgba(item.video_frame, pixels, width, height)
             }
-            if pixels != nil && len(pixels) > 0 {
-                // Create or update frame image with the latest frame
-                if item.video_frame == nil {
-                    item.video_frame = render.image_create_from_rgba(pixels, width, height)
-                } else {
-                    render.image_update_rgba(item.video_frame, pixels, width, height)
-                }
-                needs_redraw = true
-            }
+            needs_redraw = true
         }
     }
 
