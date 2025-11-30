@@ -516,7 +516,7 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
 
                 // Center the text (all in logical coordinates)
                 text_x := item_abs.x + (item_abs.width - text_width_logical) / 2
-                text_y := item_abs.y + item_abs.height - label_height + 2
+                text_y := item_abs.y + item_abs.height - label_height - 12
 
                 label_color := core.color_hex(0xCCCCCC)
                 render.draw_text_top(ctx, g.font, display_text, text_x, text_y, label_color)
