@@ -7,10 +7,13 @@ import "core:slice"
 // Draw context for software rendering
 Draw_Context :: struct {
     pixels: [^]u32,
-    width: i32,
-    height: i32,
+    width: i32,           // Physical buffer width
+    height: i32,          // Physical buffer height
     stride: i32,
-    clip: core.Rect,
+    clip: core.Rect,      // Clip rect in physical coordinates
+    scale: f64,           // Scale factor (logical -> physical)
+    logical_width: i32,   // Logical width (for widgets)
+    logical_height: i32,  // Logical height (for widgets)
 }
 
 // Create a draw context
@@ -21,14 +24,49 @@ context_create :: proc(pixels: [^]u32, width, height, stride: i32) -> Draw_Conte
         height = height,
         stride = stride,
         clip = core.Rect{0, 0, width, height},
+        scale = 1.0,
+        logical_width = width,
+        logical_height = height,
+    }
+}
+
+// Create a draw context with scale factor
+context_create_scaled :: proc(pixels: [^]u32, phys_width, phys_height, stride: i32, logical_width, logical_height: i32, scale: f64) -> Draw_Context {
+    return Draw_Context{
+        pixels = pixels,
+        width = phys_width,
+        height = phys_height,
+        stride = stride,
+        clip = core.Rect{0, 0, phys_width, phys_height},
+        scale = scale,
+        logical_width = logical_width,
+        logical_height = logical_height,
+    }
+}
+
+// Scale a logical coordinate to physical
+scale_coord :: proc(ctx: ^Draw_Context, val: i32) -> i32 {
+    return i32(f64(val) * ctx.scale)
+}
+
+// Scale a logical rect to physical
+scale_rect :: proc(ctx: ^Draw_Context, rect: core.Rect) -> core.Rect {
+    return core.Rect{
+        x = i32(f64(rect.x) * ctx.scale),
+        y = i32(f64(rect.y) * ctx.scale),
+        width = i32(f64(rect.width) * ctx.scale),
+        height = i32(f64(rect.height) * ctx.scale),
     }
 }
 
 // Set clipping rectangle
+// clip is in logical coordinates, will be scaled to physical
 context_set_clip :: proc(ctx: ^Draw_Context, clip: core.Rect) {
+    // Scale logical clip to physical
+    phys_clip := scale_rect(ctx, clip)
     // Intersect with buffer bounds
     bounds := core.Rect{0, 0, ctx.width, ctx.height}
-    if clipped, ok := core.rect_intersection(clip, bounds); ok {
+    if clipped, ok := core.rect_intersection(phys_clip, bounds); ok {
         ctx.clip = clipped
     } else {
         ctx.clip = core.Rect{}
@@ -37,12 +75,15 @@ context_set_clip :: proc(ctx: ^Draw_Context, clip: core.Rect) {
 
 // Clear the entire buffer
 clear :: proc(ctx: ^Draw_Context, color: core.Color) {
-    fill_rect(ctx, core.Rect{0, 0, ctx.width, ctx.height}, color)
+    fill_rect(ctx, core.Rect{0, 0, ctx.logical_width, ctx.logical_height}, color)
 }
 
 // Fill a rectangle with a solid color (optimized)
+// rect is in logical coordinates, will be scaled to physical
 fill_rect :: proc(ctx: ^Draw_Context, rect: core.Rect, color: core.Color) {
-    clipped, ok := core.rect_intersection(rect, ctx.clip)
+    // Scale logical rect to physical
+    phys_rect := scale_rect(ctx, rect)
+    clipped, ok := core.rect_intersection(phys_rect, ctx.clip)
     if !ok {
         return
     }
@@ -71,6 +112,7 @@ fill_rect :: proc(ctx: ^Draw_Context, rect: core.Rect, color: core.Color) {
 }
 
 // Fill a rectangle with alpha blending
+// rect is in logical coordinates, will be scaled to physical
 fill_rect_blend :: proc(ctx: ^Draw_Context, rect: core.Rect, color: core.Color) {
     if color.a == 255 {
         fill_rect(ctx, rect, color)
@@ -80,7 +122,9 @@ fill_rect_blend :: proc(ctx: ^Draw_Context, rect: core.Rect, color: core.Color) 
         return
     }
 
-    clipped, ok := core.rect_intersection(rect, ctx.clip)
+    // Scale logical rect to physical
+    phys_rect := scale_rect(ctx, rect)
+    clipped, ok := core.rect_intersection(phys_rect, ctx.clip)
     if !ok {
         return
     }
@@ -139,28 +183,34 @@ Corner :: enum {
 }
 
 // Draw a filled quarter circle (for rounded corners)
+// cx, cy, r are in logical coordinates
 draw_corner :: proc(ctx: ^Draw_Context, cx, cy: i32, r: i32, color: core.Color, corner: Corner) {
     pixel := core.color_to_argb(color)
     stride_pixels := ctx.stride / 4
-    r_sq := r * r
 
-    for y in 0 ..= r {
-        for x in 0 ..= r {
+    // Scale to physical coordinates
+    phys_cx := scale_coord(ctx, cx)
+    phys_cy := scale_coord(ctx, cy)
+    phys_r := scale_coord(ctx, r)
+    r_sq := phys_r * phys_r
+
+    for y in 0 ..= phys_r {
+        for x in 0 ..= phys_r {
             if x * x + y * y <= r_sq {
                 px, py: i32
                 switch corner {
                 case .TopLeft:
-                    px = cx - x
-                    py = cy - y
+                    px = phys_cx - x
+                    py = phys_cy - y
                 case .TopRight:
-                    px = cx + x
-                    py = cy - y
+                    px = phys_cx + x
+                    py = phys_cy - y
                 case .BottomLeft:
-                    px = cx - x
-                    py = cy + y
+                    px = phys_cx - x
+                    py = phys_cy + y
                 case .BottomRight:
-                    px = cx + x
-                    py = cy + y
+                    px = phys_cx + x
+                    py = phys_cy + y
                 }
 
                 if px >= ctx.clip.x && px < ctx.clip.x + ctx.clip.width &&
@@ -192,14 +242,19 @@ blend_pixel :: proc(dst: u32, src: core.Color) -> u32 {
     return (u32(ra) << 24) | (u32(rr) << 16) | (u32(rg) << 8) | u32(rb)
 }
 
-// Draw a horizontal line
+// Draw a horizontal line (coordinates in logical)
 draw_hline :: proc(ctx: ^Draw_Context, x1, x2, y: i32, color: core.Color) {
-    if y < ctx.clip.y || y >= ctx.clip.y + ctx.clip.height {
+    // Scale to physical
+    phys_y := scale_coord(ctx, y)
+    phys_x1 := scale_coord(ctx, x1)
+    phys_x2 := scale_coord(ctx, x2)
+
+    if phys_y < ctx.clip.y || phys_y >= ctx.clip.y + ctx.clip.height {
         return
     }
 
-    start := max(min(x1, x2), ctx.clip.x)
-    end := min(max(x1, x2), ctx.clip.x + ctx.clip.width - 1)
+    start := max(min(phys_x1, phys_x2), ctx.clip.x)
+    end := min(max(phys_x1, phys_x2), ctx.clip.x + ctx.clip.width - 1)
 
     if start > end {
         return
@@ -207,21 +262,26 @@ draw_hline :: proc(ctx: ^Draw_Context, x1, x2, y: i32, color: core.Color) {
 
     pixel := core.color_to_argb(color)
     stride_pixels := ctx.stride / 4
-    row_start := y * stride_pixels
+    row_start := phys_y * stride_pixels
 
     for x in start ..= end {
         ctx.pixels[row_start + x] = pixel
     }
 }
 
-// Draw a vertical line
+// Draw a vertical line (coordinates in logical)
 draw_vline :: proc(ctx: ^Draw_Context, x, y1, y2: i32, color: core.Color) {
-    if x < ctx.clip.x || x >= ctx.clip.x + ctx.clip.width {
+    // Scale to physical
+    phys_x := scale_coord(ctx, x)
+    phys_y1 := scale_coord(ctx, y1)
+    phys_y2 := scale_coord(ctx, y2)
+
+    if phys_x < ctx.clip.x || phys_x >= ctx.clip.x + ctx.clip.width {
         return
     }
 
-    start := max(min(y1, y2), ctx.clip.y)
-    end := min(max(y1, y2), ctx.clip.y + ctx.clip.height - 1)
+    start := max(min(phys_y1, phys_y2), ctx.clip.y)
+    end := min(max(phys_y1, phys_y2), ctx.clip.y + ctx.clip.height - 1)
 
     if start > end {
         return
@@ -231,29 +291,35 @@ draw_vline :: proc(ctx: ^Draw_Context, x, y1, y2: i32, color: core.Color) {
     stride_pixels := ctx.stride / 4
 
     for y in start ..= end {
-        ctx.pixels[y * stride_pixels + x] = pixel
+        ctx.pixels[y * stride_pixels + phys_x] = pixel
     }
 }
 
-// Set a single pixel
+// Set a single pixel (coordinates in logical)
 set_pixel :: proc(ctx: ^Draw_Context, x, y: i32, color: core.Color) {
-    if x < ctx.clip.x || x >= ctx.clip.x + ctx.clip.width ||
-       y < ctx.clip.y || y >= ctx.clip.y + ctx.clip.height {
+    phys_x := scale_coord(ctx, x)
+    phys_y := scale_coord(ctx, y)
+
+    if phys_x < ctx.clip.x || phys_x >= ctx.clip.x + ctx.clip.width ||
+       phys_y < ctx.clip.y || phys_y >= ctx.clip.y + ctx.clip.height {
         return
     }
 
     stride_pixels := ctx.stride / 4
-    ctx.pixels[y * stride_pixels + x] = core.color_to_argb(color)
+    ctx.pixels[phys_y * stride_pixels + phys_x] = core.color_to_argb(color)
 }
 
-// Set a single pixel with blending
+// Set a single pixel with blending (coordinates in logical)
 set_pixel_blend :: proc(ctx: ^Draw_Context, x, y: i32, color: core.Color) {
-    if x < ctx.clip.x || x >= ctx.clip.x + ctx.clip.width ||
-       y < ctx.clip.y || y >= ctx.clip.y + ctx.clip.height {
+    phys_x := scale_coord(ctx, x)
+    phys_y := scale_coord(ctx, y)
+
+    if phys_x < ctx.clip.x || phys_x >= ctx.clip.x + ctx.clip.width ||
+       phys_y < ctx.clip.y || phys_y >= ctx.clip.y + ctx.clip.height {
         return
     }
 
     stride_pixels := ctx.stride / 4
-    idx := y * stride_pixels + x
+    idx := phys_y * stride_pixels + phys_x
     ctx.pixels[idx] = blend_pixel(ctx.pixels[idx], color)
 }

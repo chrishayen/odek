@@ -92,8 +92,8 @@ main :: proc() {
     }
     g_state.window = window
 
-    // Build widget tree
-    build_ui(window.width, window.height)
+    // Build widget tree (use logical dimensions for layout)
+    build_ui(window.logical_width, window.logical_height)
     defer widgets.widget_destroy(g_state.root)
 
     // Set up callbacks
@@ -105,6 +105,12 @@ main :: proc() {
     window.on_pointer_button = pointer_button_callback
     window.on_scroll = scroll_callback
     window.on_key = key_callback
+    window.on_scale_changed = scale_changed_callback
+
+    // Apply initial scale to font (handles HiDPI displays)
+    if g_state.font_loaded && window.scale != 1.0 {
+        render.font_set_scale(&g_state.font, window.scale)
+    }
 
     // Trigger initial draw through proper render path
     core.window_do_render(window)
@@ -389,15 +395,23 @@ image_grid_click_callback :: proc(grid: ^widgets.Image_Grid, index: i32, item: ^
 }
 
 draw_callback :: proc(win: ^core.Window, pixels: [^]u32, width, height, stride: i32) {
-    ctx := render.context_create(pixels, width, height, stride)
+    // Create scaled draw context using window's scale factor
+    // width/height are physical buffer dimensions
+    // Use window's logical dimensions for layout
+    ctx := render.context_create_scaled(
+        pixels,
+        width, height, stride,
+        win.logical_width, win.logical_height,
+        win.scale,
+    )
 
     // Clear buffer to background color FIRST - prevents stale pixels from previous frames
     bg_color := core.color_hex(0x2D2D2D)
-    render.fill_rect(&ctx, core.Rect{0, 0, width, height}, bg_color)
+    render.fill_rect(&ctx, core.Rect{0, 0, ctx.logical_width, ctx.logical_height}, bg_color)
 
-    // Update root size if window resized
-    if g_state.root.rect.width != width || g_state.root.rect.height != height {
-        g_state.root.rect = core.Rect{0, 0, width, height}
+    // Update root size if window resized (use logical dimensions for layout)
+    if g_state.root.rect.width != ctx.logical_width || g_state.root.rect.height != ctx.logical_height {
+        g_state.root.rect = core.Rect{0, 0, ctx.logical_width, ctx.logical_height}
     }
 
     // Always do layout before drawing to ensure scrollbars etc are up to date
@@ -409,6 +423,14 @@ draw_callback :: proc(win: ^core.Window, pixels: [^]u32, width, height, stride: 
 
 close_callback :: proc(win: ^core.Window) {
     fmt.println("Window close requested")
+}
+
+scale_changed_callback :: proc(win: ^core.Window, new_scale: f64) {
+    fmt.printf("Scale changed to %.2f\n", new_scale)
+    // Reload font at new scale for crisp text rendering
+    if g_state.font_loaded {
+        render.font_set_scale(&g_state.font, new_scale)
+    }
 }
 
 pointer_enter_callback :: proc(win: ^core.Window, x, y: f64) {

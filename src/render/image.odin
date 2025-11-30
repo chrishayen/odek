@@ -73,23 +73,29 @@ image_is_valid :: proc(img: ^Image) -> bool {
     return img != nil && img.pixels != nil && img.width > 0 && img.height > 0
 }
 
-// Blit image to draw context at position (x, y)
+// Blit image to draw context at position (x, y) in logical coordinates
 // Respects clipping, performs alpha blending
+// Note: image is drawn at its native pixel size (not scaled)
+// Use draw_image_scaled for scaling support
 draw_image :: proc(ctx: ^Draw_Context, img: ^Image, x, y: i32) {
     if !image_is_valid(img) {
         return
     }
 
+    // Scale position to physical coordinates
+    phys_x := scale_coord(ctx, x)
+    phys_y := scale_coord(ctx, y)
+
     stride_pixels := ctx.stride / 4
 
     for row in 0 ..< img.height {
-        py := y + row
+        py := phys_y + row
         if py < ctx.clip.y || py >= ctx.clip.y + ctx.clip.height {
             continue
         }
 
         for col in 0 ..< img.width {
-            px := x + col
+            px := phys_x + col
             if px < ctx.clip.x || px >= ctx.clip.x + ctx.clip.width {
                 continue
             }
@@ -132,46 +138,50 @@ draw_image :: proc(ctx: ^Draw_Context, img: ^Image, x, y: i32) {
 }
 
 // Blit image scaled to fit within dst_rect (maintains aspect ratio)
+// dst_rect is in logical coordinates, will be scaled to physical
 // Uses nearest-neighbor scaling
 draw_image_scaled :: proc(ctx: ^Draw_Context, img: ^Image, dst_rect: core.Rect) {
     if !image_is_valid(img) {
         return
     }
 
+    // Scale destination rect to physical coordinates
+    phys_rect := scale_rect(ctx, dst_rect)
+
     // Calculate scale to fit while maintaining aspect ratio
-    scale_x := f32(dst_rect.width) / f32(img.width)
-    scale_y := f32(dst_rect.height) / f32(img.height)
-    scale := min(scale_x, scale_y)
+    img_scale_x := f32(phys_rect.width) / f32(img.width)
+    img_scale_y := f32(phys_rect.height) / f32(img.height)
+    img_scale := min(img_scale_x, img_scale_y)
 
-    scaled_w := i32(f32(img.width) * scale)
-    scaled_h := i32(f32(img.height) * scale)
+    scaled_w := i32(f32(img.width) * img_scale)
+    scaled_h := i32(f32(img.height) * img_scale)
 
-    // Center within dst_rect
-    offset_x := (dst_rect.width - scaled_w) / 2
-    offset_y := (dst_rect.height - scaled_h) / 2
+    // Center within phys_rect
+    offset_x := (phys_rect.width - scaled_w) / 2
+    offset_y := (phys_rect.height - scaled_h) / 2
 
     stride_pixels := ctx.stride / 4
 
     for dy in 0 ..< scaled_h {
-        py := dst_rect.y + offset_y + dy
+        py := phys_rect.y + offset_y + dy
         if py < ctx.clip.y || py >= ctx.clip.y + ctx.clip.height {
             continue
         }
 
         // Source y (nearest neighbor)
-        sy := i32(f32(dy) / scale)
+        sy := i32(f32(dy) / img_scale)
         if sy >= img.height {
             sy = img.height - 1
         }
 
         for dx in 0 ..< scaled_w {
-            px := dst_rect.x + offset_x + dx
+            px := phys_rect.x + offset_x + dx
             if px < ctx.clip.x || px >= ctx.clip.x + ctx.clip.width {
                 continue
             }
 
             // Source x (nearest neighbor)
-            sx := i32(f32(dx) / scale)
+            sx := i32(f32(dx) / img_scale)
             if sx >= img.width {
                 sx = img.width - 1
             }

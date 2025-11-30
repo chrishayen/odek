@@ -4,6 +4,7 @@ import wl "../wayland"
 import "base:runtime"
 import "core:c"
 import "core:fmt"
+import "core:math"
 import "core:strings"
 import "core:sys/posix"
 import "core:sys/linux"
@@ -16,6 +17,10 @@ App :: struct {
     compositor: ^wl.Wl_Compositor,
     shm:        ^wl.Wl_Shm,
     xdg_wm_base: ^wl.Xdg_Wm_Base,
+
+    // Scaling protocols (may be nil if compositor doesn't support them)
+    fractional_scale_manager: ^wl.Wp_Fractional_Scale_Manager_V1,
+    viewporter: ^wl.Wp_Viewporter,
 
     // Input devices
     seat:     ^wl.Wl_Seat,
@@ -82,10 +87,15 @@ Window :: struct {
     xdg_surface: ^wl.Xdg_Surface,
     xdg_toplevel: ^wl.Xdg_Toplevel,
 
+    // Scaling objects (may be nil if compositor doesn't support them)
+    fractional_scale: ^wl.Wp_Fractional_Scale_V1,
+    viewport: ^wl.Wp_Viewport,
+
     // Listeners
     xdg_surface_listener: wl.Xdg_Surface_Listener,
     xdg_toplevel_listener: wl.Xdg_Toplevel_Listener,
     frame_listener: wl.Wl_Callback_Listener,
+    fractional_scale_listener: wl.Wp_Fractional_Scale_V1_Listener,
 
     // Buffers
     pool: ^wl.Shm_Pool,
@@ -95,9 +105,12 @@ Window :: struct {
     // Resize state
     pending_resize: Maybe(Pending_Resize),
 
-    // Dimensions
-    width: i32,
-    height: i32,
+    // Dimensions (logical = surface coordinates, actual buffer = logical * scale)
+    width: i32,           // Buffer width (physical pixels)
+    height: i32,          // Buffer height (physical pixels)
+    logical_width: i32,   // Logical width (surface coordinates)
+    logical_height: i32,  // Logical height (surface coordinates)
+    scale: f64,           // Scale factor (default 1.0)
     configured: bool,
 
     // State
@@ -113,6 +126,7 @@ Window :: struct {
     on_pointer_button: proc(win: ^Window, button: u32, pressed: bool),
     on_scroll: proc(win: ^Window, delta: i32, axis: u32),
     on_key: proc(win: ^Window, key: u32, pressed: bool, utf8: string),
+    on_scale_changed: proc(win: ^Window, new_scale: f64),  // Called when compositor changes scale factor
     user_data: rawptr,
 }
 
@@ -282,8 +296,9 @@ shutdown :: proc(app: ^App) {
 create_window :: proc(app: ^App, title: string, width, height: i32) -> ^Window {
     win := new(Window)
     win.app = app
-    win.width = width
-    win.height = height
+    win.logical_width = width
+    win.logical_height = height
+    win.scale = 1.0  // Default scale, will be updated by preferred_scale event
 
     // Create surface
     win.surface = wl.compositor_create_surface(app.compositor)
@@ -307,6 +322,23 @@ create_window :: proc(app: ^App, title: string, width, height: i32) -> ^Window {
         configure = xdg_surface_configure_handler,
     }
     wl.xdg_surface_add_listener(win.xdg_surface, &win.xdg_surface_listener, win)
+
+    // Set up fractional scaling if compositor supports it
+    if app.fractional_scale_manager != nil {
+        win.fractional_scale = wl.fractional_scale_manager_get_fractional_scale(
+            app.fractional_scale_manager, win.surface)
+        if win.fractional_scale != nil {
+            win.fractional_scale_listener = wl.Wp_Fractional_Scale_V1_Listener{
+                preferred_scale = preferred_scale_handler,
+            }
+            wl.fractional_scale_add_listener(win.fractional_scale, &win.fractional_scale_listener, win)
+        }
+    }
+
+    // Set up viewport if compositor supports it
+    if app.viewporter != nil {
+        win.viewport = wl.viewporter_get_viewport(app.viewporter, win.surface)
+    }
 
     // Create xdg_toplevel
     win.xdg_toplevel = wl.xdg_surface_get_toplevel(win.xdg_surface)
@@ -341,10 +373,20 @@ create_window :: proc(app: ^App, title: string, width, height: i32) -> ^Window {
     // Commit to trigger configure
     wl.surface_commit(win.surface)
 
-    // Wait for configure - this will update win.width/height to compositor's size
+    // Wait for configure - this gets us the preferred scale and configure events
     wl.wl_display_roundtrip(app.display)
 
-    // Create SHM pool for double buffers
+    // Compute scaled buffer dimensions
+    // Note: xdg_toplevel_configure_handler may have updated logical_width/logical_height
+    win.width = i32(math.ceil(f64(win.logical_width) * win.scale))
+    win.height = i32(math.ceil(f64(win.logical_height) * win.scale))
+
+    // Set viewport destination to logical size (tells compositor the surface size)
+    if win.viewport != nil {
+        wl.viewport_set_destination(win.viewport, win.logical_width, win.logical_height)
+    }
+
+    // Create SHM pool for double buffers (using physical/scaled dimensions)
     buffer_size := int(win.width * win.height * 4 * 2)  // Space for 2 buffers
     pool, ok := wl.shm_pool_create(app.shm, buffer_size)
     if !ok {
@@ -403,6 +445,14 @@ window_destroy :: proc(win: ^Window) {
         wl.shm_pool_destroy(win.pool)
     }
 
+    // Clean up scaling objects
+    if win.viewport != nil {
+        wl.viewport_destroy(win.viewport)
+    }
+    if win.fractional_scale != nil {
+        wl.fractional_scale_destroy(win.fractional_scale)
+    }
+
     if win.xdg_toplevel != nil {
         wl.xdg_toplevel_destroy(win.xdg_toplevel)
     }
@@ -456,8 +506,18 @@ window_request_redraw :: proc(win: ^Window) {
 // Handle pending resize if needed
 window_handle_resize :: proc(win: ^Window) {
     if resize, ok := win.pending_resize.?; ok {
-        if resize.width != win.width || resize.height != win.height {
+        // pending_resize contains logical dimensions
+        // Compare against logical dimensions to detect actual change
+        if resize.width != win.logical_width || resize.height != win.logical_height {
             window_resize_buffer(win, resize.width, resize.height)
+        } else {
+            // Logical size unchanged but scale may have changed
+            // Check if physical dimensions need update
+            new_phys_width := i32(math.ceil(f64(win.logical_width) * win.scale))
+            new_phys_height := i32(math.ceil(f64(win.logical_height) * win.scale))
+            if new_phys_width != win.width || new_phys_height != win.height {
+                window_resize_buffer(win, resize.width, resize.height)
+            }
         }
         win.pending_resize = nil
     }
@@ -501,7 +561,8 @@ window_present :: proc(win: ^Window) {
 }
 
 // Resize the window buffers
-window_resize_buffer :: proc(win: ^Window, new_width, new_height: i32) {
+// new_logical_width/height are in surface coordinates (logical pixels)
+window_resize_buffer :: proc(win: ^Window, new_logical_width, new_logical_height: i32) {
     // Destroy old buffers
     for i in 0..<len(win.buffers) {
         if win.buffers[i] != nil {
@@ -516,21 +577,32 @@ window_resize_buffer :: proc(win: ^Window, new_width, new_height: i32) {
         win.pool = nil
     }
 
-    // Update size
-    win.width = new_width
-    win.height = new_height
+    // Update logical dimensions
+    win.logical_width = new_logical_width
+    win.logical_height = new_logical_height
+
+    // Compute physical (scaled) dimensions
+    phys_width := i32(math.ceil(f64(new_logical_width) * win.scale))
+    phys_height := i32(math.ceil(f64(new_logical_height) * win.scale))
+    win.width = phys_width
+    win.height = phys_height
     win.current_buffer = 0
 
-    // Create new pool for double buffers
-    buffer_size := int(new_width * new_height * 4 * 2)  // Space for 2 buffers
+    // Update viewport destination to logical size
+    if win.viewport != nil {
+        wl.viewport_set_destination(win.viewport, new_logical_width, new_logical_height)
+    }
+
+    // Create new pool for double buffers (at physical/scaled size)
+    buffer_size := int(phys_width * phys_height * 4 * 2)  // Space for 2 buffers
     pool, ok := wl.shm_pool_create(win.app.shm, buffer_size)
     if !ok {
         return
     }
     win.pool = pool
 
-    // Create both buffers
-    buf1, ok1 := wl.buffer_create(pool, new_width, new_height, .ARGB8888)
+    // Create both buffers at physical size
+    buf1, ok1 := wl.buffer_create(pool, phys_width, phys_height, .ARGB8888)
     if !ok1 {
         wl.shm_pool_destroy(pool)
         win.pool = nil
@@ -538,7 +610,7 @@ window_resize_buffer :: proc(win: ^Window, new_width, new_height: i32) {
     }
     win.buffers[0] = buf1
 
-    buf2, ok2 := wl.buffer_create(pool, new_width, new_height, .ARGB8888)
+    buf2, ok2 := wl.buffer_create(pool, phys_width, phys_height, .ARGB8888)
     if !ok2 {
         wl.buffer_destroy_internal(buf1)
         win.buffers[0] = nil
@@ -793,6 +865,12 @@ registry_global_handler :: proc "c" (
         app.seat = cast(^wl.Wl_Seat)wl.registry_bind(
             registry, name, &wl.wl_seat_interface, min(version, 8))
         wl.seat_add_listener(app.seat, &app.seat_listener, app)
+    } else if iface == "wp_fractional_scale_manager_v1" {
+        app.fractional_scale_manager = cast(^wl.Wp_Fractional_Scale_Manager_V1)wl.registry_bind(
+            registry, name, &wl.wp_fractional_scale_manager_v1_interface, min(version, 1))
+    } else if iface == "wp_viewporter" {
+        app.viewporter = cast(^wl.Wp_Viewporter)wl.registry_bind(
+            registry, name, &wl.wp_viewporter_interface, min(version, 1))
     }
 }
 
@@ -825,9 +903,12 @@ xdg_toplevel_configure_handler :: proc "c" (
 ) {
     win := cast(^Window)data
 
-    // Store compositor's suggested size (0 means "you choose")
+    // Store compositor's suggested logical size (0 means "you choose")
     if width > 0 && height > 0 {
         win.pending_resize = Pending_Resize{width, height}
+        // Also update logical dimensions for initial configure
+        win.logical_width = width
+        win.logical_height = height
     }
 }
 
@@ -854,6 +935,28 @@ frame_done_handler :: proc "c" (data: rawptr, callback: ^wl.Wl_Callback, time: u
     win := cast(^Window)data
     wl.callback_destroy(callback)
     win.frame_pending = false  // Ready to render next frame
+}
+
+// Fractional scale handler - called when compositor changes preferred scale
+preferred_scale_handler :: proc "c" (data: rawptr, fractional_scale: ^wl.Wp_Fractional_Scale_V1, scale: u32) {
+    context = runtime.default_context()
+    win := cast(^Window)data
+
+    new_scale := wl.fractional_scale_to_f64(scale)
+    if new_scale == win.scale {
+        return  // No change
+    }
+
+    win.scale = new_scale
+
+    // Notify application of scale change (for font reloading, etc.)
+    if win.on_scale_changed != nil {
+        win.on_scale_changed(win, new_scale)
+    }
+
+    // Trigger resize to reallocate buffers at new scale
+    // Use current logical dimensions
+    win.pending_resize = Pending_Resize{win.logical_width, win.logical_height}
 }
 
 // ============================================================================
