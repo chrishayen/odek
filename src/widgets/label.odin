@@ -37,7 +37,7 @@ label_create :: proc(text: string = "", font: ^render.Font = nil) -> ^Label {
     l.dirty = true
     l.text = text
     l.font = font
-    l.color = core.COLOR_WHITE
+    l.color = theme_get().text_primary
     l.h_align = .Start
     l.wrap = true
     l.cached_width = -1  // Force recalculation

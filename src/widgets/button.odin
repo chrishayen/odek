@@ -53,11 +53,12 @@ button_create :: proc(text: string = "", font: ^render.Font = nil) -> ^Button {
     b.text = text
     b.font = font
 
-    // Default colors (dark theme)
-    b.bg_normal = core.color_hex(0x4A90D9)   // Blue
-    b.bg_hover = core.color_hex(0x5BA0E9)    // Lighter blue
-    b.bg_pressed = core.color_hex(0x3A80C9)  // Darker blue
-    b.text_color = core.COLOR_WHITE
+    // Default colors from theme
+    theme := theme_get()
+    b.bg_normal = theme.accent
+    b.bg_hover = theme.accent_hover
+    b.bg_pressed = theme.accent_pressed
+    b.text_color = theme.text_on_accent
 
     b.corner_radius = 4
     b.state = .Normal
@@ -181,7 +182,7 @@ button_handle_event :: proc(w: ^Widget, event: ^core.Event) -> bool {
 
     case .Key_Press:
         // Enter or Space activates the button when focused
-        if w.focused && (event.keycode == 28 || event.keycode == 57) {  // Enter=28, Space=57
+        if w.focused && (event.keycode == u32(core.Keycode.Enter) || event.keycode == u32(core.Keycode.Space)) {
             if b.on_click != nil {
                 // Visual feedback
                 b.state = .Pressed

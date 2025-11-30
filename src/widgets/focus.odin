@@ -84,9 +84,8 @@ focus_handle_tab :: proc(fm: ^Focus_Manager, event: ^core.Event) -> bool {
         return false
     }
 
-    // Check for Tab key (keycode 15 is Tab on Linux)
-    // XKB keysym for Tab is 0xFF09
-    if event.keysym == 0xFF09 || event.keycode == 15 {
+    // Check for Tab key
+    if event.keysym == u32(core.Keysym.Tab) || event.keycode == u32(core.Keycode.Tab) {
         if .Shift in event.modifiers {
             focus_prev(fm)
         } else {
