@@ -160,6 +160,7 @@ build_ui :: proc(width, height: i32) {
     g_state.sidebar.background = core.color_hex(0x383838)
     g_state.sidebar.padding = widgets.edges_all(10)
     g_state.sidebar.spacing = 8
+    g_state.sidebar.align_items = .Stretch
     widgets.widget_add_child(content, g_state.sidebar)
 
     // Main area (flex)
