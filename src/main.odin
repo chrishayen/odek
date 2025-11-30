@@ -61,12 +61,13 @@ main :: proc() {
     g_state.text_renderer = text_renderer
     defer render.text_renderer_destroy(&g_state.text_renderer)
 
-    // Try to load a font
-    font, font_ok := render.font_load(&g_state.text_renderer, "/usr/share/fonts/noto/NotoSans-Regular.ttf\x00", 16)
+    // Try to load a font using system-configured size from fontconfig
+    font_size := render.fc_get_default_pixel_size(14)
+    font, font_ok := render.font_load(&g_state.text_renderer, "/usr/share/fonts/noto/NotoSans-Regular.ttf\x00", font_size)
     if font_ok {
         g_state.font = font
         g_state.font_loaded = true
-        fmt.println("Font loaded successfully")
+        fmt.printf("Font loaded at %d pixels (from fontconfig)\n", font_size)
     } else {
         fmt.eprintln("Warning: Could not load font, text will not be displayed")
     }

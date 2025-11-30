@@ -77,10 +77,11 @@ create :: proc(title: string, width: i32 = 800, height: i32 = 600) -> ^App {
         return nil
     }
 
-    // Auto-load font
+    // Auto-load font using system-configured size from fontconfig
+    font_size := render.fc_get_default_pixel_size(14)
     a.font_loaded = false
     for path in DEFAULT_FONT_PATHS {
-        a.font, ok = render.font_load(&a.text_renderer, path, 14)
+        a.font, ok = render.font_load(&a.text_renderer, path, font_size)
         if ok {
             a.font_loaded = true
             break
