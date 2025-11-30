@@ -36,6 +36,11 @@ App_State :: struct {
     current_directory:  string,
     directory_history:  [dynamic]string,
     window:             ^core.Window,  // Store window reference for callbacks
+
+    // Image preview
+    preview_active:  bool,
+    preview_image:   ^render.Image,
+    preview_path:    string,
 }
 
 g_state: App_State
@@ -372,6 +377,147 @@ image_grid_click_callback :: proc(grid: ^widgets.Image_Grid, index: i32, item: ^
     fmt.printf("Image clicked: index=%d, path=%s\n", index, item.path)
 }
 
+// Open image preview for selected item
+open_preview :: proc() {
+    if g_state.image_grid == nil {
+        return
+    }
+
+    item, ok := widgets.image_grid_get_selected(g_state.image_grid)
+    if !ok || item.type != .Image || item.image == nil {
+        return
+    }
+
+    g_state.preview_active = true
+    g_state.preview_image = item.image
+    g_state.preview_path = item.path
+}
+
+// Close image preview
+close_preview :: proc() {
+    g_state.preview_active = false
+    g_state.preview_image = nil
+    g_state.preview_path = ""
+}
+
+// Navigate to next/previous image while preview is open
+navigate_preview :: proc(direction: i32) {
+    if g_state.image_grid == nil || direction == 0 {
+        return
+    }
+
+    current := g_state.image_grid.selected_idx
+    count := widgets.image_grid_count(g_state.image_grid)
+    if count == 0 {
+        return
+    }
+
+    // Find next/previous image (skip folders and files)
+    new_idx := current
+    for {
+        new_idx += direction
+        if new_idx < 0 || new_idx >= count {
+            return  // Reached boundary
+        }
+
+        item := &g_state.image_grid.items[new_idx]
+        if item.type == .Image && item.image != nil {
+            // Found an image, select it and update preview
+            widgets.image_grid_set_selected(g_state.image_grid, new_idx)
+            g_state.preview_image = item.image
+            g_state.preview_path = item.path
+            return
+        }
+    }
+}
+
+// Navigate grid with arrow keys
+navigate_grid :: proc(key: u32) {
+    if g_state.image_grid == nil {
+        return
+    }
+
+    cols := widgets.image_grid_get_columns(g_state.image_grid)
+    count := widgets.image_grid_count(g_state.image_grid)
+    current := g_state.image_grid.selected_idx
+
+    // Initialize selection if none
+    if current < 0 && count > 0 {
+        widgets.image_grid_set_selected(g_state.image_grid, 0)
+        return
+    }
+
+    new_idx := current
+    switch key {
+    case 105:  // Left
+        if current > 0 {
+            new_idx = current - 1
+        }
+    case 106:  // Right
+        if current < count - 1 {
+            new_idx = current + 1
+        }
+    case 103:  // Up
+        if current >= cols {
+            new_idx = current - cols
+        }
+    case 108:  // Down
+        if current + cols < count {
+            new_idx = current + cols
+        }
+    }
+
+    if new_idx != current && new_idx >= 0 && new_idx < count {
+        widgets.image_grid_set_selected(g_state.image_grid, new_idx)
+        widgets.image_grid_ensure_visible(g_state.image_grid, new_idx)
+    }
+}
+
+// Draw preview overlay
+draw_preview :: proc(ctx: ^render.Draw_Context) {
+    if !g_state.preview_active || g_state.preview_image == nil {
+        return
+    }
+
+    // Draw semi-transparent dark overlay
+    overlay_color := core.color_rgba(0, 0, 0, 200)
+    render.fill_rect(ctx, core.Rect{0, 0, ctx.logical_width, ctx.logical_height}, overlay_color)
+
+    // Calculate image size to fit in window with padding
+    padding: i32 = 40
+    max_w := ctx.logical_width - padding * 2
+    max_h := ctx.logical_height - padding * 2
+
+    img_w := g_state.preview_image.width
+    img_h := g_state.preview_image.height
+
+    // Scale to fit while maintaining aspect ratio
+    scale_w := f32(max_w) / f32(img_w)
+    scale_h := f32(max_h) / f32(img_h)
+    scale := min(scale_w, scale_h, 1.0)  // Don't upscale
+
+    display_w := i32(f32(img_w) * scale)
+    display_h := i32(f32(img_h) * scale)
+
+    // Center the image
+    x := (ctx.logical_width - display_w) / 2
+    y := (ctx.logical_height - display_h) / 2
+
+    // Draw the image
+    dest_rect := core.Rect{x, y, display_w, display_h}
+    render.draw_image_scaled(ctx, g_state.preview_image, dest_rect)
+
+    // Draw filename at bottom
+    if g_state.font_loaded && len(g_state.preview_path) > 0 {
+        filename := filepath.base(g_state.preview_path)
+        text_color := core.color_hex(0xCCCCCC)
+        text_y := ctx.logical_height - 30
+        text_width := i32(f64(render.text_measure(&g_state.font, filename)) / ctx.scale)
+        text_x := (ctx.logical_width - text_width) / 2
+        render.draw_text_top(ctx, &g_state.font, filename, text_x, text_y, text_color)
+    }
+}
+
 draw_callback :: proc(win: ^core.Window, pixels: [^]u32, width, height, stride: i32) {
     // Create scaled draw context using window's scale factor
     // width/height are physical buffer dimensions
@@ -397,6 +543,9 @@ draw_callback :: proc(win: ^core.Window, pixels: [^]u32, width, height, stride: 
 
     // Draw widget tree (containers and labels)
     widgets.widget_draw(g_state.root, &ctx)
+
+    // Draw preview overlay if active
+    draw_preview(&ctx)
 }
 
 close_callback :: proc(win: ^core.Window) {
@@ -509,20 +658,62 @@ scroll_callback :: proc(win: ^core.Window, delta: i32, axis: u32) {
 }
 
 key_callback :: proc(win: ^core.Window, key: u32, pressed: bool, utf8: string) {
-    if pressed {
-        if len(utf8) > 0 {
-            fmt.printf("Key %d pressed: '%s'\n", key, utf8)
-        } else {
-            fmt.printf("Key %d pressed (no printable char)\n", key)
-        }
-
-        // Handle Tab for focus navigation
-        event := core.Event{
-            type = .Key_Press,
-            keycode = key,
-        }
-        widgets.focus_handle_tab(&g_state.focus_manager, &event)
+    if !pressed {
+        return
     }
+
+    // Handle Escape - close preview if active
+    if key == 1 && g_state.preview_active {
+        close_preview()
+        core.window_request_redraw(win)
+        return
+    }
+
+    // Handle Spacebar - toggle preview for selected image
+    if key == 57 {
+        if g_state.preview_active {
+            close_preview()
+        } else {
+            open_preview()
+        }
+        core.window_request_redraw(win)
+        return
+    }
+
+    // Handle Enter - open folder or preview image
+    if key == 28 {
+        if g_state.image_grid != nil {
+            item, ok := widgets.image_grid_get_selected(g_state.image_grid)
+            if ok && item.type == .Folder {
+                navigate_to_directory(item.path)
+            } else if ok && item.type == .Image {
+                open_preview()
+            }
+            core.window_request_redraw(win)
+        }
+        return
+    }
+
+    // Arrow key navigation
+    // Left=105, Right=106, Up=103, Down=108
+    if key == 105 || key == 106 || key == 103 || key == 108 {
+        if g_state.preview_active {
+            // Navigate images while preview is open
+            navigate_preview(key == 105 ? -1 : (key == 106 ? 1 : 0))
+        } else {
+            // Navigate grid when not in preview
+            navigate_grid(key)
+        }
+        core.window_request_redraw(win)
+        return
+    }
+
+    // Handle Tab for focus navigation
+    event := core.Event{
+        type = .Key_Press,
+        keycode = key,
+    }
+    widgets.focus_handle_tab(&g_state.focus_manager, &event)
 }
 
 // Called when image loader has completed work (event-driven via eventfd)
