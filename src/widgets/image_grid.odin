@@ -9,6 +9,7 @@ import "core:path/filepath"
 Grid_Item_Type :: enum {
     Image,
     Folder,
+    File,
 }
 
 // Grid item
@@ -113,6 +114,17 @@ image_grid_add_item :: proc(g: ^Image_Grid, img: ^render.Image, thumbnail: ^rend
 image_grid_add_folder :: proc(g: ^Image_Grid, name: string, path: string) {
     item := Grid_Item{
         type = .Folder,
+        path = path,
+        name = name,
+    }
+    append(&g.items, item)
+    widget_mark_dirty(g)
+}
+
+// Add a file to the grid
+image_grid_add_file :: proc(g: ^Image_Grid, name: string, path: string) {
+    item := Grid_Item{
+        type = .File,
         path = path,
         name = name,
     }
@@ -347,6 +359,38 @@ draw_folder_icon :: proc(ctx: ^render.Draw_Context, rect: core.Rect) {
     render.fill_rect(ctx, edge_rect, folder_shadow)
 }
 
+// Draw a blank file icon in the given rect
+draw_file_icon :: proc(ctx: ^render.Draw_Context, rect: core.Rect) {
+    // File colors
+    file_body := core.color_hex(0x888888)       // Gray file body
+    file_corner := core.color_hex(0x666666)     // Darker folded corner
+    file_lines := core.color_hex(0x777777)      // Lines on file
+
+    // Calculate icon dimensions (centered, 45% width, 55% height)
+    icon_w := rect.width * 45 / 100
+    icon_h := rect.height * 55 / 100
+    icon_x := rect.x + (rect.width - icon_w) / 2
+    icon_y := rect.y + (rect.height - icon_h) / 2
+
+    // Draw main file body
+    render.fill_rect(ctx, core.Rect{icon_x, icon_y, icon_w, icon_h}, file_body)
+
+    // Draw folded corner (top-right)
+    corner_size := icon_w * 25 / 100
+    corner_x := icon_x + icon_w - corner_size
+    corner_y := icon_y
+    render.fill_rect(ctx, core.Rect{corner_x, corner_y, corner_size, corner_size}, file_corner)
+
+    // Draw a few lines to suggest text
+    line_margin := icon_w * 15 / 100
+    line_y := icon_y + icon_h * 40 / 100
+    line_w := icon_w - line_margin * 2
+    line_h: i32 = 2
+    for i in 0..<3 {
+        render.fill_rect(ctx, core.Rect{icon_x + line_margin, line_y + i32(i) * 8, line_w, line_h}, file_lines)
+    }
+}
+
 // Draw function
 image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
     g := cast(^Image_Grid)w
@@ -411,6 +455,9 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         if item.type == .Folder {
             // Draw folder icon
             draw_folder_icon(ctx, icon_rect)
+        } else if item.type == .File {
+            // Draw file icon
+            draw_file_icon(ctx, icon_rect)
         } else if item.loading {
             // Draw loading placeholder
             draw_loading_placeholder(ctx, icon_rect)
@@ -430,7 +477,7 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         // Draw label
         if g.font != nil {
             label_text: string
-            if item.type == .Folder {
+            if item.type == .Folder || item.type == .File {
                 label_text = item.name
             } else {
                 // Extract filename from path

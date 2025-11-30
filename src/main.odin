@@ -293,30 +293,38 @@ navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
         folder_count += 1
     }
 
-    // Second pass: add image placeholders and queue async loads
+    // Second pass: add files (images get thumbnails, others get file icons)
+    file_count := 0
     for entry in entries {
         if entry.is_dir {
             continue
         }
+        if strings.has_prefix(entry.name, ".") {
+            continue  // Skip hidden files
+        }
+
+        full_path := filepath.join({dir_path, entry.name})
+        name_clone := strings.clone(entry.name)
+        path_clone := strings.clone(full_path)
 
         // Check for image extensions
         ext := strings.to_lower(filepath.ext(entry.name))
         defer delete(ext)
 
         if ext == ".png" || ext == ".jpg" || ext == ".jpeg" {
-            full_path := filepath.join({dir_path, entry.name})
-            name_clone := strings.clone(entry.name)
-            path_clone := strings.clone(full_path)
-
             // Add placeholder and queue async load
             idx := widgets.image_grid_add_placeholder(g_state.image_grid, name_clone, path_clone)
             render.image_loader_queue(g_state.image_loader, full_path, idx)
-            delete(full_path)
             image_count += 1
+        } else {
+            // Add as regular file
+            widgets.image_grid_add_file(g_state.image_grid, name_clone, path_clone)
+            file_count += 1
         }
+        delete(full_path)
     }
 
-    fmt.printf("Loaded %d folders, %d images from %s\n", folder_count, image_count, dir_path)
+    fmt.printf("Loaded %d folders, %d images, %d files from %s\n", folder_count, image_count, file_count, dir_path)
 
     // Update header to show current path (use cloned current_directory, not dir_path which may be freed)
     if g_state.header_label != nil {
