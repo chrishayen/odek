@@ -60,6 +60,9 @@ image_load :: proc(path: string) -> (Image, bool) {
 
 // Destroy image and free memory
 image_destroy :: proc(img: ^Image) {
+    if img == nil {
+        return
+    }
     if img.pixels != nil {
         delete(img.pixels)
     }
@@ -333,4 +336,83 @@ image_copy :: proc(img: ^Image) -> (Image, bool) {
         width  = img.width,
         height = img.height,
     }, true
+}
+
+// Create image from RGBA pixel data (copies data, caller still owns input)
+// Returns pointer to new heap-allocated Image
+image_create_from_rgba :: proc(rgba_data: []u8, width, height: i32) -> ^Image {
+    if rgba_data == nil || len(rgba_data) == 0 || width <= 0 || height <= 0 {
+        return nil
+    }
+
+    pixel_count := int(width * height)
+    pixels := make([]u32, pixel_count)
+
+    // Convert RGBA to premultiplied ARGB
+    for i in 0 ..< pixel_count {
+        r := rgba_data[i * 4 + 0]
+        g := rgba_data[i * 4 + 1]
+        b := rgba_data[i * 4 + 2]
+        a := rgba_data[i * 4 + 3]
+
+        // Premultiply alpha
+        if a == 0 {
+            pixels[i] = 0
+        } else if a == 255 {
+            pixels[i] = (u32(a) << 24) | (u32(r) << 16) | (u32(g) << 8) | u32(b)
+        } else {
+            alpha := f32(a) / 255.0
+            pr := u8(f32(r) * alpha)
+            pg := u8(f32(g) * alpha)
+            pb := u8(f32(b) * alpha)
+            pixels[i] = (u32(a) << 24) | (u32(pr) << 16) | (u32(pg) << 8) | u32(pb)
+        }
+    }
+
+    img := new(Image)
+    img.pixels = pixels
+    img.width = width
+    img.height = height
+    return img
+}
+
+// Update existing image with new RGBA pixel data
+// If dimensions don't match, reallocates
+image_update_rgba :: proc(img: ^Image, rgba_data: []u8, width, height: i32) {
+    if img == nil || rgba_data == nil || len(rgba_data) == 0 {
+        return
+    }
+
+    pixel_count := int(width * height)
+
+    // Reallocate if size changed
+    if img.width != width || img.height != height || len(img.pixels) != pixel_count {
+        if img.pixels != nil {
+            delete(img.pixels)
+        }
+        img.pixels = make([]u32, pixel_count)
+        img.width = width
+        img.height = height
+    }
+
+    // Convert RGBA to premultiplied ARGB
+    for i in 0 ..< pixel_count {
+        r := rgba_data[i * 4 + 0]
+        g := rgba_data[i * 4 + 1]
+        b := rgba_data[i * 4 + 2]
+        a := rgba_data[i * 4 + 3]
+
+        // Premultiply alpha
+        if a == 0 {
+            img.pixels[i] = 0
+        } else if a == 255 {
+            img.pixels[i] = (u32(a) << 24) | (u32(r) << 16) | (u32(g) << 8) | u32(b)
+        } else {
+            alpha := f32(a) / 255.0
+            pr := u8(f32(r) * alpha)
+            pg := u8(f32(g) * alpha)
+            pb := u8(f32(b) * alpha)
+            img.pixels[i] = (u32(a) << 24) | (u32(pr) << 16) | (u32(pg) << 8) | u32(pb)
+        }
+    }
 }

@@ -10,17 +10,21 @@ Grid_Item_Type :: enum {
     Image,
     Folder,
     File,
+    Video,
 }
 
 // Grid item
 Grid_Item :: struct {
-    type:      Grid_Item_Type,
-    image:     ^render.Image,  // Reference to image (not owned)
-    thumbnail: ^render.Image,  // Reference to thumbnail for display (not owned)
-    path:      string,         // File path for identification
-    name:      string,         // Display name (for folders)
-    loading:   bool,           // True while async loading in progress
-    user_data: rawptr,         // User-defined data
+    type:          Grid_Item_Type,
+    image:         ^render.Image,         // Reference to image (not owned)
+    thumbnail:     ^render.Image,         // Reference to thumbnail for display (not owned)
+    path:          string,                // File path for identification
+    name:          string,                // Display name (for folders)
+    loading:       bool,                  // True while async loading in progress
+    user_data:     rawptr,                // User-defined data
+    // Video playback
+    video_decoder: ^render.Video_Decoder, // Video decoder for animated thumbnails
+    video_frame:   ^render.Image,         // Current frame image for display
 }
 
 // Image grid widget with scrolling and selection
@@ -132,6 +136,19 @@ image_grid_add_file :: proc(g: ^Image_Grid, name: string, path: string) {
     widget_mark_dirty(g)
 }
 
+// Add a video to the grid with animated thumbnail
+image_grid_add_video :: proc(g: ^Image_Grid, name: string, path: string, thumb_size: i32 = 128) {
+    decoder := render.video_decoder_open(path, thumb_size)
+    item := Grid_Item{
+        type = .Video,
+        path = path,
+        name = name,
+        video_decoder = decoder,
+    }
+    append(&g.items, item)
+    widget_mark_dirty(g)
+}
+
 // Add a placeholder image item (for async loading)
 // Returns the index of the added item
 image_grid_add_placeholder :: proc(g: ^Image_Grid, name: string, path: string) -> i32 {
@@ -176,11 +193,73 @@ image_grid_remove_item :: proc(g: ^Image_Grid, index: i32) {
 
 // Clear all items
 image_grid_clear :: proc(g: ^Image_Grid) {
+    // Clean up video decoders
+    for &item in g.items {
+        if item.video_decoder != nil {
+            render.video_decoder_close(item.video_decoder)
+            item.video_decoder = nil
+        }
+        if item.video_frame != nil {
+            render.image_destroy(item.video_frame)
+            item.video_frame = nil
+        }
+    }
     clear(&g.items)
     g.selected_idx = -1
     g.hovered_idx = -1
     g.scroll.offset = 0
     widget_mark_dirty(g)
+}
+
+// Update video thumbnails for visible items
+// Call this from the main loop with delta_time
+image_grid_update_videos :: proc(g: ^Image_Grid, delta_time: f64) -> bool {
+    if g == nil || len(g.items) == 0 {
+        return false
+    }
+
+    needs_redraw := false
+    abs_rect := widget_get_absolute_rect(g)
+    content_top := abs_rect.y + g.padding.top
+    content_bottom := abs_rect.y + abs_rect.height - g.padding.bottom
+
+    for i in 0 ..< i32(len(g.items)) {
+        item := &g.items[i]
+        if item.type != .Video || item.video_decoder == nil {
+            continue
+        }
+
+        // Check if item is visible
+        item_rect := image_grid_get_item_rect(g, i)
+        item_top := abs_rect.y + item_rect.y
+        item_bottom := item_top + item_rect.height
+
+        // Skip if not visible
+        if item_bottom < content_top || item_top > content_bottom {
+            continue
+        }
+
+        // Update video decoder timing
+        if render.video_decoder_update(item.video_decoder, delta_time) {
+            // Time to decode next frame
+            pixels, width, height := render.video_decoder_read_frame(item.video_decoder)
+            if pixels != nil && len(pixels) > 0 {
+                // Create or update frame image
+                if item.video_frame == nil {
+                    item.video_frame = render.image_create_from_rgba(pixels, width, height)
+                } else {
+                    // Update existing image
+                    render.image_update_rgba(item.video_frame, pixels, width, height)
+                }
+                needs_redraw = true
+            }
+        }
+    }
+
+    if needs_redraw {
+        widget_mark_dirty(g)
+    }
+    return needs_redraw
 }
 
 // Set selected item
@@ -391,6 +470,42 @@ draw_file_icon :: proc(ctx: ^render.Draw_Context, rect: core.Rect) {
     }
 }
 
+// Draw a video placeholder icon (film reel style)
+draw_video_icon :: proc(ctx: ^render.Draw_Context, rect: core.Rect) {
+    // Video icon colors
+    film_bg := core.color_hex(0x444444)         // Dark background
+    film_strip := core.color_hex(0x666666)      // Film strip
+    play_btn := core.color_hex(0x888888)        // Play button
+
+    // Calculate icon dimensions (centered, 60% width, 50% height)
+    icon_w := rect.width * 60 / 100
+    icon_h := rect.height * 50 / 100
+    icon_x := rect.x + (rect.width - icon_w) / 2
+    icon_y := rect.y + (rect.height - icon_h) / 2
+
+    // Draw film background
+    render.fill_rect(ctx, core.Rect{icon_x, icon_y, icon_w, icon_h}, film_bg)
+
+    // Draw film strip holes on left and right
+    hole_w := icon_w * 8 / 100
+    hole_h := icon_h * 12 / 100
+    hole_margin := icon_h * 8 / 100
+    for i: i32 = 0; i < 4; i += 1 {
+        y := icon_y + hole_margin + i * (hole_h + hole_margin)
+        // Left holes
+        render.fill_rect(ctx, core.Rect{icon_x + 2, y, hole_w, hole_h}, film_strip)
+        // Right holes
+        render.fill_rect(ctx, core.Rect{icon_x + icon_w - hole_w - 2, y, hole_w, hole_h}, film_strip)
+    }
+
+    // Draw play triangle in center
+    center_x := icon_x + icon_w / 2
+    center_y := icon_y + icon_h / 2
+    play_size := icon_h * 40 / 100
+    // Draw as a rectangle approximation of play button
+    render.fill_rect(ctx, core.Rect{center_x - play_size/3, center_y - play_size/2, play_size * 2/3, play_size}, play_btn)
+}
+
 // Draw function
 image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
     g := cast(^Image_Grid)w
@@ -458,6 +573,14 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         } else if item.type == .File {
             // Draw file icon
             draw_file_icon(ctx, icon_rect)
+        } else if item.type == .Video {
+            // Draw video frame or placeholder
+            if item.video_frame != nil {
+                render.draw_image_scaled(ctx, item.video_frame, icon_rect)
+            } else {
+                // Draw video placeholder icon
+                draw_video_icon(ctx, icon_rect)
+            }
         } else if item.loading {
             // Draw loading placeholder
             draw_loading_placeholder(ctx, icon_rect)
@@ -477,7 +600,7 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         // Draw label
         if g.font != nil {
             label_text: string
-            if item.type == .Folder || item.type == .File {
+            if item.type == .Folder || item.type == .File || item.type == .Video {
                 label_text = item.name
             } else {
                 // Extract filename from path
@@ -516,7 +639,7 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
 
                 // Center the text (all in logical coordinates)
                 text_x := item_abs.x + (item_abs.width - text_width_logical) / 2
-                text_y := item_abs.y + item_abs.height - label_height - 12
+                text_y := icon_rect.y + icon_rect.height + 2  // Position below icon with small gap
 
                 label_color := core.color_hex(0xCCCCCC)
                 render.draw_text_top(ctx, g.font, display_text, text_x, text_y, label_color)

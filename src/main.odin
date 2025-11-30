@@ -8,6 +8,7 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:path/filepath"
+import "core:time"
 
 // Application state
 App_State :: struct {
@@ -41,6 +42,9 @@ App_State :: struct {
     preview_active:  bool,
     preview_image:   ^render.Image,
     preview_path:    string,
+
+    // Video playback timing
+    last_frame_time: f64,
 }
 
 g_state: App_State
@@ -298,8 +302,9 @@ navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
         folder_count += 1
     }
 
-    // Second pass: add files (images get thumbnails, others get file icons)
+    // Second pass: add files (images get thumbnails, videos get animated thumbs, others get file icons)
     file_count := 0
+    video_count := 0
     for entry in entries {
         if entry.is_dir {
             continue
@@ -312,7 +317,7 @@ navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
         name_clone := strings.clone(entry.name)
         path_clone := strings.clone(full_path)
 
-        // Check for image extensions
+        // Check for image/video extensions
         ext := strings.to_lower(filepath.ext(entry.name))
         defer delete(ext)
 
@@ -321,6 +326,10 @@ navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
             idx := widgets.image_grid_add_placeholder(g_state.image_grid, name_clone, path_clone)
             render.image_loader_queue(g_state.image_loader, full_path, idx)
             image_count += 1
+        } else if ext == ".mp4" || ext == ".mkv" || ext == ".avi" || ext == ".webm" || ext == ".mov" {
+            // Add video with animated thumbnail
+            widgets.image_grid_add_video(g_state.image_grid, name_clone, path_clone)
+            video_count += 1
         } else {
             // Add as regular file
             widgets.image_grid_add_file(g_state.image_grid, name_clone, path_clone)
@@ -329,7 +338,7 @@ navigate_to_directory :: proc(dir_path: string, add_to_history: bool = true) {
         delete(full_path)
     }
 
-    fmt.printf("Loaded %d folders, %d images, %d files from %s\n", folder_count, image_count, file_count, dir_path)
+    fmt.printf("Loaded %d folders, %d images, %d videos, %d files from %s\n", folder_count, image_count, video_count, file_count, dir_path)
 
     // Update header to show current path (use cloned current_directory, not dir_path which may be freed)
     if g_state.header_label != nil {
@@ -528,6 +537,22 @@ draw_callback :: proc(win: ^core.Window, pixels: [^]u32, width, height, stride: 
         win.logical_width, win.logical_height,
         win.scale,
     )
+
+    // Calculate delta time for video playback
+    current_time := f64(time.now()._nsec) / 1_000_000_000.0
+    delta_time: f64 = 0.0
+    if g_state.last_frame_time > 0 {
+        delta_time = current_time - g_state.last_frame_time
+    }
+    g_state.last_frame_time = current_time
+
+    // Update video thumbnails
+    if g_state.image_grid != nil && delta_time > 0 {
+        if widgets.image_grid_update_videos(g_state.image_grid, delta_time) {
+            // Videos updated - request another frame for continuous playback
+            core.window_request_redraw(win)
+        }
+    }
 
     // Clear buffer to background color FIRST - prevents stale pixels from previous frames
     bg_color := core.color_hex(0x2D2D2D)
