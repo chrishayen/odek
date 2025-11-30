@@ -357,8 +357,8 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         render.fill_rect(ctx, abs_rect, g.background)
     }
 
-    // Set up clipping for content area
-    old_clip := ctx.clip
+    // Set up clipping for content area (use logical_clip since content_rect is logical)
+    old_logical_clip := ctx.logical_clip
     content_rect := core.Rect{
         x = abs_rect.x + w.padding.left,
         y = abs_rect.y + w.padding.top,
@@ -366,7 +366,7 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         height = abs_rect.height - w.padding.top - w.padding.bottom,
     }
 
-    if clipped, ok := core.rect_intersection(content_rect, old_clip); ok {
+    if clipped, ok := core.rect_intersection(content_rect, old_logical_clip); ok {
         render.context_set_clip(ctx, clipped)
     } else {
         return  // Nothing visible
@@ -438,16 +438,18 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
             }
 
             if len(label_text) > 0 {
-                max_width := g.cell_width - 10  // 5px padding on each side
-                text_width := render.text_measure(g.font, label_text)
+                // Convert max_width to physical for comparison with text measurements
+                // (font is loaded at scaled size, so text_measure returns physical width)
+                max_width_phys := i32(f64(g.cell_width - 10) * ctx.scale)
+                text_width_phys := render.text_measure(g.font, label_text)
 
                 // Truncate with ellipsis if too wide
                 display_text := label_text
                 truncated_buf: [256]u8
-                if text_width > max_width {
+                if text_width_phys > max_width_phys {
                     ellipsis :: "..."
                     ellipsis_width := render.text_measure(g.font, ellipsis)
-                    target_width := max_width - ellipsis_width
+                    target_width := max_width_phys - ellipsis_width
 
                     // Find truncation point
                     for i := len(label_text) - 1; i > 0; i -= 1 {
@@ -459,11 +461,14 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
                             break
                         }
                     }
-                    text_width = render.text_measure(g.font, display_text)
+                    text_width_phys = render.text_measure(g.font, display_text)
                 }
 
-                // Center the text
-                text_x := item_abs.x + (item_abs.width - text_width) / 2
+                // Convert text width back to logical for centering calculation
+                text_width_logical := i32(f64(text_width_phys) / ctx.scale)
+
+                // Center the text (all in logical coordinates)
+                text_x := item_abs.x + (item_abs.width - text_width_logical) / 2
                 text_y := item_abs.y + item_abs.height - label_height + 2
 
                 label_color := core.color_hex(0xCCCCCC)
@@ -473,7 +478,7 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
     }
 
     // Restore clip
-    render.context_set_clip(ctx, old_clip)
+    render.context_set_clip(ctx, old_logical_clip)
 
     // Draw scroll indicator if scrollable
     if scroll_is_scrollable(&g.scroll) {

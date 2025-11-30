@@ -174,12 +174,13 @@ widget_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         return
     }
 
-    // Get absolute position for clipping
+    // Get absolute position for clipping (in logical coordinates)
     abs_rect := widget_get_absolute_rect(w)
 
-    // Save current clip and set widget clip
-    old_clip := ctx.clip
-    if clipped, ok := core.rect_intersection(abs_rect, old_clip); ok {
+    // Save current logical clip and set widget clip
+    // Use logical_clip for intersection since abs_rect is in logical coordinates
+    old_logical_clip := ctx.logical_clip
+    if clipped, ok := core.rect_intersection(abs_rect, old_logical_clip); ok {
         render.context_set_clip(ctx, clipped)
     } else {
         // Widget entirely outside clip region
@@ -196,8 +197,8 @@ widget_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         widget_draw(child, ctx)
     }
 
-    // Restore clip
-    render.context_set_clip(ctx, old_clip)
+    // Restore clip (pass logical clip to context_set_clip)
+    render.context_set_clip(ctx, old_logical_clip)
     w.dirty = false
 }
 

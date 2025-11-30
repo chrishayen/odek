@@ -11,6 +11,7 @@ Draw_Context :: struct {
     height: i32,          // Physical buffer height
     stride: i32,
     clip: core.Rect,      // Clip rect in physical coordinates
+    logical_clip: core.Rect,  // Clip rect in logical coordinates (for widgets)
     scale: f64,           // Scale factor (logical -> physical)
     logical_width: i32,   // Logical width (for widgets)
     logical_height: i32,  // Logical height (for widgets)
@@ -24,6 +25,7 @@ context_create :: proc(pixels: [^]u32, width, height, stride: i32) -> Draw_Conte
         height = height,
         stride = stride,
         clip = core.Rect{0, 0, width, height},
+        logical_clip = core.Rect{0, 0, width, height},
         scale = 1.0,
         logical_width = width,
         logical_height = height,
@@ -38,6 +40,7 @@ context_create_scaled :: proc(pixels: [^]u32, phys_width, phys_height, stride: i
         height = phys_height,
         stride = stride,
         clip = core.Rect{0, 0, phys_width, phys_height},
+        logical_clip = core.Rect{0, 0, logical_width, logical_height},
         scale = scale,
         logical_width = logical_width,
         logical_height = logical_height,
@@ -62,6 +65,14 @@ scale_rect :: proc(ctx: ^Draw_Context, rect: core.Rect) -> core.Rect {
 // Set clipping rectangle
 // clip is in logical coordinates, will be scaled to physical
 context_set_clip :: proc(ctx: ^Draw_Context, clip: core.Rect) {
+    // Store logical clip (for widget clipping calculations)
+    logical_bounds := core.Rect{0, 0, ctx.logical_width, ctx.logical_height}
+    if logical_clipped, ok := core.rect_intersection(clip, logical_bounds); ok {
+        ctx.logical_clip = logical_clipped
+    } else {
+        ctx.logical_clip = core.Rect{}
+    }
+
     // Scale logical clip to physical
     phys_clip := scale_rect(ctx, clip)
     // Intersect with buffer bounds
