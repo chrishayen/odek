@@ -239,16 +239,23 @@ image_grid_update_videos :: proc(g: ^Image_Grid, delta_time: f64) -> bool {
             continue
         }
 
-        // Update video decoder timing
-        if render.video_decoder_update(item.video_decoder, delta_time) {
-            // Time to decode next frame
-            pixels, width, height := render.video_decoder_read_frame(item.video_decoder)
+        // Update video decoder timing - returns frames to skip for real-time playback
+        frames_to_skip := render.video_decoder_update(item.video_decoder, delta_time)
+        if frames_to_skip > 0 {
+            // Decode frames, keeping only the last one for display
+            pixels: []u8
+            width, height: i32
+            for _ in 0 ..< frames_to_skip {
+                pixels, width, height = render.video_decoder_read_frame(item.video_decoder)
+                if pixels == nil {
+                    break
+                }
+            }
             if pixels != nil && len(pixels) > 0 {
-                // Create or update frame image
+                // Create or update frame image with the latest frame
                 if item.video_frame == nil {
                     item.video_frame = render.image_create_from_rgba(pixels, width, height)
                 } else {
-                    // Update existing image
                     render.image_update_rgba(item.video_frame, pixels, width, height)
                 }
                 needs_redraw = true

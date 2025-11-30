@@ -176,22 +176,28 @@ video_decoder_read_frame :: proc(decoder: ^Video_Decoder) -> (pixels: []u8, widt
 }
 
 // Check if enough time has passed to decode next frame
-// Returns true if we should decode
-video_decoder_update :: proc(decoder: ^Video_Decoder, delta_time: f64) -> bool {
+// Returns number of frames to skip to maintain real-time playback
+video_decoder_update :: proc(decoder: ^Video_Decoder, delta_time: f64) -> int {
 	if decoder == nil || !decoder.is_open {
-		return false
+		return 0
 	}
 
 	decoder.accumulated_time += delta_time
 
-	// Target ~12 FPS for thumbnails
-	target_frame_time := 1.0 / 12.0
+	// Target 30 FPS for smooth display
+	target_frame_time := 1.0 / 30.0
 
 	if decoder.accumulated_time >= target_frame_time {
+		// Calculate how many source frames to skip for real-time playback
+		// If video is 30 FPS and we display at 12 FPS, skip ~2.5 frames per update
+		frames_to_skip := int(decoder.accumulated_time / decoder.frame_duration)
+		if frames_to_skip < 1 {
+			frames_to_skip = 1
+		}
 		decoder.accumulated_time = 0
-		return true
+		return frames_to_skip
 	}
-	return false
+	return 0
 }
 
 // Seek to start of video
