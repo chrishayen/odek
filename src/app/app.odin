@@ -7,6 +7,7 @@ import "../core"
 import "../widgets"
 import "../render"
 import "core:time"
+import "core:fmt"
 
 // App encapsulates all state - no global variables needed by user
 App :: struct {
@@ -118,6 +119,9 @@ create :: proc(title: string, width: i32 = 800, height: i32 = 600) -> ^App {
 
     // Set up callbacks (store app pointer for callbacks)
     g_app = a
+
+    // Set global hit state for widget destroy notifications
+    widgets.hit_state_set_global(&a.hit_state)
 
     // Register image loader notification FD for event-driven updates
     loader_fd := render.image_loader_get_fd(a.image_loader)
@@ -254,6 +258,11 @@ create_text_input :: proc(a: ^App) -> ^widgets.Text_Input {
     return ti
 }
 
+// Create a checkbox (does not add to root)
+create_checkbox :: proc(a: ^App) -> ^widgets.Checkbox {
+    return widgets.checkbox_create()
+}
+
 // Create a container (does not add to root)
 create_container :: proc(direction: widgets.Direction = .Column) -> ^widgets.Container {
     return widgets.container_create(direction)
@@ -323,6 +332,13 @@ request_redraw :: proc(a: ^App) {
 // Get the root container for custom layouts
 get_root :: proc(a: ^App) -> ^widgets.Container {
     return a.root
+}
+
+// Set minimum window size (hint to compositor)
+set_min_size :: proc(a: ^App, width, height: i32) {
+    if a != nil && a.window != nil {
+        core.window_set_min_size(a.window, width, height)
+    }
 }
 
 // Get current pointer position
@@ -562,26 +578,9 @@ _key_callback :: proc(win: ^core.Window, keycode: u32, pressed: bool, utf8: stri
     // Send to focused widget
     focused := widgets.focus_get(&g_app.focus_manager)
     if focused != nil {
-        // Add keysym for text input
-        // Simple ASCII mapping for printable characters
-        if keycode >= 2 && keycode <= 11 {
-            // Number keys 1-0
-            num := (keycode - 1) % 10
-            event.keysym = u32('0') + u32(num)
-        } else if keycode >= 16 && keycode <= 25 {
-            // QWERTY row
-            chars := "qwertyuiop"
-            event.keysym = u32(chars[keycode - 16])
-        } else if keycode >= 30 && keycode <= 38 {
-            // ASDF row
-            chars := "asdfghjkl"
-            event.keysym = u32(chars[keycode - 30])
-        } else if keycode >= 44 && keycode <= 50 {
-            // ZXCV row
-            chars := "zxcvbnm"
-            event.keysym = u32(chars[keycode - 44])
-        } else if keycode == u32(core.Keycode.Space) {
-            event.keysym = u32(' ')
+        // Use UTF-8 from XKB (has correct case from modifier state)
+        if len(utf8) > 0 {
+            event.keysym = u32(utf8[0])
         }
 
         widgets.widget_handle_event(focused, &event)

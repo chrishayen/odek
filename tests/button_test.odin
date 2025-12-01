@@ -235,7 +235,7 @@ test_button_measure_no_font :: proc(t: ^testing.T) {
     b := widgets.button_create("Test")
     b.padding = widgets.edges_all(10)
 
-    size := widgets.button_measure(b)
+    size := widgets.button_measure(b, -1)
 
     // Without font, should have default height + padding
     testing.expect(t, size.width == 20, "Width should be just padding")
@@ -261,7 +261,7 @@ test_button_measure_with_font :: proc(t: ^testing.T) {
     b := widgets.button_create("Click", &font)
     b.padding = widgets.edges_symmetric(16, 8)
 
-    size := widgets.button_measure(b)
+    size := widgets.button_measure(b, -1)
 
     text_width := render.text_measure(&font, "Click")
     expected_width := text_width + 32  // 16 left + 16 right
@@ -279,7 +279,7 @@ test_button_measure_respects_min_size :: proc(t: ^testing.T) {
     b.min_size = core.Size{100, 50}
     b.padding = widgets.edges_all(5)
 
-    size := widgets.button_measure(b)
+    size := widgets.button_measure(b, -1)
 
     testing.expect(t, size.width >= 100, "Width should respect min_size")
     testing.expect(t, size.height >= 50, "Height should respect min_size")

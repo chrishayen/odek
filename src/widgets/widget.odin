@@ -9,7 +9,7 @@ Widget_VTable :: struct {
     handle_event: proc(w: ^Widget, event: ^core.Event) -> bool,  // returns true if consumed
     layout:       proc(w: ^Widget),  // calculate size and position children
     destroy:      proc(w: ^Widget),  // cleanup widget-specific resources
-    measure:      proc(w: ^Widget) -> core.Size,  // preferred size
+    measure:      proc(w: ^Widget, available_width: i32) -> core.Size,  // preferred size given available width (-1 = unconstrained)
 }
 
 // Edge insets (padding, margin)
@@ -90,6 +90,9 @@ widget_destroy :: proc(w: ^Widget) {
     if w == nil {
         return
     }
+
+    // Clear hit state if this widget is hovered
+    hit_state_clear_widget(w)
 
     // Destroy children first
     for child in w.children {
@@ -192,6 +195,11 @@ widget_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         w.vtable.draw(w, ctx)
     }
 
+    // Draw debug border if enabled (skip root widget which has no parent)
+    if debug_borders_enabled() && w.parent != nil {
+        render.draw_rect(ctx, abs_rect, core.Color{255, 0, 0, 255})
+    }
+
     // Draw children
     for child in w.children {
         widget_draw(child, ctx)
@@ -231,14 +239,14 @@ widget_layout :: proc(w: ^Widget) {
     }
 }
 
-// Measure preferred size
-widget_measure :: proc(w: ^Widget) -> core.Size {
+// Measure preferred size given available width (-1 = unconstrained)
+widget_measure :: proc(w: ^Widget, available_width: i32 = -1) -> core.Size {
     if w == nil {
         return {}
     }
 
     if w.vtable != nil && w.vtable.measure != nil {
-        return w.vtable.measure(w)
+        return w.vtable.measure(w, available_width)
     }
 
     // Default: use min_size or rect size

@@ -127,11 +127,11 @@ button_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         render.fill_rect(ctx, abs_rect, bg_color)
     }
 
-    // Draw text centered
+    // Draw text centered (use logical pixels for layout)
     if b.font != nil && b.text != "" {
-        text_width := render.text_measure(b.font, b.text)
+        text_width := render.text_measure_logical(b.font, b.text)
         text_x := abs_rect.x + (abs_rect.width - text_width) / 2
-        text_y := abs_rect.y + (abs_rect.height - b.font.line_height) / 2
+        text_y := abs_rect.y + (abs_rect.height - render.font_get_logical_line_height(b.font)) / 2
         render.draw_text_top(ctx, b.font, b.text, text_x, text_y, b.text_color)
     }
 
@@ -204,7 +204,7 @@ button_layout :: proc(w: ^Widget) {
 }
 
 // Measure button's preferred size
-button_measure :: proc(w: ^Widget) -> core.Size {
+button_measure :: proc(w: ^Widget, available_width: i32) -> core.Size {
     b := cast(^Button)w
 
     text_width: i32 = 0

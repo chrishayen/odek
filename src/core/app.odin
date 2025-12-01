@@ -503,6 +503,14 @@ window_request_redraw :: proc(win: ^Window) {
     // No-op - main loop renders every frame
 }
 
+// Set minimum window size (hint to compositor)
+window_set_min_size :: proc(win: ^Window, width, height: i32) {
+    if win == nil || win.xdg_toplevel == nil {
+        return
+    }
+    wl.xdg_toplevel_set_min_size(win.xdg_toplevel, width, height)
+}
+
 // Handle pending resize if needed
 window_handle_resize :: proc(win: ^Window) {
     if resize, ok := win.pending_resize.?; ok {

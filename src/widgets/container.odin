@@ -3,14 +3,22 @@ package widgets
 import "../core"
 import "../render"
 
+// Main-axis content justification
+Justify :: enum {
+    Start,   // Pack items at start
+    Center,  // Pack items at center
+    End,     // Pack items at end
+}
+
 // Container widget with flexbox-lite layout
 Container :: struct {
     using base: Widget,
 
-    direction:   Direction,   // Row or Column
-    align_items: Align,       // Cross-axis alignment
-    spacing:     i32,         // Gap between children
-    background:  core.Color,  // Background color (transparent = no fill)
+    direction:       Direction,   // Row or Column
+    align_items:     Align,       // Cross-axis alignment
+    justify_content: Justify,     // Main-axis justification
+    spacing:         i32,         // Gap between children
+    background:      core.Color,  // Background color (transparent = no fill)
 }
 
 // Shared vtable for all containers
@@ -80,13 +88,16 @@ container_layout :: proc(w: ^Widget) {
     available_main := main_size - total_spacing
 
     // First pass: measure all children and calculate flex totals
+    // Pass cross_size as available width for Column containers (so children know their width for height calculation)
+    child_available_width: i32 = cross_size if !is_row else -1
+
     child_sizes := make([]core.Size, len(visible_children), context.temp_allocator)
     total_flex: f32 = 0
     fixed_main: i32 = 0
 
     for i := 0; i < len(visible_children); i += 1 {
         child := visible_children[i]
-        child_sizes[i] = widget_measure(child)
+        child_sizes[i] = widget_measure(child, child_available_width)
 
         if child.flex > 0 {
             total_flex += child.flex
@@ -103,8 +114,27 @@ container_layout :: proc(w: ^Widget) {
         flex_space = 0
     }
 
-    // Second pass: position children
+    // Calculate total content size for justify_content
+    total_content_main: i32 = 0
+    if total_flex == 0 {
+        // No flex children - content size is fixed_main + spacing
+        total_content_main = fixed_main + total_spacing
+    } else {
+        // Has flex children - they fill available space
+        total_content_main = main_size
+    }
+
+    // Calculate starting position based on justify_content
     main_pos: i32 = 0
+    if total_flex == 0 {
+        // Only apply justify when there are no flex items
+        #partial switch c.justify_content {
+        case .Center:
+            main_pos = (main_size - total_content_main) / 2
+        case .End:
+            main_pos = main_size - total_content_main
+        }
+    }
 
     for i := 0; i < len(visible_children); i += 1 {
         child := visible_children[i]
@@ -171,7 +201,7 @@ container_layout :: proc(w: ^Widget) {
 }
 
 // Measure container's preferred size based on children
-container_measure :: proc(w: ^Widget) -> core.Size {
+container_measure :: proc(w: ^Widget, available_width: i32) -> core.Size {
     c := cast(^Container)w
 
     visible_children := make([dynamic]^Widget, context.temp_allocator)
@@ -183,8 +213,8 @@ container_measure :: proc(w: ^Widget) -> core.Size {
 
     if len(visible_children) == 0 {
         return core.Size{
-            width = w.padding.left + w.padding.right,
-            height = w.padding.top + w.padding.bottom,
+            width = max(w.padding.left + w.padding.right, w.min_size.width),
+            height = max(w.padding.top + w.padding.bottom, w.min_size.height),
         }
     }
 
@@ -192,11 +222,18 @@ container_measure :: proc(w: ^Widget) -> core.Size {
     num_gaps := max(0, len(visible_children) - 1)
     total_spacing := c.spacing * i32(num_gaps)
 
+    // Calculate available width for children (subtract padding)
+    child_available_width: i32 = -1
+    if available_width > 0 {
+        child_available_width = available_width - w.padding.left - w.padding.right
+    }
+
     main_total: i32 = total_spacing
     cross_max: i32 = 0
 
     for child in visible_children {
-        child_size := widget_measure(child)
+        // Pass available width to children so they can calculate height for wrapping
+        child_size := widget_measure(child, child_available_width)
 
         if is_row {
             main_total += child_size.width + child.margin.left + child.margin.right
@@ -209,13 +246,13 @@ container_measure :: proc(w: ^Widget) -> core.Size {
 
     if is_row {
         return core.Size{
-            width = main_total + w.padding.left + w.padding.right,
-            height = cross_max + w.padding.top + w.padding.bottom,
+            width = max(main_total + w.padding.left + w.padding.right, w.min_size.width),
+            height = max(cross_max + w.padding.top + w.padding.bottom, w.min_size.height),
         }
     } else {
         return core.Size{
-            width = cross_max + w.padding.left + w.padding.right,
-            height = main_total + w.padding.top + w.padding.bottom,
+            width = max(cross_max + w.padding.left + w.padding.right, w.min_size.width),
+            height = max(main_total + w.padding.top + w.padding.bottom, w.min_size.height),
         }
     }
 }
