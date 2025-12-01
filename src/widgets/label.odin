@@ -8,11 +8,12 @@ import "core:strings"
 Label :: struct {
     using base: Widget,
 
-    text:       string,
-    font:       ^render.Font,
-    color:      core.Color,
-    h_align:    Align,          // Horizontal text alignment (Start, Center, End)
-    wrap:       bool,           // Enable word wrapping
+    text:         string,
+    font:         ^render.Font,
+    color:        core.Color,
+    h_align:      Align,          // Horizontal text alignment (Start, Center, End)
+    wrap:         bool,           // Enable word wrapping
+    strikethrough: bool,          // Draw line through text
 
     // Cached layout data
     lines:        [dynamic]string,  // Wrapped lines (slices into original text)
@@ -86,6 +87,15 @@ label_set_wrap :: proc(l: ^Label, wrap: bool) {
     widget_mark_dirty(l)
 }
 
+// Set strikethrough enabled
+label_set_strikethrough :: proc(l: ^Label, strikethrough: bool) {
+    if l.strikethrough == strikethrough {
+        return
+    }
+    l.strikethrough = strikethrough
+    widget_mark_dirty(l)
+}
+
 // Update wrapped lines cache
 label_update_lines :: proc(l: ^Label, available_width: i32) {
     // Only skip if cache is valid AND we have lines
@@ -133,15 +143,15 @@ label_wrap_text :: proc(font: ^render.Font, text: string, max_width: i32, lines:
     }
 }
 
-// Wrap a single line (no embedded newlines) to fit within max_width
+// Wrap a single line (no embedded newlines) to fit within max_width (logical pixels)
 wrap_single_line :: proc(font: ^render.Font, line: string, max_width: i32, lines: ^[dynamic]string) {
     if line == "" {
         append(lines, "")
         return
     }
 
-    // Check if line fits without wrapping
-    if render.text_measure(font, line) <= max_width {
+    // Check if line fits without wrapping (use logical pixels)
+    if render.text_measure_logical(font, line) <= max_width {
         append(lines, line)
         return
     }
@@ -160,7 +170,7 @@ wrap_single_line :: proc(font: ^render.Font, line: string, max_width: i32, lines
         if is_space || is_end {
             // We have a complete word from word_start to i
             current_segment := line[line_start:i]
-            width := render.text_measure(font, current_segment)
+            width := render.text_measure_logical(font, current_segment)
 
             if width > max_width {
                 // Line is too long
@@ -229,11 +239,12 @@ label_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         return
     }
 
-    // Draw each line
+    // Draw each line (all coordinates in logical pixels)
+    line_height := render.font_get_logical_line_height(l.font)
     y := abs_rect.y + w.padding.top
 
     for line in l.lines {
-        line_width := render.text_measure(l.font, line)
+        line_width := render.text_measure_logical(l.font, line)
 
         // Calculate x position based on alignment
         x: i32
@@ -249,7 +260,15 @@ label_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         }
 
         render.draw_text_top(ctx, l.font, line, x, y, l.color)
-        y += l.font.line_height
+
+        // Draw strikethrough line if enabled
+        if l.strikethrough && line_width > 0 {
+            // Draw line through vertical center of text
+            strike_y := y + line_height / 2
+            render.draw_hline(ctx, x, x + line_width, strike_y, l.color)
+        }
+
+        y += line_height
     }
 }
 
@@ -265,8 +284,8 @@ label_layout :: proc(w: ^Widget) {
     label_update_lines(l, content_width)
 }
 
-// Measure label's preferred size
-label_measure :: proc(w: ^Widget) -> core.Size {
+// Measure label's preferred size given available width (-1 = unconstrained)
+label_measure :: proc(w: ^Widget, available_width: i32) -> core.Size {
     l := cast(^Label)w
 
     if l.font == nil || l.text == "" {
@@ -276,16 +295,11 @@ label_measure :: proc(w: ^Widget) -> core.Size {
         }
     }
 
-    // Try to get width constraint from rect, or from parent's content area
-    available_width := w.rect.width - w.padding.left - w.padding.right
-    if available_width <= 0 && l.wrap && w.parent != nil {
-        // Use parent's content width as hint for wrapping calculation
-        parent_content := widget_get_content_rect(w.parent)
-        available_width = parent_content.width - w.margin.left - w.margin.right - w.padding.left - w.padding.right
-    }
+    // Calculate content width for wrapping
+    content_width := available_width - w.padding.left - w.padding.right if available_width > 0 else -1
 
-    if available_width <= 0 || !l.wrap {
-        // No width constraint, measure single line
+    if content_width <= 0 || !l.wrap {
+        // No width constraint or wrapping disabled - measure single line
         text_size := render.text_measure_size(l.font, l.text)
         return core.Size{
             width = text_size.width + w.padding.left + w.padding.right,
@@ -294,18 +308,24 @@ label_measure :: proc(w: ^Widget) -> core.Size {
     }
 
     // Wrap and calculate height based on available width
-    label_update_lines(l, available_width)
-    height := i32(len(l.lines)) * l.font.line_height
+    label_update_lines(l, content_width)
+    line_height := render.font_get_logical_line_height(l.font)
+    num_lines := max(1, i32(len(l.lines)))  // At least 1 line height
+    height := num_lines * line_height
 
-    // For wrapping labels, prefer parent's width
-    preferred_width := w.rect.width
-    if preferred_width <= 0 && w.parent != nil {
-        parent_content := widget_get_content_rect(w.parent)
-        preferred_width = parent_content.width - w.margin.left - w.margin.right
+    // Calculate width: use actual text width for proper centering
+    max_line_width: i32 = 0
+    for line in l.lines {
+        line_width := render.text_measure_logical(l.font, line)
+        max_line_width = max(max_line_width, line_width)
+    }
+    // If no lines yet, use full text width
+    if max_line_width == 0 {
+        max_line_width = render.text_measure_logical(l.font, l.text)
     }
 
     return core.Size{
-        width = preferred_width,
+        width = max_line_width + w.padding.left + w.padding.right,
         height = max(height + w.padding.top + w.padding.bottom, w.min_size.height),
     }
 }

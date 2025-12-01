@@ -122,7 +122,7 @@ text_input_get_cursor_x :: proc(ti: ^Text_Input) -> i32 {
     }
 
     text_before_cursor := string(ti.text[:ti.cursor_pos])
-    return render.text_measure(ti.font, text_before_cursor)
+    return render.text_measure_logical(ti.font, text_before_cursor)
 }
 
 // Ensure cursor is visible by adjusting scroll
@@ -337,7 +337,7 @@ text_input_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
                     x = cursor_x,
                     y = abs_rect.y + ti.padding.top,
                     width = 2,
-                    height = ti.font.line_height,
+                    height = render.font_get_logical_line_height(ti.font),
                 }
                 render.fill_rect(ctx, cursor_rect, ti.cursor_color)
             }
@@ -429,7 +429,7 @@ text_input_handle_event :: proc(w: ^Widget, event: ^core.Event) -> bool {
                     // Get next character
                     _, char_len := utf8.decode_rune(ti.text[i:])
                     char_text := string(ti.text[i:i+char_len])
-                    char_width := render.text_measure(ti.font, char_text)
+                    char_width := render.text_measure_logical(ti.font, char_text)
 
                     // Check if click is before midpoint of this character
                     if click_x < text_width + char_width / 2 {
@@ -459,12 +459,12 @@ text_input_handle_event :: proc(w: ^Widget, event: ^core.Event) -> bool {
 }
 
 // Measure preferred size
-text_input_measure :: proc(w: ^Widget) -> core.Size {
+text_input_measure :: proc(w: ^Widget, available_width: i32) -> core.Size {
     ti := cast(^Text_Input)w
 
     height: i32 = 32  // Default height
     if ti.font != nil {
-        height = ti.font.line_height + ti.padding.top + ti.padding.bottom
+        height = render.font_get_logical_line_height(ti.font) + ti.padding.top + ti.padding.bottom
     }
 
     width := ti.min_size.width

@@ -254,11 +254,29 @@ text_measure :: proc(font: ^Font, text: string) -> i32 {
     return width
 }
 
-// Measure text size (width and height)
+// Get logical line height (converts from physical pixels)
+font_get_logical_line_height :: proc(font: ^Font) -> i32 {
+    if font.size == 0 || font.base_size == 0 {
+        return font.line_height
+    }
+    // Convert physical line_height to logical using base_size/size ratio
+    return i32(f32(font.line_height) * f32(font.base_size) / f32(font.size) + 0.5)
+}
+
+// Measure text width in logical pixels
+text_measure_logical :: proc(font: ^Font, text: string) -> i32 {
+    if font.size == 0 || font.base_size == 0 {
+        return text_measure(font, text)
+    }
+    physical_width := text_measure(font, text)
+    return i32(f32(physical_width) * f32(font.base_size) / f32(font.size) + 0.5)
+}
+
+// Measure text size (width and height) in logical pixels
 text_measure_size :: proc(font: ^Font, text: string) -> core.Size {
     return core.Size{
-        width  = text_measure(font, text),
-        height = font.line_height,
+        width  = text_measure_logical(font, text),
+        height = font_get_logical_line_height(font),
     }
 }
 

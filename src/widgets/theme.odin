@@ -151,6 +151,19 @@ LIGHT_THEME := Theme{
 // Global theme - can be changed at runtime
 current_theme: ^Theme = &DARK_THEME
 
+// Debug mode - draws borders around all widgets
+g_debug_borders: bool = false
+
+// Enable/disable debug borders
+debug_borders_set :: proc(enabled: bool) {
+    g_debug_borders = enabled
+}
+
+// Check if debug borders are enabled
+debug_borders_enabled :: proc() -> bool {
+    return g_debug_borders
+}
+
 // Set the current theme
 theme_set :: proc(theme: ^Theme) {
     current_theme = theme

@@ -7,6 +7,22 @@ Hit_Test_State :: struct {
     hovered: ^Widget,  // currently hovered widget
 }
 
+// Global hit state pointer (set by app package)
+// Used to clear hovered widget when it's destroyed
+g_hit_state: ^Hit_Test_State
+
+// Set the global hit state pointer
+hit_state_set_global :: proc(state: ^Hit_Test_State) {
+    g_hit_state = state
+}
+
+// Clear hit state if it references the given widget
+hit_state_clear_widget :: proc(w: ^Widget) {
+    if g_hit_state != nil && g_hit_state.hovered == w {
+        g_hit_state.hovered = nil
+    }
+}
+
 // Find the deepest widget at the given point (window coordinates)
 // Returns nil if no widget contains the point
 hit_test :: proc(root: ^Widget, x, y: i32) -> ^Widget {

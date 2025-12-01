@@ -276,7 +276,7 @@ test_image_grid_measure :: proc(t: ^testing.T) {
     g.spacing = 10
     g.padding = widgets.edges_all(10)
 
-    size := widgets.image_grid_measure(g)
+    size := widgets.image_grid_measure(g, -1)
     // Min 2 rows: 10 + 100 + 10 + 100 + 10 = 230 (but spacing between rows, so 10 + 100 + 10 + 100 + 10 - 10 = 220)
     // Actually: padding.top + 2*cell_height + spacing + padding.bottom = 10 + 100 + 10 + 100 + 10 = 230
     // Wait the formula is: padding.top + min_rows * (cell_height + spacing) - spacing + padding.bottom

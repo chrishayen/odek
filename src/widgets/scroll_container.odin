@@ -27,6 +27,7 @@ Scroll_Container :: struct {
     drag_start_offset:  i32,
 
     // Colors (use theme if not set)
+    background:         core.Color,  // Background color (transparent = no fill)
     track_color:        core.Color,
     thumb_color:        core.Color,
     thumb_hover_color:  core.Color,
@@ -204,7 +205,11 @@ scroll_container_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
     sc := cast(^Scroll_Container)w
     abs_rect := widget_get_absolute_rect(w)
 
-    // Draw background if set (optional - containers often transparent)
+    // Draw background if not transparent
+    if sc.background.a > 0 {
+        render.fill_rect(ctx, abs_rect, sc.background)
+    }
+
     theme := theme_get()
 
     // Set up clipping for viewport
@@ -359,7 +364,7 @@ scroll_container_handle_event :: proc(w: ^Widget, event: ^core.Event) -> bool {
 }
 
 // Measure preferred size
-scroll_container_measure :: proc(w: ^Widget) -> core.Size {
+scroll_container_measure :: proc(w: ^Widget, available_width: i32) -> core.Size {
     sc := cast(^Scroll_Container)w
 
     // Return min_size if set, otherwise measure content
@@ -368,7 +373,7 @@ scroll_container_measure :: proc(w: ^Widget) -> core.Size {
     }
 
     if len(sc.children) > 0 {
-        content_size := widget_measure(sc.children[0])
+        content_size := widget_measure(sc.children[0], available_width)
         return core.Size{
             width = max(content_size.width + sc.scrollbar_width + sc.scrollbar_padding * 2, sc.min_size.width),
             height = max(content_size.height, sc.min_size.height),

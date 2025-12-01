@@ -8,6 +8,24 @@ Focus_Manager :: struct {
     focused: ^Widget,
 }
 
+// Global focus manager pointer (set by app package)
+// Used to clear focused widget when it's destroyed
+g_focus_manager: ^Focus_Manager
+
+// Set the global focus manager pointer
+focus_manager_set_global :: proc(fm: ^Focus_Manager) {
+    g_focus_manager = fm
+}
+
+// Clear focus if it references the given widget
+focus_manager_clear_widget :: proc(w: ^Widget) {
+    if g_focus_manager == nil || g_focus_manager.focused != w {
+        return
+    }
+    g_focus_manager.focused.focused = false
+    g_focus_manager.focused = nil
+}
+
 // Initialize focus manager for a widget tree
 focus_manager_init :: proc(root: ^Widget) -> Focus_Manager {
     return Focus_Manager{

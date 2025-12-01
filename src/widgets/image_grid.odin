@@ -839,7 +839,7 @@ image_grid_layout :: proc(w: ^Widget) {
 }
 
 // Measure function
-image_grid_measure :: proc(w: ^Widget) -> core.Size {
+image_grid_measure :: proc(w: ^Widget, available_width: i32) -> core.Size {
     g := cast(^Image_Grid)w
 
     // Preferred size showing at least 2 rows

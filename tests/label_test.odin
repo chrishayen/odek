@@ -250,7 +250,7 @@ test_label_measure_empty :: proc(t: ^testing.T) {
     l := widgets.label_create()
     l.padding = widgets.Edges{5, 10, 5, 10}
 
-    size := widgets.label_measure(l)
+    size := widgets.label_measure(l, -1)
 
     testing.expect(t, size.width == 20, "Empty label width should be left+right padding")
     testing.expect(t, size.height == 10, "Empty label height should be top+bottom padding")
@@ -276,7 +276,7 @@ test_label_measure_with_text :: proc(t: ^testing.T) {
     l.padding = widgets.Edges{5, 10, 5, 10}
     l.wrap = false  // Single line for predictable measurement
 
-    size := widgets.label_measure(l)
+    size := widgets.label_measure(l, -1)
 
     text_width := render.text_measure(&font, "Hello")
     expected_width := text_width + 20  // 10 left + 10 right padding
@@ -306,7 +306,7 @@ test_label_measure_multiline :: proc(t: ^testing.T) {
     l.rect = core.Rect{0, 0, 300, 0}  // Set width constraint
     l.padding = widgets.Edges{5, 10, 5, 10}
 
-    size := widgets.label_measure(l)
+    size := widgets.label_measure(l, 300)
 
     expected_height := font.line_height * 2 + 10  // 2 lines + padding
 
@@ -359,6 +359,41 @@ test_label_cache_invalidation_on_text_change :: proc(t: ^testing.T) {
     widgets.label_layout(l)
 
     testing.expect(t, len(l.lines) > original_lines, "Lines should be recalculated after text change")
+
+    widgets.widget_destroy(l)
+}
+
+// ============================================================================
+// Label strikethrough tests
+// ============================================================================
+
+@(test)
+test_label_strikethrough_default :: proc(t: ^testing.T) {
+    l := widgets.label_create("Test")
+    testing.expect(t, l.strikethrough == false, "Strikethrough should be false by default")
+
+    widgets.widget_destroy(l)
+}
+
+@(test)
+test_label_set_strikethrough :: proc(t: ^testing.T) {
+    l := widgets.label_create("Test")
+    l.dirty = false
+
+    widgets.label_set_strikethrough(l, true)
+    testing.expect(t, l.strikethrough == true, "Strikethrough should be enabled")
+    testing.expect(t, l.dirty == true, "Label should be marked dirty")
+
+    widgets.widget_destroy(l)
+}
+
+@(test)
+test_label_set_strikethrough_same :: proc(t: ^testing.T) {
+    l := widgets.label_create("Test")
+    l.dirty = false
+
+    widgets.label_set_strikethrough(l, false)  // Same as default
+    testing.expect(t, l.dirty == false, "Label should not be marked dirty if strikethrough unchanged")
 
     widgets.widget_destroy(l)
 }
