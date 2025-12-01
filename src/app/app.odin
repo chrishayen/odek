@@ -120,8 +120,9 @@ create :: proc(title: string, width: i32 = 800, height: i32 = 600) -> ^App {
     // Set up callbacks (store app pointer for callbacks)
     g_app = a
 
-    // Set global hit state for widget destroy notifications
+    // Set global state for widget destroy notifications
     widgets.hit_state_set_global(&a.hit_state)
+    widgets.focus_manager_set_global(&a.focus_manager)
 
     // Register image loader notification FD for event-driven updates
     loader_fd := render.image_loader_get_fd(a.image_loader)
@@ -382,6 +383,7 @@ column :: proc(a: ^App, children: []^widgets.Widget, spacing: i32 = 10, padding:
 
     // Re-init focus manager with new tree
     a.focus_manager = widgets.focus_manager_init(a.root)
+    widgets.focus_manager_set_global(&a.focus_manager)
 }
 
 // Arrange children in a row layout
@@ -403,6 +405,7 @@ row :: proc(a: ^App, children: []^widgets.Widget, spacing: i32 = 10, padding: i3
 
     // Re-init focus manager with new tree
     a.focus_manager = widgets.focus_manager_init(a.root)
+    widgets.focus_manager_set_global(&a.focus_manager)
 }
 
 // ============================================================================

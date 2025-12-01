@@ -91,8 +91,9 @@ widget_destroy :: proc(w: ^Widget) {
         return
     }
 
-    // Clear hit state if this widget is hovered
+    // Clear global state if this widget is referenced
     hit_state_clear_widget(w)
+    focus_manager_clear_widget(w)
 
     // Destroy children first
     for child in w.children {
