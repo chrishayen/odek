@@ -6,6 +6,7 @@ package app
 import "../core"
 import "../widgets"
 import "../render"
+import "core:time"
 
 // App encapsulates all state - no global variables needed by user
 App :: struct {
@@ -24,6 +25,21 @@ App :: struct {
     // State management (auto-handled)
     focus_manager: widgets.Focus_Manager,
     hit_state:     widgets.Hit_Test_State,
+
+    // Image loading (auto-initialized)
+    image_cache:  ^render.Image_Cache,
+    image_loader: ^render.Image_Loader,
+
+    // Delta time tracking for animations/video
+    last_frame_time: f64,
+
+    // Image grids to update with loaded images
+    image_grids: [dynamic]^widgets.Image_Grid,
+
+    // User callbacks for customization
+    on_draw_overlay: proc(a: ^App, ctx: ^render.Draw_Context),
+    on_key:          proc(a: ^App, keycode: u32, pressed: bool, utf8: string) -> bool,
+    on_scroll:       proc(a: ^App, delta: i32, axis: u32) -> bool,
 }
 
 // Common font paths to try
@@ -96,8 +112,16 @@ create :: proc(title: string, width: i32 = 800, height: i32 = 600) -> ^App {
     // Initialize focus manager
     a.focus_manager = widgets.focus_manager_init(a.root)
 
+    // Initialize image cache and loader
+    a.image_cache = render.image_cache_create(50, 150)
+    a.image_loader = render.image_loader_create(256)
+
     // Set up callbacks (store app pointer for callbacks)
     g_app = a
+
+    // Register image loader notification FD for event-driven updates
+    loader_fd := render.image_loader_get_fd(a.image_loader)
+    core.app_add_poll_fd(a.core_app, loader_fd, _image_load_complete_callback)
     a.window.on_draw = _draw_callback
     a.window.on_close = _close_callback
     a.window.on_pointer_enter = _pointer_enter_callback
@@ -127,6 +151,15 @@ destroy :: proc(a: ^App) {
 
     render.text_renderer_destroy(&a.text_renderer)
 
+    // Clean up image loading
+    if a.image_loader != nil {
+        render.image_loader_destroy(a.image_loader)
+    }
+    if a.image_cache != nil {
+        render.image_cache_destroy(a.image_cache)
+    }
+    delete(a.image_grids)
+
     if a.core_app != nil {
         core.shutdown(a.core_app)
     }
@@ -155,43 +188,159 @@ get_font :: proc(a: ^App) -> ^render.Font {
 }
 
 // ============================================================================
-// Widget Factory Functions
+// Widget Factory Functions (add to root)
 // ============================================================================
 
-// Create a label with the app's font
+// Create a label with the app's font and add to root
 label :: proc(a: ^App, text: string = "") -> ^widgets.Label {
-    l := widgets.label_create(text, get_font(a))
+    l := create_label(a, text)
     widgets.widget_add_child(a.root, l)
     return l
 }
 
-// Create a button with the app's font
+// Create a button with the app's font and add to root
 button :: proc(a: ^App, text: string = "") -> ^widgets.Button {
-    b := widgets.button_create(text, get_font(a))
+    b := create_button(a, text)
     widgets.widget_add_child(a.root, b)
     return b
 }
 
-// Create a text input with the app's font
+// Create a text input with the app's font and add to root
 text_input :: proc(a: ^App) -> ^widgets.Text_Input {
-    ti := widgets.text_input_create(get_font(a))
-    ti.min_size = core.Size{0, 32}
+    ti := create_text_input(a)
     widgets.widget_add_child(a.root, ti)
     return ti
 }
 
-// Create a container
+// Create a container and add to root
 container :: proc(a: ^App, direction: widgets.Direction = .Column) -> ^widgets.Container {
-    c := widgets.container_create(direction)
+    c := create_container(direction)
     widgets.widget_add_child(a.root, c)
     return c
 }
 
-// Create a scroll container
+// Create a scroll container and add to root
 scroll_container :: proc(a: ^App, direction: widgets.Scroll_Direction = .Vertical) -> ^widgets.Scroll_Container {
-    sc := widgets.scroll_container_create(direction)
+    sc := create_scroll_container(direction)
     widgets.widget_add_child(a.root, sc)
     return sc
+}
+
+// Create an image grid and add to root (auto-wired for async loading)
+image_grid :: proc(a: ^App) -> ^widgets.Image_Grid {
+    ig := create_image_grid(a)
+    widgets.widget_add_child(a.root, ig)
+    return ig
+}
+
+// ============================================================================
+// Widget Creation Functions (don't add to root - for custom layouts)
+// ============================================================================
+
+// Create a label with the app's font (does not add to root)
+create_label :: proc(a: ^App, text: string = "") -> ^widgets.Label {
+    return widgets.label_create(text, get_font(a))
+}
+
+// Create a button with the app's font (does not add to root)
+create_button :: proc(a: ^App, text: string = "") -> ^widgets.Button {
+    return widgets.button_create(text, get_font(a))
+}
+
+// Create a text input with the app's font (does not add to root)
+create_text_input :: proc(a: ^App) -> ^widgets.Text_Input {
+    ti := widgets.text_input_create(get_font(a))
+    ti.min_size = core.Size{0, 32}
+    return ti
+}
+
+// Create a container (does not add to root)
+create_container :: proc(direction: widgets.Direction = .Column) -> ^widgets.Container {
+    return widgets.container_create(direction)
+}
+
+// Create a scroll container (does not add to root)
+create_scroll_container :: proc(direction: widgets.Scroll_Direction = .Vertical) -> ^widgets.Scroll_Container {
+    return widgets.scroll_container_create(direction)
+}
+
+// Create an image grid (does not add to root, auto-wired for async loading)
+create_image_grid :: proc(a: ^App) -> ^widgets.Image_Grid {
+    ig := widgets.image_grid_create()
+    if a.font_loaded {
+        ig.font = &a.font
+    }
+    // Track grid for image load updates
+    append(&a.image_grids, ig)
+    return ig
+}
+
+// ============================================================================
+// Image Loading API
+// ============================================================================
+
+// Queue an image for async loading into a grid
+queue_image_load :: proc(a: ^App, grid: ^widgets.Image_Grid, path: string, name: string) -> i32 {
+    idx := widgets.image_grid_add_placeholder(grid, name, path)
+    render.image_loader_queue(a.image_loader, path, idx)
+    return idx
+}
+
+// Clear pending image loads (call when navigating away)
+clear_image_loads :: proc(a: ^App) {
+    if a.image_loader != nil {
+        render.image_loader_clear(a.image_loader)
+    }
+}
+
+// Get the image cache
+get_image_cache :: proc(a: ^App) -> ^render.Image_Cache {
+    return a.image_cache
+}
+
+// Get the image loader
+get_image_loader :: proc(a: ^App) -> ^render.Image_Loader {
+    return a.image_loader
+}
+
+// Get the window
+get_window :: proc(a: ^App) -> ^core.Window {
+    return a.window
+}
+
+// Get the core app
+get_core_app :: proc(a: ^App) -> ^core.App {
+    return a.core_app
+}
+
+// Request a redraw
+request_redraw :: proc(a: ^App) {
+    if a != nil && a.window != nil {
+        core.window_request_redraw(a.window)
+    }
+}
+
+// Get the root container for custom layouts
+get_root :: proc(a: ^App) -> ^widgets.Container {
+    return a.root
+}
+
+// Get current pointer position
+get_pointer_pos :: proc(a: ^App) -> (x, y: f64) {
+    if a == nil || a.core_app == nil {
+        return 0, 0
+    }
+    return core.get_pointer_pos(a.core_app)
+}
+
+// Get the hit test state
+get_hit_state :: proc(a: ^App) -> ^widgets.Hit_Test_State {
+    return &a.hit_state
+}
+
+// Get the focus manager
+get_focus_manager :: proc(a: ^App) -> ^widgets.Focus_Manager {
+    return &a.focus_manager
 }
 
 // ============================================================================
@@ -261,12 +410,35 @@ _draw_callback :: proc(win: ^core.Window, pixels: [^]u32, w, h, stride: i32) {
         pixels, w, h, stride,
         win.logical_width, win.logical_height, win.scale)
 
+    // Calculate delta time for animations/video
+    current_time := f64(time.now()._nsec) / 1_000_000_000.0
+    delta_time: f64 = 0.0
+    if g_app.last_frame_time > 0 {
+        delta_time = current_time - g_app.last_frame_time
+    }
+    g_app.last_frame_time = current_time
+
+    // Update video thumbnails in all tracked image grids
+    if delta_time > 0 {
+        for grid in g_app.image_grids {
+            if widgets.image_grid_update_videos(grid, delta_time) {
+                // Videos updated - request another frame
+                core.window_request_redraw(win)
+            }
+        }
+    }
+
     theme := widgets.theme_get()
     render.clear(&ctx, theme.bg_primary)
 
     g_app.root.rect = core.Rect{0, 0, win.logical_width, win.logical_height}
     widgets.widget_layout(g_app.root)
     widgets.widget_draw(g_app.root, &ctx)
+
+    // Call user's overlay callback for custom drawing on top
+    if g_app.on_draw_overlay != nil {
+        g_app.on_draw_overlay(g_app, &ctx)
+    }
 }
 
 @(private)
@@ -343,6 +515,14 @@ _scroll_callback :: proc(win: ^core.Window, delta: i32, axis: u32) {
         return
     }
 
+    // Let user handle scroll events first
+    if g_app.on_scroll != nil {
+        if g_app.on_scroll(g_app, delta, axis) {
+            core.window_request_redraw(win)
+            return
+        }
+    }
+
     x, y := core.get_pointer_pos(g_app.core_app)
     event := core.event_scroll(delta, axis, i32(x), i32(y))
     widgets.dispatch_pointer_event(&g_app.hit_state, g_app.root, &event)
@@ -352,7 +532,19 @@ _scroll_callback :: proc(win: ^core.Window, delta: i32, axis: u32) {
 
 @(private)
 _key_callback :: proc(win: ^core.Window, keycode: u32, pressed: bool, utf8: string) {
-    if g_app == nil || !pressed {
+    if g_app == nil {
+        return
+    }
+
+    // Let user handle key events first
+    if g_app.on_key != nil {
+        if g_app.on_key(g_app, keycode, pressed, utf8) {
+            core.window_request_redraw(win)
+            return
+        }
+    }
+
+    if !pressed {
         return
     }
 
@@ -403,4 +595,37 @@ _scale_changed_callback :: proc(win: ^core.Window, scale: f64) {
         return
     }
     render.font_set_scale(&g_app.font, scale)
+}
+
+// Called when image loader has completed work (event-driven via eventfd)
+@(private)
+_image_load_complete_callback :: proc(app: ^core.App, user_data: rawptr) {
+    if g_app == nil || g_app.image_loader == nil {
+        return
+    }
+
+    render.image_loader_acknowledge(g_app.image_loader)
+
+    // Process completed images
+    completed := render.image_loader_get_completed(g_app.image_loader)
+    if completed == nil || len(completed) == 0 {
+        return
+    }
+
+    for result in completed {
+        if result.success {
+            // Update all tracked image grids with this result
+            for grid in g_app.image_grids {
+                widgets.image_grid_set_image(grid, result.grid_index,
+                                             result.image, result.thumbnail)
+            }
+        }
+        delete(result.path)
+    }
+    delete(completed)
+
+    // Request redraw
+    if g_app.window != nil {
+        core.window_request_redraw(g_app.window)
+    }
 }
