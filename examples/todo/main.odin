@@ -1,7 +1,6 @@
 package todo
 
 import "../../src/app"
-import "../../src/widgets"
 import "core:fmt"
 
 main :: proc() {
@@ -16,9 +15,6 @@ main :: proc() {
 
     // // Set minimum window size to prevent layout overflow
     // app.set_min_size(a, 400, 250)
-
-    // Enable debug borders to visualize widget bounds
-    widgets.debug_borders_set(true)
 
     init_state()
     load_todos()
