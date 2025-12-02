@@ -308,3 +308,67 @@ test_dropdown_measure_respects_min_size :: proc(t: ^testing.T) {
 
     widgets.widget_destroy(dd)
 }
+
+// ============================================================================
+// Dropdown panel positioning
+// ============================================================================
+
+@(test)
+test_dropdown_panel_opens_downward_when_space :: proc(t: ^testing.T) {
+    dd := widgets.dropdown_create()
+    widgets.dropdown_add_option(dd, "Option 1")
+    widgets.dropdown_add_option(dd, "Option 2")
+    widgets.dropdown_add_option(dd, "Option 3")
+
+    // Position dropdown near top of window (plenty of space below)
+    trigger_rect := core.Rect{x = 10, y = 10, width = 100, height = 30}
+    window_height: i32 = 600
+
+    panel_rect := widgets.dropdown_get_panel_rect(dd, trigger_rect, window_height)
+
+    // Panel should be below the trigger (y > trigger bottom)
+    testing.expect(t, panel_rect.y > trigger_rect.y + trigger_rect.height, "Panel should open below trigger")
+
+    widgets.widget_destroy(dd)
+}
+
+@(test)
+test_dropdown_panel_opens_upward_when_no_space :: proc(t: ^testing.T) {
+    dd := widgets.dropdown_create()
+    widgets.dropdown_add_option(dd, "Option 1")
+    widgets.dropdown_add_option(dd, "Option 2")
+    widgets.dropdown_add_option(dd, "Option 3")
+
+    // Position dropdown near bottom of window (not enough space below)
+    trigger_rect := core.Rect{x = 10, y = 550, width = 100, height = 30}
+    window_height: i32 = 600
+
+    panel_rect := widgets.dropdown_get_panel_rect(dd, trigger_rect, window_height)
+
+    // Panel should be above the trigger (y < trigger top)
+    testing.expect(t, panel_rect.y < trigger_rect.y, "Panel should open above trigger when near bottom")
+
+    widgets.widget_destroy(dd)
+}
+
+@(test)
+test_dropdown_full_rect_includes_upward_panel :: proc(t: ^testing.T) {
+    dd := widgets.dropdown_create()
+    widgets.dropdown_add_option(dd, "Option 1")
+    widgets.dropdown_add_option(dd, "Option 2")
+    widgets.dropdown_add_option(dd, "Option 3")
+
+    // Set up dropdown near bottom of window
+    dd.rect = core.Rect{x = 10, y = 550, width = 100, height = 30}
+    dd.is_open = true
+
+    // Set window context so dropdown knows window height
+    widgets.window_context_set(800, 600)
+
+    full_rect := widgets.dropdown_get_full_rect(dd)
+
+    // Full rect should start above the trigger (includes upward panel)
+    testing.expect(t, full_rect.y < dd.rect.y, "Full rect should include upward panel")
+
+    widgets.widget_destroy(dd)
+}

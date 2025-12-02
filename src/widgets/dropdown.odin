@@ -51,6 +51,31 @@ dropdown_create :: proc(font: ^render.Font = nil) -> ^Dropdown {
     return d
 }
 
+// Calculate panel rect, opening upward if needed
+dropdown_get_panel_rect :: proc(d: ^Dropdown, trigger_rect: core.Rect, window_height: i32) -> core.Rect {
+    panel_height := i32(len(d.options)) * d.item_height
+    gap: i32 = 2
+
+    // Check if panel fits below
+    space_below := window_height - (trigger_rect.y + trigger_rect.height + gap)
+
+    panel_y: i32
+    if space_below >= panel_height {
+        // Open downward (default)
+        panel_y = trigger_rect.y + trigger_rect.height + gap
+    } else {
+        // Open upward
+        panel_y = trigger_rect.y - gap - panel_height
+    }
+
+    return core.Rect {
+        x      = trigger_rect.x,
+        y      = panel_y,
+        width  = trigger_rect.width,
+        height = panel_height,
+    }
+}
+
 // Add an option to the dropdown
 dropdown_add_option :: proc(d: ^Dropdown, option: string) {
     append(&d.options, option)
@@ -161,14 +186,7 @@ dropdown_draw_overlay :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
 // Draw the dropdown options panel
 dropdown_draw_panel :: proc(d: ^Dropdown, ctx: ^render.Draw_Context, trigger_rect: core.Rect) {
     theme := theme_get()
-
-    panel_height := i32(len(d.options)) * d.item_height
-    panel_rect := core.Rect {
-        x      = trigger_rect.x,
-        y      = trigger_rect.y + trigger_rect.height + 2,
-        width  = trigger_rect.width,
-        height = panel_height,
-    }
+    panel_rect := dropdown_get_panel_rect(d, trigger_rect, ctx.logical_height)
 
     // Panel background
     render.fill_rounded_rect(ctx, panel_rect, d.corner_radius, theme.bg_secondary)
@@ -206,12 +224,17 @@ dropdown_get_full_rect :: proc(d: ^Dropdown) -> core.Rect {
         return abs_rect
     }
 
-    panel_height := i32(len(d.options)) * d.item_height
+    panel_rect := dropdown_get_panel_rect(d, abs_rect, window_context_get().height)
+
+    // Calculate bounding rect that includes both trigger and panel
+    min_y := min(abs_rect.y, panel_rect.y)
+    max_y := max(abs_rect.y + abs_rect.height, panel_rect.y + panel_rect.height)
+
     return core.Rect {
         x      = abs_rect.x,
-        y      = abs_rect.y,
+        y      = min_y,
         width  = abs_rect.width,
-        height = abs_rect.height + 2 + panel_height,
+        height = max_y - min_y,
     }
 }
 
@@ -240,9 +263,9 @@ dropdown_handle_event :: proc(w: ^Widget, event: ^core.Event) -> bool {
     case .Pointer_Motion:
         if d.is_open {
             // Check if hovering over an option
-            panel_y := abs_rect.y + abs_rect.height + 2
-            if event.pointer_y >= panel_y {
-                idx := (event.pointer_y - panel_y) / d.item_height
+            panel_rect := dropdown_get_panel_rect(d, abs_rect, window_context_get().height)
+            if event.pointer_y >= panel_rect.y && event.pointer_y < panel_rect.y + panel_rect.height {
+                idx := (event.pointer_y - panel_rect.y) / d.item_height
                 if idx >= 0 && idx < i32(len(d.options)) {
                     if d.hovered_index != idx {
                         d.hovered_index = idx
@@ -265,11 +288,10 @@ dropdown_handle_event :: proc(w: ^Widget, event: ^core.Event) -> bool {
 
         if d.is_open {
             // Check if clicking on an option
-            panel_y := abs_rect.y + abs_rect.height + 2
-            panel_height := i32(len(d.options)) * d.item_height
+            panel_rect := dropdown_get_panel_rect(d, abs_rect, window_context_get().height)
 
-            if event.pointer_y >= panel_y && event.pointer_y < panel_y + panel_height {
-                idx := (event.pointer_y - panel_y) / d.item_height
+            if event.pointer_y >= panel_rect.y && event.pointer_y < panel_rect.y + panel_rect.height {
+                idx := (event.pointer_y - panel_rect.y) / d.item_height
                 if idx >= 0 && idx < i32(len(d.options)) {
                     old_index := d.selected_index
                     d.selected_index = idx

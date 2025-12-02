@@ -133,6 +133,9 @@ create :: proc(title: string, width: i32 = 800, height: i32 = 600) -> ^App {
 	widgets.hit_state_set_global(&a.hit_state)
 	widgets.focus_manager_set_global(&a.focus_manager)
 
+	// Set window context for widgets that need window dimensions
+	widgets.window_context_set(a.window.logical_width, a.window.logical_height)
+
 	// Set up clipboard handlers
 	widgets.clipboard_set_handlers(_clipboard_copy, _clipboard_paste)
 
@@ -475,6 +478,9 @@ _draw_callback :: proc(win: ^core.Window, pixels: [^]u32, w, h, stride: i32) {
 
 	theme := widgets.theme_get()
 	render.clear(&ctx, theme.bg_primary)
+
+	// Update window context on each draw (handles resize)
+	widgets.window_context_set(win.logical_width, win.logical_height)
 
 	g_app.root.rect = core.Rect{0, 0, win.logical_width, win.logical_height}
 	widgets.widget_layout(g_app.root)

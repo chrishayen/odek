@@ -350,3 +350,16 @@ default_vtable := Widget_VTable{
     destroy = nil,
     measure = nil,
 }
+
+// Window context - provides window dimensions to widgets
+// Set by app package on init and resize
+@(private)
+g_window_size: core.Size
+
+window_context_set :: proc(width, height: i32) {
+    g_window_size = core.Size{width, height}
+}
+
+window_context_get :: proc() -> core.Size {
+    return g_window_size
+}
