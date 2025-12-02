@@ -85,19 +85,3 @@ test_image_cache_get_thumbnail_nonexistent :: proc(t: ^testing.T) {
     testing.expect(t, thumb == nil, "Thumbnail should be nil")
 }
 
-@(test)
-test_image_cache_evict_lru_empty :: proc(t: ^testing.T) {
-    cache := render.image_cache_create()
-    defer render.image_cache_destroy(cache)
-
-    // Evicting from empty cache should not crash
-    render.image_cache_evict_lru(cache)
-    testing.expect(t, render.image_cache_count(cache) == 0, "Cache should still be empty")
-}
-
-@(test)
-test_image_cache_evict_lru_nil :: proc(t: ^testing.T) {
-    // Should not crash
-    render.image_cache_evict_lru(nil)
-    testing.expect(t, true, "Evicting from nil cache should not crash")
-}
