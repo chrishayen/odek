@@ -10,16 +10,21 @@ A pure Odin UI toolkit for building native Wayland desktop applications.
 - Software rendering with double buffering
 - Async image loading with worker threads
 - FreeType text rendering with glyph caching
+- Fontconfig for automatic system font discovery
 - Focus management and keyboard navigation
 - Theme system with dark and light themes
 - Comprehensive event system (pointer, keyboard, scroll)
+- Clipboard support (copy/paste)
+- Video thumbnail decoding via FFmpeg
 
 ## Requirements
 
 - Linux with Wayland compositor
 - Odin compiler
 - FreeType library (`libfreetype`)
+- Fontconfig library (`libfontconfig`)
 - Wayland client libraries (`libwayland-client`, `libwayland-cursor`)
+- FFmpeg libraries (`libavformat`, `libavcodec`, `libswscale`, `libavutil`) - optional, for video support
 
 ## Building
 
@@ -244,9 +249,12 @@ src/
 │   ├── widget.odin     Base widget with VTable polymorphism
 │   ├── container.odin  Flexbox-lite layout container
 │   ├── button.odin     Interactive button widget
+│   ├── checkbox.odin   Toggle checkbox widget
+│   ├── dropdown.odin   Dropdown select widget
 │   ├── label.odin      Text display with wrapping
 │   ├── text_input.odin Single-line text input
 │   ├── scroll_container.odin  Scrollable container
+│   ├── scroll.odin     Reusable scroll state
 │   ├── image_grid.odin Scrollable image grid
 │   ├── theme.odin      Color theme system
 │   ├── focus.odin      Focus management
@@ -254,9 +262,12 @@ src/
 ├── render/         Graphics rendering
 │   ├── buffer.odin     Draw context and primitives
 │   ├── text.odin       FreeType text rendering
+│   ├── fontconfig.odin System font discovery
 │   ├── image.odin      Image loading (PNG/JPEG)
 │   ├── image_loader.odin  Async loading with threads
-│   └── image_cache.odin   LRU image cache
+│   ├── image_cache.odin   LRU image cache
+│   └── video.odin      FFmpeg video decoding
+├── ffmpeg/         FFmpeg bindings (optional)
 └── wayland/        Wayland protocol bindings
 ```
 
@@ -371,6 +382,63 @@ widgets.text_input_set_text(input, "New text")
 | `focus_color` | `Color` | Focus border (from theme) |
 | `on_change` | `proc` | Text change callback |
 | `on_submit` | `proc` | Enter key callback |
+
+### Checkbox
+
+Toggle checkbox widget with checked/unchecked state.
+
+```odin
+checkbox := widgets.checkbox_create()
+checkbox.checked = true
+
+checkbox.on_change = proc(cb: ^widgets.Checkbox) {
+    if cb.checked {
+        // Handle checked state
+    }
+}
+
+widgets.widget_add_child(parent, checkbox)
+```
+
+**Properties:**
+| Property | Type | Description |
+|----------|------|-------------|
+| `checked` | `bool` | Current toggle state |
+| `box_size` | `i32` | Size of the checkbox box |
+| `corner_radius` | `i32` | Border radius |
+| `box_color` | `Color` | Box background (from theme) |
+| `check_color` | `Color` | Checkmark color (from theme) |
+| `border_color` | `Color` | Border color (from theme) |
+| `on_change` | `proc` | State change callback |
+
+### Dropdown
+
+Dropdown select widget for choosing from a list of options.
+
+```odin
+dropdown := widgets.dropdown_create(&font)
+widgets.dropdown_add_option(dropdown, "Option 1")
+widgets.dropdown_add_option(dropdown, "Option 2")
+widgets.dropdown_add_option(dropdown, "Option 3")
+dropdown.selected_index = 0
+
+dropdown.on_change = proc(d: ^widgets.Dropdown, index: i32) {
+    // Handle selection change
+}
+
+widgets.widget_add_child(parent, dropdown)
+```
+
+**Properties:**
+| Property | Type | Description |
+|----------|------|-------------|
+| `options` | `[dynamic]string` | List of options |
+| `selected_index` | `i32` | Currently selected option index |
+| `is_open` | `bool` | Whether dropdown is expanded |
+| `font` | `^Font` | Text font |
+| `corner_radius` | `i32` | Border radius |
+| `item_height` | `i32` | Height of each option item |
+| `on_change` | `proc` | Selection change callback |
 
 ### Scroll Container
 
@@ -573,12 +641,27 @@ width := render.text_measure(&font, "Hello")
 render.font_set_scale(&font, window.scale)
 ```
 
+## Examples
+
+The `examples/` directory contains complete sample applications:
+
+- **todo** - A simple todo list app with persistence
+- **catalog** - Component showcase demonstrating all widgets
+- **filebrowser** - Image browser with directory navigation and video thumbnail preview
+
+Run an example:
+
+```bash
+odin build examples/todo -out:todo && ./todo
+odin build examples/catalog -out:catalog && ./catalog
+odin build examples/filebrowser -out:filebrowser && ./filebrowser
+```
+
 ## Limitations
 
 - **Wayland-only**: No X11 support. Requires a Wayland compositor.
 - **Linux-only**: Uses Linux-specific APIs (eventfd, etc.)
 - **Software rendering**: No GPU acceleration. Performance may be limited with many widgets.
-- **No clipboard**: Copy/paste not yet implemented.
 - **No closures**: Odin doesn't support closures, so callbacks must use global state.
 
 ## Testing
