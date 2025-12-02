@@ -2,6 +2,7 @@ package render
 
 import "../core"
 import "base:intrinsics"
+import "core:math"
 import "core:slice"
 
 // Draw context for software rendering
@@ -186,6 +187,67 @@ fill_rounded_rect :: proc(ctx: ^Draw_Context, rect: core.Rect, radius: i32, colo
     draw_corner(ctx, rect.x + rect.width - r - 1, rect.y + rect.height - r - 1, r, color, .BottomRight)
 }
 
+// Draw a filled circle with anti-aliasing
+// cx, cy are the center in logical coordinates, r is the radius
+fill_circle :: proc(ctx: ^Draw_Context, cx, cy: i32, r: i32, color: core.Color) {
+    stride_pixels := ctx.stride / 4
+
+    // Scale to physical coordinates
+    phys_cx := f64(scale_coord(ctx, cx))
+    phys_cy := f64(scale_coord(ctx, cy))
+    phys_r := f64(scale_coord(ctx, r))
+
+    // Bounding box in physical pixels
+    min_x := i32(phys_cx - phys_r) - 1
+    max_x := i32(phys_cx + phys_r) + 1
+    min_y := i32(phys_cy - phys_r) - 1
+    max_y := i32(phys_cy + phys_r) + 1
+
+    for py in min_y ..= max_y {
+        for px in min_x ..= max_x {
+            // Distance from pixel center to circle center
+            dx := f64(px) + 0.5 - phys_cx
+            dy := f64(py) + 0.5 - phys_cy
+            dist := math.sqrt(dx * dx + dy * dy)
+
+            if dist > phys_r + 1.0 {
+                continue
+            }
+
+            coverage: f64
+            if dist <= phys_r - 0.5 {
+                coverage = 1.0
+            } else if dist >= phys_r + 0.5 {
+                coverage = 0.0
+            } else {
+                coverage = phys_r + 0.5 - dist
+            }
+
+            if coverage <= 0 {
+                continue
+            }
+
+            if px >= ctx.clip.x && px < ctx.clip.x + ctx.clip.width &&
+               py >= ctx.clip.y && py < ctx.clip.y + ctx.clip.height {
+                if coverage >= 1.0 {
+                    ctx.pixels[py * stride_pixels + px] = core.color_to_argb(color)
+                } else {
+                    blended := core.Color{
+                        r = u8(f64(color.r) * coverage),
+                        g = u8(f64(color.g) * coverage),
+                        b = u8(f64(color.b) * coverage),
+                        a = u8(f64(color.a) * coverage),
+                    }
+                    ctx.pixels[py * stride_pixels + px] = blend_pixel(
+                        ctx.pixels[py * stride_pixels + px],
+                        blended,
+                    )
+                }
+            }
+        }
+    }
+}
+
 Corner :: enum {
     TopLeft,
     TopRight,
@@ -193,40 +255,73 @@ Corner :: enum {
     BottomRight,
 }
 
-// Draw a filled quarter circle (for rounded corners)
+// Draw a filled quarter circle (for rounded corners) with anti-aliasing
 // cx, cy, r are in logical coordinates
 draw_corner :: proc(ctx: ^Draw_Context, cx, cy: i32, r: i32, color: core.Color, corner: Corner) {
-    pixel := core.color_to_argb(color)
     stride_pixels := ctx.stride / 4
 
     // Scale to physical coordinates
     phys_cx := scale_coord(ctx, cx)
     phys_cy := scale_coord(ctx, cy)
-    phys_r := scale_coord(ctx, r)
-    r_sq := phys_r * phys_r
+    phys_r := f64(scale_coord(ctx, r))
 
-    for y in 0 ..= phys_r {
-        for x in 0 ..= phys_r {
-            if x * x + y * y <= r_sq {
-                px, py: i32
-                switch corner {
-                case .TopLeft:
-                    px = phys_cx - x
-                    py = phys_cy - y
-                case .TopRight:
-                    px = phys_cx + x
-                    py = phys_cy - y
-                case .BottomLeft:
-                    px = phys_cx - x
-                    py = phys_cy + y
-                case .BottomRight:
-                    px = phys_cx + x
-                    py = phys_cy + y
-                }
+    // Iterate over bounding box plus one pixel for anti-aliasing
+    for y in 0 ..= i32(phys_r) + 1 {
+        for x in 0 ..= i32(phys_r) + 1 {
+            dist := math.sqrt(f64(x * x + y * y))
 
-                if px >= ctx.clip.x && px < ctx.clip.x + ctx.clip.width &&
-                   py >= ctx.clip.y && py < ctx.clip.y + ctx.clip.height {
-                    ctx.pixels[py * stride_pixels + px] = pixel
+            // Skip pixels clearly outside
+            if dist > phys_r + 1.0 {
+                continue
+            }
+
+            // Calculate coverage for anti-aliasing
+            coverage: f64
+            if dist <= phys_r - 0.5 {
+                coverage = 1.0
+            } else if dist >= phys_r + 0.5 {
+                coverage = 0.0
+            } else {
+                // Smooth transition at edge
+                coverage = 0.5 - (dist - phys_r)
+            }
+
+            if coverage <= 0 {
+                continue
+            }
+
+            px, py: i32
+            switch corner {
+            case .TopLeft:
+                px = phys_cx - x
+                py = phys_cy - y
+            case .TopRight:
+                px = phys_cx + x
+                py = phys_cy - y
+            case .BottomLeft:
+                px = phys_cx - x
+                py = phys_cy + y
+            case .BottomRight:
+                px = phys_cx + x
+                py = phys_cy + y
+            }
+
+            if px >= ctx.clip.x && px < ctx.clip.x + ctx.clip.width &&
+               py >= ctx.clip.y && py < ctx.clip.y + ctx.clip.height {
+                if coverage >= 1.0 {
+                    ctx.pixels[py * stride_pixels + px] = core.color_to_argb(color)
+                } else {
+                    // Blend with partial coverage (premultiplied alpha)
+                    blended := core.Color{
+                        r = u8(f64(color.r) * coverage),
+                        g = u8(f64(color.g) * coverage),
+                        b = u8(f64(color.b) * coverage),
+                        a = u8(f64(color.a) * coverage),
+                    }
+                    ctx.pixels[py * stride_pixels + px] = blend_pixel(
+                        ctx.pixels[py * stride_pixels + px],
+                        blended,
+                    )
                 }
             }
         }

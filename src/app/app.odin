@@ -558,11 +558,13 @@ _pointer_button_callback :: proc(win: ^core.Window, button: u32, pressed: bool) 
 	event := core.event_pointer_button(core.Mouse_Button(button), pressed, i32(x), i32(y), 0)
 	widgets.dispatch_pointer_event(&g_app.hit_state, g_app.root, &event)
 
-	// Focus clicked widget if focusable
+	// Focus clicked widget if focusable, otherwise clear focus
 	if pressed && button == u32(core.Mouse_Button.Left) {
 		hovered := g_app.hit_state.hovered
 		if hovered != nil && hovered.focusable {
 			widgets.focus_set(&g_app.focus_manager, hovered)
+		} else {
+			widgets.focus_clear(&g_app.focus_manager)
 		}
 	}
 

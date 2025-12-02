@@ -143,12 +143,6 @@ button_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         render.draw_text_top(ctx, b.font, b.text, text_x, text_y, text_color)
     }
 
-    // Draw focus indicator if focused and enabled
-    if w.focused && w.enabled {
-        // Draw a subtle border
-        focus_color := core.color_rgba(255, 255, 255, 100)
-        render.draw_rounded_rect(ctx, abs_rect, b.corner_radius, focus_color)
-    }
 }
 
 // Handle button events
