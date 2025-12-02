@@ -310,10 +310,13 @@ scroll_container_handle_event :: proc(w: ^Widget, event: ^core.Event) -> bool {
 
                 // Check if clicking on thumb
                 if scroll_container_point_in_thumb(sc, local_x, local_y) {
-                    // Start dragging
+                    // Start dragging with pointer capture
                     sc.scrollbar_dragging = true
                     sc.drag_start_y = local_y
                     sc.drag_start_offset = sc.scroll.offset
+                    if g_hit_state != nil {
+                        pointer_capture(g_hit_state, w)
+                    }
                     widget_mark_dirty(sc)
                     return true
                 }
@@ -335,15 +338,16 @@ scroll_container_handle_event :: proc(w: ^Widget, event: ^core.Event) -> bool {
     case .Pointer_Button_Release:
         if event.button == .Left && sc.scrollbar_dragging {
             sc.scrollbar_dragging = false
+            if g_hit_state != nil {
+                pointer_release(g_hit_state)
+            }
             widget_mark_dirty(sc)
             return true
         }
 
     case .Pointer_Leave:
         sc.thumb_hovered = false
-        if sc.scrollbar_dragging {
-            sc.scrollbar_dragging = false
-        }
+        // Don't stop dragging on leave - we have pointer capture
         widget_mark_dirty(sc)
 
     case .Scroll:

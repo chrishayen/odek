@@ -133,6 +133,9 @@ create :: proc(title: string, width: i32 = 800, height: i32 = 600) -> ^App {
 	widgets.hit_state_set_global(&a.hit_state)
 	widgets.focus_manager_set_global(&a.focus_manager)
 
+	// Set up clipboard handlers
+	widgets.clipboard_set_handlers(_clipboard_copy, _clipboard_paste)
+
 	// Register image loader notification FD for event-driven updates
 	loader_fd := render.image_loader_get_fd(a.image_loader)
 	core.app_add_poll_fd(a.core_app, loader_fd, _image_load_complete_callback)
@@ -250,6 +253,13 @@ image_grid :: proc(a: ^App) -> ^widgets.Image_Grid {
 	return ig
 }
 
+// Create a dropdown with the app's font and add to root
+dropdown :: proc(a: ^App) -> ^widgets.Dropdown {
+	d := create_dropdown(a)
+	widgets.widget_add_child(a.root, d)
+	return d
+}
+
 // ============================================================================
 // Widget Creation Functions (don't add to root - for custom layouts)
 // ============================================================================
@@ -297,6 +307,11 @@ create_image_grid :: proc(a: ^App) -> ^widgets.Image_Grid {
 	// Track grid for image load updates
 	append(&a.image_grids, ig)
 	return ig
+}
+
+// Create a dropdown with the app's font (does not add to root)
+create_dropdown :: proc(a: ^App) -> ^widgets.Dropdown {
+	return widgets.dropdown_create(get_font(a))
 }
 
 // Unregister an image grid from async loading updates (call before destroying the grid)
@@ -464,6 +479,7 @@ _draw_callback :: proc(win: ^core.Window, pixels: [^]u32, w, h, stride: i32) {
 	g_app.root.rect = core.Rect{0, 0, win.logical_width, win.logical_height}
 	widgets.widget_layout(g_app.root)
 	widgets.widget_draw(g_app.root, &ctx)
+	widgets.widget_draw_overlays(g_app.root, &ctx)
 
 	// Call user's overlay callback for custom drawing on top
 	if g_app.on_draw_overlay != nil {
@@ -499,9 +515,17 @@ _pointer_motion_callback :: proc(win: ^core.Window, x, y: f64) {
 		return
 	}
 
-	hovered := widgets.update_hover(&g_app.hit_state, g_app.root, i32(x), i32(y))
+	motion_event := core.Event{
+		type = .Pointer_Motion,
+		pointer_x = i32(x),
+		pointer_y = i32(y),
+	}
 
-	// Update cursor based on hovered widget
+	// Use dispatch_pointer_event which respects pointer capture
+	widgets.dispatch_pointer_event(&g_app.hit_state, g_app.root, &motion_event)
+
+	// Update cursor based on hovered widget (not captured)
+	hovered := g_app.hit_state.hovered
 	if hovered != nil {
 		#partial switch hovered.cursor {
 		case .Hand:
@@ -525,6 +549,12 @@ _pointer_button_callback :: proc(win: ^core.Window, button: u32, pressed: bool) 
 	}
 
 	x, y := core.get_pointer_pos(g_app.core_app)
+
+	// Close any open dropdowns that weren't clicked
+	if pressed && button == u32(core.Mouse_Button.Left) {
+		widgets.close_dropdowns_outside(g_app.root, i32(x), i32(y))
+	}
+
 	event := core.event_pointer_button(core.Mouse_Button(button), pressed, i32(x), i32(y), 0)
 	widgets.dispatch_pointer_event(&g_app.hit_state, g_app.root, &event)
 
@@ -578,9 +608,25 @@ _key_callback :: proc(win: ^core.Window, keycode: u32, pressed: bool, utf8: stri
 		return
 	}
 
+	// Build modifier flags from current state
+	modifiers: core.Modifier_Flags
+	if core.is_shift_pressed(g_app.core_app) {
+		modifiers += {.Shift}
+	}
+	if core.is_ctrl_pressed(g_app.core_app) {
+		modifiers += {.Ctrl}
+	}
+	if core.is_alt_pressed(g_app.core_app) {
+		modifiers += {.Alt}
+	}
+	if core.is_super_pressed(g_app.core_app) {
+		modifiers += {.Super}
+	}
+
 	event := core.Event {
-		type    = .Key_Press,
-		keycode = keycode,
+		type      = .Key_Press,
+		keycode   = keycode,
+		modifiers = modifiers,
 	}
 
 	// Handle Tab for focus navigation
@@ -645,4 +691,24 @@ _image_load_complete_callback :: proc(app: ^core.App, user_data: rawptr) {
 	if g_app.window != nil {
 		core.window_request_redraw(g_app.window)
 	}
+}
+
+// ============================================================================
+// Clipboard callbacks
+// ============================================================================
+
+@(private)
+_clipboard_copy :: proc(text: string) {
+	if g_app == nil || g_app.core_app == nil {
+		return
+	}
+	core.clipboard_copy(g_app.core_app, text)
+}
+
+@(private)
+_clipboard_paste :: proc() -> string {
+	if g_app == nil || g_app.core_app == nil {
+		return ""
+	}
+	return core.clipboard_paste(g_app.core_app)
 }

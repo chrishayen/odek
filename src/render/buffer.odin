@@ -334,3 +334,190 @@ set_pixel_blend :: proc(ctx: ^Draw_Context, x, y: i32, color: core.Color) {
     idx := phys_y * stride_pixels + phys_x
     ctx.pixels[idx] = blend_pixel(ctx.pixels[idx], color)
 }
+
+// Draw a rounded rectangle outline
+draw_rounded_rect :: proc(ctx: ^Draw_Context, rect: core.Rect, radius: i32, color: core.Color) {
+    if radius <= 0 {
+        draw_rect(ctx, rect, color)
+        return
+    }
+
+    r := min(radius, rect.width / 2, rect.height / 2)
+
+    // Top edge
+    draw_hline(ctx, rect.x + r, rect.x + rect.width - r - 1, rect.y, color)
+    // Bottom edge
+    draw_hline(ctx, rect.x + r, rect.x + rect.width - r - 1, rect.y + rect.height - 1, color)
+    // Left edge
+    draw_vline(ctx, rect.x, rect.y + r, rect.y + rect.height - r - 1, color)
+    // Right edge
+    draw_vline(ctx, rect.x + rect.width - 1, rect.y + r, rect.y + rect.height - r - 1, color)
+
+    // Corner arcs
+    draw_corner_arc(ctx, rect.x + r, rect.y + r, r, color, .TopLeft)
+    draw_corner_arc(ctx, rect.x + rect.width - r - 1, rect.y + r, r, color, .TopRight)
+    draw_corner_arc(ctx, rect.x + r, rect.y + rect.height - r - 1, r, color, .BottomLeft)
+    draw_corner_arc(ctx, rect.x + rect.width - r - 1, rect.y + rect.height - r - 1, r, color, .BottomRight)
+}
+
+// Draw a quarter circle arc (outline) for rounded corners
+draw_corner_arc :: proc(ctx: ^Draw_Context, cx, cy: i32, r: i32, color: core.Color, corner: Corner) {
+    pixel := core.color_to_argb(color)
+    stride_pixels := ctx.stride / 4
+
+    // Scale to physical coordinates
+    phys_cx := scale_coord(ctx, cx)
+    phys_cy := scale_coord(ctx, cy)
+    phys_r := scale_coord(ctx, r)
+
+    // Midpoint circle algorithm
+    x := phys_r
+    y: i32 = 0
+    err := 1 - phys_r
+
+    for x >= y {
+        // Draw the 2 points for this quarter
+        px1, py1, px2, py2: i32
+        switch corner {
+        case .TopLeft:
+            px1 = phys_cx - x
+            py1 = phys_cy - y
+            px2 = phys_cx - y
+            py2 = phys_cy - x
+        case .TopRight:
+            px1 = phys_cx + x
+            py1 = phys_cy - y
+            px2 = phys_cx + y
+            py2 = phys_cy - x
+        case .BottomLeft:
+            px1 = phys_cx - x
+            py1 = phys_cy + y
+            px2 = phys_cx - y
+            py2 = phys_cy + x
+        case .BottomRight:
+            px1 = phys_cx + x
+            py1 = phys_cy + y
+            px2 = phys_cx + y
+            py2 = phys_cy + x
+        }
+
+        if px1 >= ctx.clip.x && px1 < ctx.clip.x + ctx.clip.width &&
+           py1 >= ctx.clip.y && py1 < ctx.clip.y + ctx.clip.height {
+            ctx.pixels[py1 * stride_pixels + px1] = pixel
+        }
+        if px2 >= ctx.clip.x && px2 < ctx.clip.x + ctx.clip.width &&
+           py2 >= ctx.clip.y && py2 < ctx.clip.y + ctx.clip.height {
+            ctx.pixels[py2 * stride_pixels + px2] = pixel
+        }
+
+        y += 1
+        if err < 0 {
+            err += 2 * y + 1
+        } else {
+            x -= 1
+            err += 2 * (y - x) + 1
+        }
+    }
+}
+
+// Fill a triangle with a solid color
+// Coordinates are in logical pixels
+fill_triangle :: proc(ctx: ^Draw_Context, x1, y1, x2, y2, x3, y3: i32, color: core.Color) {
+    // Sort vertices by y coordinate
+    v1_x, v1_y := x1, y1
+    v2_x, v2_y := x2, y2
+    v3_x, v3_y := x3, y3
+
+    if v1_y > v2_y {
+        v1_x, v2_x = v2_x, v1_x
+        v1_y, v2_y = v2_y, v1_y
+    }
+    if v2_y > v3_y {
+        v2_x, v3_x = v3_x, v2_x
+        v2_y, v3_y = v3_y, v2_y
+    }
+    if v1_y > v2_y {
+        v1_x, v2_x = v2_x, v1_x
+        v1_y, v2_y = v2_y, v1_y
+    }
+
+    // Now v1_y <= v2_y <= v3_y
+
+    pixel := core.color_to_argb(color)
+    stride_pixels := ctx.stride / 4
+
+    // Helper to draw a horizontal span
+    draw_span :: proc(ctx: ^Draw_Context, y, x_start, x_end: i32, pixel: u32, stride_pixels: i32) {
+        phys_y := scale_coord(ctx, y)
+        if phys_y < ctx.clip.y || phys_y >= ctx.clip.y + ctx.clip.height {
+            return
+        }
+
+        phys_x1 := scale_coord(ctx, min(x_start, x_end))
+        phys_x2 := scale_coord(ctx, max(x_start, x_end))
+
+        start := max(phys_x1, ctx.clip.x)
+        end := min(phys_x2, ctx.clip.x + ctx.clip.width - 1)
+
+        if start > end {
+            return
+        }
+
+        row_start := phys_y * stride_pixels
+        for x in start ..= end {
+            ctx.pixels[row_start + x] = pixel
+        }
+    }
+
+    // Fill the triangle using scanline
+    if v2_y == v1_y {
+        // Flat top triangle
+        for y in v1_y ..= v3_y {
+            if v3_y == v1_y {
+                break
+            }
+            t := f64(y - v1_y) / f64(v3_y - v1_y)
+            x_left := v1_x + i32(t * f64(v3_x - v1_x))
+            x_right := v2_x + i32(t * f64(v3_x - v2_x))
+            draw_span(ctx, y, x_left, x_right, pixel, stride_pixels)
+        }
+    } else if v3_y == v2_y {
+        // Flat bottom triangle
+        for y in v1_y ..= v2_y {
+            if v2_y == v1_y {
+                break
+            }
+            t := f64(y - v1_y) / f64(v2_y - v1_y)
+            x_left := v1_x + i32(t * f64(v2_x - v1_x))
+            x_right := v1_x + i32(t * f64(v3_x - v1_x))
+            draw_span(ctx, y, x_left, x_right, pixel, stride_pixels)
+        }
+    } else {
+        // General case - split into flat bottom and flat top
+        // Calculate x coordinate at the split point
+        t := f64(v2_y - v1_y) / f64(v3_y - v1_y)
+        v4_x := v1_x + i32(t * f64(v3_x - v1_x))
+
+        // Upper part (flat bottom)
+        for y in v1_y ..= v2_y {
+            if v2_y == v1_y {
+                break
+            }
+            t2 := f64(y - v1_y) / f64(v2_y - v1_y)
+            x_left := v1_x + i32(t2 * f64(v2_x - v1_x))
+            x_right := v1_x + i32(t2 * f64(v4_x - v1_x))
+            draw_span(ctx, y, x_left, x_right, pixel, stride_pixels)
+        }
+
+        // Lower part (flat top)
+        for y in v2_y ..= v3_y {
+            if v3_y == v2_y {
+                break
+            }
+            t2 := f64(y - v2_y) / f64(v3_y - v2_y)
+            x_left := v2_x + i32(t2 * f64(v3_x - v2_x))
+            x_right := v4_x + i32(t2 * f64(v3_x - v4_x))
+            draw_span(ctx, y, x_left, x_right, pixel, stride_pixels)
+        }
+    }
+}

@@ -22,6 +22,14 @@ App :: struct {
     fractional_scale_manager: ^wl.Wp_Fractional_Scale_Manager_V1,
     viewporter: ^wl.Wp_Viewporter,
 
+    // Clipboard
+    data_device_manager: ^wl.Wl_Data_Device_Manager,
+    data_device:         ^wl.Wl_Data_Device,
+    data_source:         ^wl.Wl_Data_Source,  // Current active copy source
+    clipboard_data:      [dynamic]u8,          // Data to send on copy
+    selection_offer:     ^wl.Wl_Data_Offer,    // Current selection for paste
+    selection_mime_types: [dynamic]string,     // MIME types offered by selection
+
     // Input devices
     seat:     ^wl.Wl_Seat,
     pointer:  ^wl.Wl_Pointer,
@@ -41,6 +49,9 @@ App :: struct {
     seat_listener: wl.Wl_Seat_Listener,
     pointer_listener: wl.Wl_Pointer_Listener,
     keyboard_listener: wl.Wl_Keyboard_Listener,
+    data_device_listener: wl.Wl_Data_Device_Listener,
+    data_source_listener: wl.Wl_Data_Source_Listener,
+    data_offer_listener: wl.Wl_Data_Offer_Listener,
 
     // Input state
     pointer_x: f64,
@@ -194,6 +205,33 @@ init :: proc() -> ^App {
         repeat_info = keyboard_repeat_info_handler,
     }
 
+    // Set up data device listener (clipboard)
+    app.data_device_listener = wl.Wl_Data_Device_Listener{
+        data_offer = data_device_data_offer_handler,
+        enter = data_device_enter_handler,
+        leave = data_device_leave_handler,
+        motion = data_device_motion_handler,
+        drop = data_device_drop_handler,
+        selection = data_device_selection_handler,
+    }
+
+    // Set up data source listener (for copy)
+    app.data_source_listener = wl.Wl_Data_Source_Listener{
+        target = data_source_target_handler,
+        send = data_source_send_handler,
+        cancelled = data_source_cancelled_handler,
+        dnd_drop_performed = nil,
+        dnd_finished = nil,
+        action = nil,
+    }
+
+    // Set up data offer listener (for paste)
+    app.data_offer_listener = wl.Wl_Data_Offer_Listener{
+        offer = data_offer_offer_handler,
+        source_actions = nil,
+        action = nil,
+    }
+
     // Initialize XKB
     xkb, xkb_ok := wl.xkb_handler_init()
     if !xkb_ok {
@@ -206,6 +244,14 @@ init :: proc() -> ^App {
 
     // Roundtrip to get globals
     wl.wl_display_roundtrip(app.display)
+
+    // Get data device for clipboard (after seat and data_device_manager are bound)
+    if app.data_device_manager != nil && app.seat != nil && app.data_device == nil {
+        app.data_device = wl.data_device_manager_get_data_device(app.data_device_manager, app.seat)
+        if app.data_device != nil {
+            wl.data_device_add_listener(app.data_device, &app.data_device_listener, app)
+        }
+    }
 
     // Load cursor theme (needs shm which is available after roundtrip)
     if app.shm != nil {
@@ -879,6 +925,9 @@ registry_global_handler :: proc "c" (
     } else if iface == "wp_viewporter" {
         app.viewporter = cast(^wl.Wp_Viewporter)wl.registry_bind(
             registry, name, &wl.wp_viewporter_interface, min(version, 1))
+    } else if iface == "wl_data_device_manager" {
+        app.data_device_manager = cast(^wl.Wl_Data_Device_Manager)wl.registry_bind(
+            registry, name, &wl.wl_data_device_manager_interface, min(version, 3))
     }
 }
 
@@ -995,6 +1044,7 @@ seat_capabilities_handler :: proc "c" (data: rawptr, seat: ^wl.Wl_Seat, capabili
         wl.keyboard_release(app.keyboard)
         app.keyboard = nil
     }
+
 }
 
 seat_name_handler :: proc "c" (data: rawptr, seat: ^wl.Wl_Seat, name: cstring) {
@@ -1291,4 +1341,189 @@ keyboard_repeat_info_handler :: proc "c" (
 
     app.key_repeat_rate = rate
     app.key_repeat_delay = delay
+}
+
+// ============================================================================
+// Data Device handlers (clipboard)
+// ============================================================================
+
+data_device_data_offer_handler :: proc "c" (data: rawptr, device: ^wl.Wl_Data_Device, offer: ^wl.Wl_Data_Offer) {
+    context = runtime.default_context()
+    app := cast(^App)data
+
+    // Clear old mime types before collecting new ones
+    for mime in app.selection_mime_types {
+        delete(mime)
+    }
+    clear(&app.selection_mime_types)
+
+    // Add listener to track offered MIME types
+    wl.data_offer_add_listener(offer, &app.data_offer_listener, app)
+}
+
+data_device_enter_handler :: proc "c" (data: rawptr, device: ^wl.Wl_Data_Device, serial: u32, surface: ^wl.Wl_Surface, x: i32, y: i32, offer: ^wl.Wl_Data_Offer) {
+    // Drag and drop enter - not implemented for clipboard
+}
+
+data_device_leave_handler :: proc "c" (data: rawptr, device: ^wl.Wl_Data_Device) {
+    // Drag and drop leave - not implemented for clipboard
+}
+
+data_device_motion_handler :: proc "c" (data: rawptr, device: ^wl.Wl_Data_Device, time: u32, x: i32, y: i32) {
+    // Drag and drop motion - not implemented for clipboard
+}
+
+data_device_drop_handler :: proc "c" (data: rawptr, device: ^wl.Wl_Data_Device) {
+    // Drag and drop - not implemented for clipboard
+}
+
+data_device_selection_handler :: proc "c" (data: rawptr, device: ^wl.Wl_Data_Device, offer: ^wl.Wl_Data_Offer) {
+    context = runtime.default_context()
+    app := cast(^App)data
+
+    // Destroy old selection offer
+    if app.selection_offer != nil && app.selection_offer != offer {
+        wl.data_offer_destroy(app.selection_offer)
+    }
+
+    // Store new selection offer (mime types already collected in data_offer_offer_handler)
+    app.selection_offer = offer
+}
+
+// ============================================================================
+// Data Source handlers (for copy)
+// ============================================================================
+
+data_source_target_handler :: proc "c" (data: rawptr, source: ^wl.Wl_Data_Source, mime_type: cstring) {
+    // Target app has accepted/rejected - can be ignored for clipboard
+}
+
+data_source_send_handler :: proc "c" (data: rawptr, source: ^wl.Wl_Data_Source, mime_type: cstring, fd: i32) {
+    context = runtime.default_context()
+    app := cast(^App)data
+
+    // Write clipboard data to fd
+    if len(app.clipboard_data) > 0 {
+        posix.write(posix.FD(fd), raw_data(app.clipboard_data[:]), uint(len(app.clipboard_data)))
+    }
+    posix.close(posix.FD(fd))
+}
+
+data_source_cancelled_handler :: proc "c" (data: rawptr, source: ^wl.Wl_Data_Source) {
+    context = runtime.default_context()
+    app := cast(^App)data
+
+    // Selection was replaced by another app
+    if app.data_source == source {
+        wl.data_source_destroy(source)
+        app.data_source = nil
+    }
+}
+
+// ============================================================================
+// Data Offer handlers (for paste)
+// ============================================================================
+
+data_offer_offer_handler :: proc "c" (data: rawptr, offer: ^wl.Wl_Data_Offer, mime_type: cstring) {
+    context = runtime.default_context()
+    app := cast(^App)data
+
+    // Store offered MIME type
+    append(&app.selection_mime_types, strings.clone(string(mime_type)))
+}
+
+// ============================================================================
+// Clipboard API
+// ============================================================================
+
+// Copy text to system clipboard
+clipboard_copy :: proc(app: ^App, text: string) {
+    if app == nil || app.data_device_manager == nil || app.data_device == nil {
+        return
+    }
+
+    // Destroy old data source
+    if app.data_source != nil {
+        wl.data_source_destroy(app.data_source)
+        app.data_source = nil
+    }
+
+    // Store clipboard data
+    clear(&app.clipboard_data)
+    append(&app.clipboard_data, ..transmute([]u8)text)
+
+    // Create new data source
+    app.data_source = wl.data_device_manager_create_data_source(app.data_device_manager)
+    if app.data_source == nil {
+        return
+    }
+
+    // Add listener
+    wl.data_source_add_listener(app.data_source, &app.data_source_listener, app)
+
+    // Offer text MIME types
+    wl.data_source_offer(app.data_source, "text/plain;charset=utf-8")
+    wl.data_source_offer(app.data_source, "text/plain")
+    wl.data_source_offer(app.data_source, "UTF8_STRING")
+    wl.data_source_offer(app.data_source, "STRING")
+
+    // Set as current selection
+    wl.data_device_set_selection(app.data_device, app.data_source, app.keyboard_serial)
+}
+
+// Paste text from system clipboard (returns empty string if no text available)
+clipboard_paste :: proc(app: ^App) -> string {
+    if app == nil || app.selection_offer == nil {
+        return ""
+    }
+
+    // Find a text MIME type
+    text_mime: cstring = nil
+    preferred_mimes := []string{"text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "STRING"}
+
+    outer: for pref in preferred_mimes {
+        for mime in app.selection_mime_types {
+            if mime == pref {
+                text_mime = strings.clone_to_cstring(mime)
+                break outer
+            }
+        }
+    }
+
+    if text_mime == nil {
+        return ""
+    }
+    defer delete(text_mime)
+
+    // Create pipe
+    pipe_fds: [2]linux.Fd
+    if linux.pipe2(&pipe_fds, {}) != .NONE {
+        return ""
+    }
+
+    // Request data
+    wl.data_offer_receive(app.selection_offer, text_mime, i32(pipe_fds[1]))
+
+    // Commit the request by doing a roundtrip
+    wl.wl_display_roundtrip(app.display)
+
+    // Close write end
+    linux.close(pipe_fds[1])
+
+    // Read data from pipe
+    result := make([dynamic]u8)
+    buf: [4096]u8
+    for {
+        n, err := linux.read(pipe_fds[0], buf[:])
+        if err != .NONE || n <= 0 {
+            break
+        }
+        append(&result, ..buf[:n])
+    }
+
+    // Close read end
+    linux.close(pipe_fds[0])
+
+    // Return as string (caller must manage memory)
+    return string(result[:])
 }

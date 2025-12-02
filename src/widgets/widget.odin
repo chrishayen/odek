@@ -5,11 +5,13 @@ import "../render"
 
 // Widget vtable - function pointers for polymorphic dispatch
 Widget_VTable :: struct {
-    draw:         proc(w: ^Widget, ctx: ^render.Draw_Context),
-    handle_event: proc(w: ^Widget, event: ^core.Event) -> bool,  // returns true if consumed
-    layout:       proc(w: ^Widget),  // calculate size and position children
-    destroy:      proc(w: ^Widget),  // cleanup widget-specific resources
-    measure:      proc(w: ^Widget, available_width: i32) -> core.Size,  // preferred size given available width (-1 = unconstrained)
+    draw:           proc(w: ^Widget, ctx: ^render.Draw_Context),
+    handle_event:   proc(w: ^Widget, event: ^core.Event) -> bool,  // returns true if consumed
+    layout:         proc(w: ^Widget),  // calculate size and position children
+    destroy:        proc(w: ^Widget),  // cleanup widget-specific resources
+    measure:        proc(w: ^Widget, available_width: i32) -> core.Size,  // preferred size given available width (-1 = unconstrained)
+    contains_point: proc(w: ^Widget, x, y: i32) -> bool,  // custom hit testing (nil = use default rect)
+    draw_overlay:   proc(w: ^Widget, ctx: ^render.Draw_Context),  // draw popups/overlays on top (nil = none)
 }
 
 // Edge insets (padding, margin)
@@ -211,6 +213,24 @@ widget_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
     w.dirty = false
 }
 
+// Draw overlays for a widget and its children (popups, dropdowns, etc.)
+// Called after all widgets are drawn so overlays appear on top
+widget_draw_overlays :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
+    if w == nil || !w.visible {
+        return
+    }
+
+    // Draw this widget's overlay (if any)
+    if w.vtable != nil && w.vtable.draw_overlay != nil {
+        w.vtable.draw_overlay(w, ctx)
+    }
+
+    // Draw children's overlays
+    for child in w.children {
+        widget_draw_overlays(child, ctx)
+    }
+}
+
 // Dispatch event to widget, returns true if consumed
 widget_handle_event :: proc(w: ^Widget, event: ^core.Event) -> bool {
     if w == nil || !w.visible || !w.enabled {
@@ -290,6 +310,10 @@ widget_set_size :: proc(w: ^Widget, width, height: i32) {
 widget_contains_point :: proc(w: ^Widget, x, y: i32) -> bool {
     if w == nil || !w.visible {
         return false
+    }
+    // Use custom hit testing if available
+    if w.vtable != nil && w.vtable.contains_point != nil {
+        return w.vtable.contains_point(w, x, y)
     }
     abs_rect := widget_get_absolute_rect(w)
     return core.rect_contains(abs_rect, core.Point{x, y})

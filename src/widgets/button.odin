@@ -111,13 +111,21 @@ button_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
 
     // Choose background color based on state
     bg_color: core.Color
-    switch b.state {
-    case .Normal:
-        bg_color = b.bg_normal
-    case .Hovered:
-        bg_color = b.bg_hover
-    case .Pressed:
-        bg_color = b.bg_pressed
+    text_color := b.text_color
+
+    if !w.enabled {
+        // Disabled: use gray colors with readable text
+        bg_color = core.Color{80, 80, 80, 255}
+        text_color = core.Color{140, 140, 140, 255}
+    } else {
+        switch b.state {
+        case .Normal:
+            bg_color = b.bg_normal
+        case .Hovered:
+            bg_color = b.bg_hover
+        case .Pressed:
+            bg_color = b.bg_pressed
+        }
     }
 
     // Draw background
@@ -132,14 +140,14 @@ button_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         text_width := render.text_measure_logical(b.font, b.text)
         text_x := abs_rect.x + (abs_rect.width - text_width) / 2
         text_y := abs_rect.y + (abs_rect.height - render.font_get_logical_line_height(b.font)) / 2
-        render.draw_text_top(ctx, b.font, b.text, text_x, text_y, b.text_color)
+        render.draw_text_top(ctx, b.font, b.text, text_x, text_y, text_color)
     }
 
-    // Draw focus indicator if focused
-    if w.focused {
+    // Draw focus indicator if focused and enabled
+    if w.focused && w.enabled {
         // Draw a subtle border
         focus_color := core.color_rgba(255, 255, 255, 100)
-        render.draw_rect(ctx, abs_rect, focus_color)
+        render.draw_rounded_rect(ctx, abs_rect, b.corner_radius, focus_color)
     }
 }
 

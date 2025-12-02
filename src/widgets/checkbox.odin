@@ -116,20 +116,18 @@ checkbox_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
 
     // Draw check indicator when checked
     if cb.checked {
-        // Inner filled square/rounded rect as check indicator
+        // Inner filled circle as check indicator
         inner_margin: i32 = 4
+        inner_size := cb.box_size - inner_margin * 2
         inner_rect := core.Rect{
             box_x + inner_margin,
             box_y + inner_margin,
-            cb.box_size - inner_margin * 2,
-            cb.box_size - inner_margin * 2,
+            inner_size,
+            inner_size,
         }
-        inner_radius := max(cb.corner_radius - 1, 0)
-        if inner_radius > 0 {
-            render.fill_rounded_rect(ctx, inner_rect, inner_radius, cb.check_color)
-        } else {
-            render.fill_rect(ctx, inner_rect, cb.check_color)
-        }
+        // Use half the size as radius for a perfect circle
+        inner_radius := inner_size / 2
+        render.fill_rounded_rect(ctx, inner_rect, inner_radius, cb.check_color)
     }
 
     // Draw focus indicator
