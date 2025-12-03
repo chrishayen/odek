@@ -6,7 +6,7 @@ import "core:fmt"
 main :: proc() {
 	fmt.println("Odek - Image Browser Demo")
 
-	a := app.create("Odek Image Browser", 800, 600)
+	a := app.create("Odek Image Browser", 800, 600, "com.odek.filebrowser")
 	if a == nil {
 		fmt.eprintln("Failed to create application")
 		return

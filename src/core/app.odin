@@ -339,7 +339,7 @@ shutdown :: proc(app: ^App) {
 }
 
 // Create a window
-create_window :: proc(app: ^App, title: string, width, height: i32) -> ^Window {
+create_window :: proc(app: ^App, title: string, width, height: i32, app_id: string = "com.odek.example") -> ^Window {
     win := new(Window)
     win.app = app
     win.logical_width = width
@@ -405,11 +405,14 @@ create_window :: proc(app: ^App, title: string, width, height: i32) -> ^Window {
     }
     wl.xdg_toplevel_add_listener(win.xdg_toplevel, &win.xdg_toplevel_listener, win)
 
-    // Set title
+    // Set title and app_id
     title_cstr := strings.clone_to_cstring(title)
     defer delete(title_cstr)
     wl.xdg_toplevel_set_title(win.xdg_toplevel, title_cstr)
-    wl.xdg_toplevel_set_app_id(win.xdg_toplevel, "odek")
+
+    app_id_cstr := strings.clone_to_cstring(app_id)
+    defer delete(app_id_cstr)
+    wl.xdg_toplevel_set_app_id(win.xdg_toplevel, app_id_cstr)
 
     // Frame callback listener
     win.frame_listener = wl.Wl_Callback_Listener{

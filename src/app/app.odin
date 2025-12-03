@@ -58,7 +58,7 @@ IMAGE_LOADER_QUEUE_SIZE :: 256  // Max pending image load requests
 g_app: ^App
 
 // Create a new application
-create :: proc(title: string, width: i32 = 800, height: i32 = 600) -> ^App {
+create :: proc(title: string, width: i32 = 800, height: i32 = 600, app_id: string = "com.odek.example") -> ^App {
 	// Only one App instance is supported due to Wayland callback limitations
 	if g_app != nil {
 		return nil
@@ -74,7 +74,7 @@ create :: proc(title: string, width: i32 = 800, height: i32 = 600) -> ^App {
 	}
 
 	// Create window
-	a.window = core.create_window(a.core_app, title, width, height)
+	a.window = core.create_window(a.core_app, title, width, height, app_id)
 	if a.window == nil {
 		core.shutdown(a.core_app)
 		free(a)

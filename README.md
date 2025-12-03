@@ -48,7 +48,8 @@ g_label: ^widgets.Label
 g_input: ^widgets.Text_Input
 
 main :: proc() {
-    a := app.create("My App", 400, 300)
+    // app_id is used by compositors for window rules (e.g., floating, workspace)
+    a := app.create("My App", 400, 300, "com.example.myapp")
     if a == nil {
         return
     }
@@ -116,8 +117,8 @@ main :: proc() {
     }
     defer core.shutdown(app)
 
-    // Create window
-    g_state.window = core.create_window(app, "My App", 400, 300)
+    // Create window (app_id used by compositors for window rules)
+    g_state.window = core.create_window(app, "My App", 400, 300, "com.example.myapp")
     if g_state.window == nil {
         fmt.eprintln("Failed to create window")
         return

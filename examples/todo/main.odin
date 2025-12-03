@@ -6,7 +6,7 @@ import "core:fmt"
 main :: proc() {
     fmt.println("Odek - Todo App")
 
-    a := app.create("Todo App", 400, 500)
+    a := app.create("Todo App", 400, 500, "com.odek.todo")
     if a == nil {
         fmt.eprintln("Failed to create application")
         return
