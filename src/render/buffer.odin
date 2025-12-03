@@ -430,6 +430,51 @@ set_pixel_blend :: proc(ctx: ^Draw_Context, x, y: i32, color: core.Color) {
     ctx.pixels[idx] = blend_pixel(ctx.pixels[idx], color)
 }
 
+// Draw a rounded rectangle with selective corner rounding
+// tl = top-left, tr = top-right, br = bottom-right, bl = bottom-left
+fill_rounded_rect_corners :: proc(ctx: ^Draw_Context, rect: core.Rect, radius: i32, tl, tr, br, bl: bool, color: core.Color) {
+	if radius <= 0 || (!tl && !tr && !br && !bl) {
+		fill_rect(ctx, rect, color)
+		return
+	}
+
+	r := min(radius, rect.width / 2, rect.height / 2)
+
+	// Center rectangle (always full)
+	fill_rect(ctx, core.Rect{rect.x + r, rect.y + r, rect.width - 2 * r, rect.height - 2 * r}, color)
+
+	// Top strip
+	fill_rect(ctx, core.Rect{rect.x + (r if tl else 0), rect.y, rect.width - (r if tl else 0) - (r if tr else 0), r}, color)
+	// Bottom strip
+	fill_rect(ctx, core.Rect{rect.x + (r if bl else 0), rect.y + rect.height - r, rect.width - (r if bl else 0) - (r if br else 0), r}, color)
+	// Left strip
+	fill_rect(ctx, core.Rect{rect.x, rect.y + (r if tl else 0), r, rect.height - (r if tl else 0) - (r if bl else 0)}, color)
+	// Right strip
+	fill_rect(ctx, core.Rect{rect.x + rect.width - r, rect.y + (r if tr else 0), r, rect.height - (r if tr else 0) - (r if br else 0)}, color)
+
+	// Rounded corners
+	if tl {
+		draw_corner(ctx, rect.x + r, rect.y + r, r, color, .TopLeft)
+	} else {
+		fill_rect(ctx, core.Rect{rect.x, rect.y, r, r}, color)
+	}
+	if tr {
+		draw_corner(ctx, rect.x + rect.width - r - 1, rect.y + r, r, color, .TopRight)
+	} else {
+		fill_rect(ctx, core.Rect{rect.x + rect.width - r, rect.y, r, r}, color)
+	}
+	if bl {
+		draw_corner(ctx, rect.x + r, rect.y + rect.height - r - 1, r, color, .BottomLeft)
+	} else {
+		fill_rect(ctx, core.Rect{rect.x, rect.y + rect.height - r, r, r}, color)
+	}
+	if br {
+		draw_corner(ctx, rect.x + rect.width - r - 1, rect.y + rect.height - r - 1, r, color, .BottomRight)
+	} else {
+		fill_rect(ctx, core.Rect{rect.x + rect.width - r, rect.y + rect.height - r, r, r}, color)
+	}
+}
+
 // Draw a rounded rectangle outline
 draw_rounded_rect :: proc(ctx: ^Draw_Context, rect: core.Rect, radius: i32, color: core.Color) {
     if radius <= 0 {

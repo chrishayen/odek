@@ -317,6 +317,11 @@ create_dropdown :: proc(a: ^App) -> ^widgets.Dropdown {
 	return widgets.dropdown_create(get_font(a))
 }
 
+// Create a toggle group with the app's font (does not add to root)
+create_toggle_group :: proc(a: ^App, options: []string) -> ^widgets.Toggle_Group {
+	return widgets.toggle_group_create(options, get_font(a))
+}
+
 // Unregister an image grid from async loading updates (call before destroying the grid)
 unregister_image_grid :: proc(a: ^App, grid: ^widgets.Image_Grid) {
 	for i := 0; i < len(a.image_grids); i += 1 {

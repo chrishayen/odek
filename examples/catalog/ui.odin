@@ -121,6 +121,13 @@ build_ui :: proc(a: ^app.App) {
         dd.min_size = core.Size{150, 0}
         widgets.widget_add_child(container, dd)
     })
+
+    // Toggle Group section
+    add_section(a, content, "Toggle Group", proc(a: ^app.App, container: ^widgets.Container) {
+        options := []string{"Day", "Week", "Month"}
+        tg := app.create_toggle_group(a, options)
+        widgets.widget_add_child(container, tg)
+    })
 }
 
 // Helper to create a section with title and content

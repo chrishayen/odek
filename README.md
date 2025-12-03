@@ -251,6 +251,7 @@ src/
 │   ├── button.odin     Interactive button widget
 │   ├── checkbox.odin   Toggle checkbox widget
 │   ├── dropdown.odin   Dropdown select widget
+│   ├── toggle_group.odin  Toggle button group
 │   ├── label.odin      Text display with wrapping
 │   ├── text_input.odin Single-line text input
 │   ├── scroll_container.odin  Scrollable container
@@ -439,6 +440,44 @@ widgets.widget_add_child(parent, dropdown)
 | `corner_radius` | `i32` | Border radius |
 | `item_height` | `i32` | Height of each option item |
 | `on_change` | `proc` | Selection change callback |
+
+### Toggle Group
+
+Horizontal button group where only one option can be selected at a time.
+
+```odin
+options := []string{"Day", "Week", "Month"}
+toggle := widgets.toggle_group_create(options, &font)
+
+toggle.on_change = proc(g: ^widgets.Toggle_Group) {
+    index := widgets.toggle_group_get_selected(g)
+    text := widgets.toggle_group_get_selected_text(g)
+}
+
+widgets.widget_add_child(parent, toggle)
+```
+
+**Properties:**
+| Property | Type | Description |
+|----------|------|-------------|
+| `options` | `[dynamic]string` | List of options (cloned on create) |
+| `selected_index` | `int` | Currently selected option index |
+| `font` | `^Font` | Text font |
+| `corner_radius` | `i32` | Border radius |
+| `bg_normal` | `Color` | Unselected background (from theme) |
+| `bg_hover` | `Color` | Hover background (from theme) |
+| `bg_selected` | `Color` | Selected background (from theme) |
+| `text_color` | `Color` | Text color (from theme) |
+| `on_change` | `proc` | Selection change callback |
+
+**Functions:**
+| Function | Description |
+|----------|-------------|
+| `toggle_group_get_selected(g)` | Get selected index |
+| `toggle_group_get_selected_text(g)` | Get selected option text |
+| `toggle_group_set_selected(g, index)` | Set selected index |
+
+**Keyboard:** Left/Right arrows change selection when focused.
 
 ### Scroll Container
 
