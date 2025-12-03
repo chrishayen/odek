@@ -10,6 +10,8 @@ Label :: struct {
 
     text:         string,
     font:         ^render.Font,
+    font_bold:    ^render.Font,    // Bold font variant (optional)
+    bold:         bool,            // Use bold font
     color:        core.Color,
     h_align:      Align,          // Horizontal text alignment (Start, Center, End)
     wrap:         bool,           // Enable word wrapping
@@ -96,6 +98,36 @@ label_set_strikethrough :: proc(l: ^Label, strikethrough: bool) {
     widget_mark_dirty(l)
 }
 
+// Set bold enabled
+label_set_bold :: proc(l: ^Label, bold: bool) {
+    if l.bold == bold {
+        return
+    }
+    l.bold = bold
+    l.cached_width = -1  // Invalidate cache (bold may have different metrics)
+    widget_mark_dirty(l)
+}
+
+// Set bold font
+label_set_font_bold :: proc(l: ^Label, font: ^render.Font) {
+    if l.font_bold == font {
+        return
+    }
+    l.font_bold = font
+    if l.bold {
+        l.cached_width = -1  // Invalidate cache if currently using bold
+    }
+    widget_mark_dirty(l)
+}
+
+// Get the active font (bold or regular)
+label_get_active_font :: proc(l: ^Label) -> ^render.Font {
+    if l.bold && l.font_bold != nil {
+        return l.font_bold
+    }
+    return l.font
+}
+
 // Update wrapped lines cache
 label_update_lines :: proc(l: ^Label, available_width: i32) {
     // Only skip if cache is valid AND we have lines
@@ -106,7 +138,8 @@ label_update_lines :: proc(l: ^Label, available_width: i32) {
     clear(&l.lines)
     l.cached_width = available_width
 
-    if l.font == nil || l.text == "" {
+    font := label_get_active_font(l)
+    if font == nil || l.text == "" {
         return
     }
 
@@ -117,7 +150,7 @@ label_update_lines :: proc(l: ^Label, available_width: i32) {
     }
 
     // Word wrap algorithm
-    label_wrap_text(l.font, l.text, available_width, &l.lines)
+    label_wrap_text(font, l.text, available_width, &l.lines)
 }
 
 // Wrap text to fit within max_width, breaking at word boundaries
@@ -225,7 +258,8 @@ wrap_single_line :: proc(font: ^render.Font, line: string, max_width: i32, lines
 label_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
     l := cast(^Label)w
 
-    if l.font == nil || l.text == "" {
+    font := label_get_active_font(l)
+    if font == nil || l.text == "" {
         return
     }
 
@@ -240,11 +274,11 @@ label_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
     }
 
     // Draw each line (all coordinates in logical pixels)
-    line_height := render.font_get_logical_line_height(l.font)
+    line_height := render.font_get_logical_line_height(font)
     y := abs_rect.y + w.padding.top
 
     for line in l.lines {
-        line_width := render.text_measure_logical(l.font, line)
+        line_width := render.text_measure_logical(font, line)
 
         // Calculate x position based on alignment
         x: i32
@@ -259,7 +293,7 @@ label_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
             x = abs_rect.x + w.padding.left  // Same as Start for text
         }
 
-        render.draw_text_top(ctx, l.font, line, x, y, l.color)
+        render.draw_text_top(ctx, font, line, x, y, l.color)
 
         // Draw strikethrough line if enabled
         if l.strikethrough && line_width > 0 {
@@ -288,7 +322,8 @@ label_layout :: proc(w: ^Widget) {
 label_measure :: proc(w: ^Widget, available_width: i32) -> core.Size {
     l := cast(^Label)w
 
-    if l.font == nil || l.text == "" {
+    font := label_get_active_font(l)
+    if font == nil || l.text == "" {
         return core.Size{
             width = w.padding.left + w.padding.right,
             height = w.padding.top + w.padding.bottom,
@@ -300,7 +335,7 @@ label_measure :: proc(w: ^Widget, available_width: i32) -> core.Size {
 
     if content_width <= 0 || !l.wrap {
         // No width constraint or wrapping disabled - measure single line
-        text_size := render.text_measure_size(l.font, l.text)
+        text_size := render.text_measure_size(font, l.text)
         return core.Size{
             width = text_size.width + w.padding.left + w.padding.right,
             height = text_size.height + w.padding.top + w.padding.bottom,
@@ -309,19 +344,19 @@ label_measure :: proc(w: ^Widget, available_width: i32) -> core.Size {
 
     // Wrap and calculate height based on available width
     label_update_lines(l, content_width)
-    line_height := render.font_get_logical_line_height(l.font)
+    line_height := render.font_get_logical_line_height(font)
     num_lines := max(1, i32(len(l.lines)))  // At least 1 line height
     height := num_lines * line_height
 
     // Calculate width: use actual text width for proper centering
     max_line_width: i32 = 0
     for line in l.lines {
-        line_width := render.text_measure_logical(l.font, line)
+        line_width := render.text_measure_logical(font, line)
         max_line_width = max(max_line_width, line_width)
     }
     // If no lines yet, use full text width
     if max_line_width == 0 {
-        max_line_width = render.text_measure_logical(l.font, l.text)
+        max_line_width = render.text_measure_logical(font, l.text)
     }
 
     return core.Size{

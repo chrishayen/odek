@@ -103,13 +103,17 @@ build_ui :: proc(a: ^app.App) {
         lbl1 := app.create_label(a, "Regular text")
         widgets.widget_add_child(container, lbl1)
 
-        lbl2 := app.create_label(a, "Strikethrough text")
-        lbl2.strikethrough = true
+        lbl2 := app.create_label(a, "Bold text")
+        widgets.label_set_bold(lbl2, true)
         widgets.widget_add_child(container, lbl2)
 
-        lbl3 := app.create_label(a, "Secondary color text")
-        lbl3.color = widgets.theme_get().text_secondary
+        lbl3 := app.create_label(a, "Strikethrough text")
+        lbl3.strikethrough = true
         widgets.widget_add_child(container, lbl3)
+
+        lbl4 := app.create_label(a, "Secondary color text")
+        lbl4.color = widgets.theme_get().text_secondary
+        widgets.widget_add_child(container, lbl4)
     })
 
     // Dropdown section

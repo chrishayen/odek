@@ -18,6 +18,8 @@ App :: struct {
 	text_renderer:   render.Text_Renderer,
 	font:            render.Font,
 	font_loaded:     bool,
+	font_bold:       render.Font,
+	font_bold_loaded: bool,
 
 	// Widget tree
 	root:            ^widgets.Container,
@@ -42,23 +44,8 @@ App :: struct {
 	on_scroll:       proc(a: ^App, delta: i32, axis: u32) -> bool,
 }
 
-// Common font paths to try
-DEFAULT_FONT_PATHS :: []string {
-	// Arch Linux / TTF
-	"/usr/share/fonts/TTF/DejaVuSans.ttf",
-	"/usr/share/fonts/TTF/LiberationSans-Regular.ttf",
-	"/usr/share/fonts/noto/NotoSans-Regular.ttf",
-	// Debian/Ubuntu
-	"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-	"/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-	"/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-	// Fedora
-	"/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
-	"/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf",
-	// Generic
-	"/usr/share/fonts/TTF/FreeSans.ttf",
-	"/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-}
+// Default font family to use
+DEFAULT_FONT_FAMILY :: "sans"
 
 // Image cache configuration
 IMAGE_CACHE_MIN_SIZE :: 50   // Minimum images to keep in cache
@@ -103,15 +90,23 @@ create :: proc(title: string, width: i32 = 800, height: i32 = 600) -> ^App {
 		return nil
 	}
 
-	// Auto-load font using system-configured size from fontconfig
+	// Auto-load fonts using fontconfig
 	font_size := render.fc_get_default_pixel_size(14)
-	a.font_loaded = false
-	for path in DEFAULT_FONT_PATHS {
-		a.font, ok = render.font_load(&a.text_renderer, path, font_size)
-		if ok {
-			a.font_loaded = true
-			break
-		}
+
+	// Load regular font
+	font_path := render.fc_get_font_path(DEFAULT_FONT_FAMILY, false)
+	if font_path != "" {
+		a.font, ok = render.font_load(&a.text_renderer, font_path, font_size)
+		a.font_loaded = ok
+		delete(font_path)
+	}
+
+	// Load bold font
+	bold_path := render.fc_get_font_path(DEFAULT_FONT_FAMILY, true)
+	if bold_path != "" {
+		a.font_bold, ok = render.font_load(&a.text_renderer, bold_path, font_size)
+		a.font_bold_loaded = ok
+		delete(bold_path)
 	}
 
 	// Create root container
@@ -169,6 +164,10 @@ destroy :: proc(a: ^App) {
 		render.font_destroy(&a.font)
 	}
 
+	if a.font_bold_loaded {
+		render.font_destroy(&a.font_bold)
+	}
+
 	render.text_renderer_destroy(&a.text_renderer)
 
 	// Clean up image loading
@@ -205,6 +204,14 @@ get_font :: proc(a: ^App) -> ^render.Font {
 		return nil
 	}
 	return &a.font
+}
+
+// Get the app's bold font (for custom widgets)
+get_font_bold :: proc(a: ^App) -> ^render.Font {
+	if a == nil || !a.font_bold_loaded {
+		return nil
+	}
+	return &a.font_bold
 }
 
 // ============================================================================
@@ -269,7 +276,9 @@ dropdown :: proc(a: ^App) -> ^widgets.Dropdown {
 
 // Create a label with the app's font (does not add to root)
 create_label :: proc(a: ^App, text: string = "") -> ^widgets.Label {
-	return widgets.label_create(text, get_font(a))
+	l := widgets.label_create(text, get_font(a))
+	l.font_bold = get_font_bold(a)
+	return l
 }
 
 // Create a button with the app's font (does not add to root)
@@ -663,10 +672,15 @@ _key_callback :: proc(win: ^core.Window, keycode: u32, pressed: bool, utf8: stri
 
 @(private)
 _scale_changed_callback :: proc(win: ^core.Window, scale: f64) {
-	if g_app == nil || !g_app.font_loaded {
+	if g_app == nil {
 		return
 	}
-	render.font_set_scale(&g_app.font, scale)
+	if g_app.font_loaded {
+		render.font_set_scale(&g_app.font, scale)
+	}
+	if g_app.font_bold_loaded {
+		render.font_set_scale(&g_app.font_bold, scale)
+	}
 }
 
 // Called when image loader has completed work (event-driven via eventfd)

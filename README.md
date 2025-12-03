@@ -10,6 +10,7 @@ A pure Odin UI toolkit for building native Wayland desktop applications.
 - Software rendering with double buffering
 - Async image loading with worker threads
 - FreeType text rendering with glyph caching
+- Bold text support with automatic font discovery
 - Fontconfig for automatic system font discovery
 - Focus management and keyboard navigation
 - Theme system with dark and light themes
@@ -329,12 +330,15 @@ widgets.widget_add_child(parent, button)
 
 ### Label
 
-Text display with optional word wrapping.
+Text display with optional word wrapping and bold text.
 
 ```odin
 label := widgets.label_create("Hello World", &font)
 widgets.label_set_align(label, .Center)
 label.wrap = true
+
+// Bold text (requires font_bold to be set)
+widgets.label_set_bold(label, true)
 
 widgets.widget_add_child(parent, label)
 ```
@@ -344,9 +348,12 @@ widgets.widget_add_child(parent, label)
 |----------|------|-------------|
 | `text` | `string` | Display text |
 | `font` | `^Font` | Text font |
+| `font_bold` | `^Font` | Bold font variant (auto-set by app) |
+| `bold` | `bool` | Use bold font |
 | `color` | `Color` | Text color (from theme) |
 | `h_align` | `Align` | `.Start`, `.Center`, `.End` |
 | `wrap` | `bool` | Enable word wrapping |
+| `strikethrough` | `bool` | Draw line through text |
 
 ### Text Input
 

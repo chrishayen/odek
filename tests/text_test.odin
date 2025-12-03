@@ -268,3 +268,57 @@ test_space_character :: proc(t: ^testing.T) {
         testing.expect(t, glyph.advance > 0, "Space should have positive advance")
     }
 }
+
+// ============================================================================
+// Fontconfig tests
+// ============================================================================
+
+@(test)
+test_fc_get_font_path :: proc(t: ^testing.T) {
+    // Get sans font path
+    path := render.fc_get_font_path("sans", false)
+    defer delete(path)
+
+    testing.expect(t, len(path) > 0, "Should find a sans font")
+
+    // Path should end in .ttf or .otf
+    if len(path) > 4 {
+        ext := path[len(path)-4:]
+        has_valid_ext := ext == ".ttf" || ext == ".otf"
+        testing.expect(t, has_valid_ext, "Font path should end in .ttf or .otf")
+    }
+}
+
+@(test)
+test_fc_get_font_path_bold :: proc(t: ^testing.T) {
+    // Get bold sans font path
+    path := render.fc_get_font_path("sans", true)
+    defer delete(path)
+
+    testing.expect(t, len(path) > 0, "Should find a bold sans font")
+}
+
+@(test)
+test_fc_get_font_path_loads :: proc(t: ^testing.T) {
+    renderer, renderer_ok := render.text_renderer_init()
+    if !renderer_ok {
+        return
+    }
+    defer render.text_renderer_destroy(&renderer)
+
+    // Get font path from fontconfig
+    path := render.fc_get_font_path("sans", false)
+    defer delete(path)
+
+    if len(path) == 0 {
+        return
+    }
+
+    // Should be able to load font at this path
+    font, font_ok := render.font_load(&renderer, path, 16)
+    testing.expect(t, font_ok, "Should be able to load font from fontconfig path")
+
+    if font_ok {
+        render.font_destroy(&font)
+    }
+}

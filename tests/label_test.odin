@@ -397,3 +397,142 @@ test_label_set_strikethrough_same :: proc(t: ^testing.T) {
 
     widgets.widget_destroy(l)
 }
+
+// ============================================================================
+// Label bold tests
+// ============================================================================
+
+@(test)
+test_label_bold_default :: proc(t: ^testing.T) {
+    l := widgets.label_create("Test")
+    testing.expect(t, l.bold == false, "Bold should be false by default")
+    testing.expect(t, l.font_bold == nil, "Bold font should be nil by default")
+
+    widgets.widget_destroy(l)
+}
+
+@(test)
+test_label_set_bold :: proc(t: ^testing.T) {
+    l := widgets.label_create("Test")
+    l.dirty = false
+
+    widgets.label_set_bold(l, true)
+    testing.expect(t, l.bold == true, "Bold should be enabled")
+    testing.expect(t, l.dirty == true, "Label should be marked dirty")
+    testing.expect(t, l.cached_width == -1, "Cache should be invalidated")
+
+    widgets.widget_destroy(l)
+}
+
+@(test)
+test_label_set_bold_same :: proc(t: ^testing.T) {
+    l := widgets.label_create("Test")
+    l.dirty = false
+    l.cached_width = 100
+
+    widgets.label_set_bold(l, false)  // Same as default
+    testing.expect(t, l.dirty == false, "Label should not be marked dirty if bold unchanged")
+    testing.expect(t, l.cached_width == 100, "Cache should not be invalidated")
+
+    widgets.widget_destroy(l)
+}
+
+@(test)
+test_label_set_font_bold :: proc(t: ^testing.T) {
+    renderer, renderer_ok := render.text_renderer_init()
+    if !renderer_ok {
+        return
+    }
+    defer render.text_renderer_destroy(&renderer)
+
+    font, font_ok := render.font_load(&renderer, TEST_FONT_PATH, 16)
+    if !font_ok {
+        return
+    }
+    defer render.font_destroy(&font)
+
+    l := widgets.label_create("Test")
+    l.dirty = false
+
+    widgets.label_set_font_bold(l, &font)
+    testing.expect(t, l.font_bold == &font, "Bold font should be set")
+    testing.expect(t, l.dirty == true, "Label should be marked dirty")
+
+    widgets.widget_destroy(l)
+}
+
+@(test)
+test_label_get_active_font_regular :: proc(t: ^testing.T) {
+    renderer, renderer_ok := render.text_renderer_init()
+    if !renderer_ok {
+        return
+    }
+    defer render.text_renderer_destroy(&renderer)
+
+    font, font_ok := render.font_load(&renderer, TEST_FONT_PATH, 16)
+    if !font_ok {
+        return
+    }
+    defer render.font_destroy(&font)
+
+    l := widgets.label_create("Test", &font)
+    l.bold = false
+
+    active := widgets.label_get_active_font(l)
+    testing.expect(t, active == &font, "Active font should be regular font when bold=false")
+
+    widgets.widget_destroy(l)
+}
+
+@(test)
+test_label_get_active_font_bold :: proc(t: ^testing.T) {
+    renderer, renderer_ok := render.text_renderer_init()
+    if !renderer_ok {
+        return
+    }
+    defer render.text_renderer_destroy(&renderer)
+
+    font, font_ok := render.font_load(&renderer, TEST_FONT_PATH, 16)
+    if !font_ok {
+        return
+    }
+    defer render.font_destroy(&font)
+
+    bold_font, bold_ok := render.font_load(&renderer, TEST_FONT_PATH, 16)
+    if !bold_ok {
+        return
+    }
+    defer render.font_destroy(&bold_font)
+
+    l := widgets.label_create("Test", &font)
+    l.font_bold = &bold_font
+    l.bold = true
+
+    active := widgets.label_get_active_font(l)
+    testing.expect(t, active == &bold_font, "Active font should be bold font when bold=true")
+
+    widgets.widget_destroy(l)
+}
+
+@(test)
+test_label_get_active_font_bold_fallback :: proc(t: ^testing.T) {
+    renderer, renderer_ok := render.text_renderer_init()
+    if !renderer_ok {
+        return
+    }
+    defer render.text_renderer_destroy(&renderer)
+
+    font, font_ok := render.font_load(&renderer, TEST_FONT_PATH, 16)
+    if !font_ok {
+        return
+    }
+    defer render.font_destroy(&font)
+
+    l := widgets.label_create("Test", &font)
+    l.bold = true  // Bold enabled but no bold font set
+
+    active := widgets.label_get_active_font(l)
+    testing.expect(t, active == &font, "Should fall back to regular font when bold font not set")
+
+    widgets.widget_destroy(l)
+}

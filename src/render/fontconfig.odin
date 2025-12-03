@@ -1,6 +1,7 @@
 package render
 
 import "core:c"
+import "core:strings"
 
 // Fontconfig types
 FcConfig :: struct {}
@@ -31,6 +32,12 @@ FcFalse :: 0
 FC_SIZE :: "size"
 FC_DPI :: "dpi"
 FC_FAMILY :: "family"
+FC_FILE :: "file"
+FC_STYLE :: "style"
+FC_WEIGHT :: "weight"
+
+// Weight constants
+FC_WEIGHT_BOLD :: 200
 
 // Foreign bindings to libfontconfig
 foreign import fontconfig "system:fontconfig"
@@ -43,6 +50,19 @@ foreign fontconfig {
     // Pattern functions
     FcPatternCreate :: proc() -> ^FcPattern ---
     FcPatternDestroy :: proc(p: ^FcPattern) ---
+
+    // Add values to pattern
+    FcPatternAddString :: proc(
+        p: ^FcPattern,
+        object: cstring,
+        s: cstring,
+    ) -> FcBool ---
+
+    FcPatternAddInteger :: proc(
+        p: ^FcPattern,
+        object: cstring,
+        i: c.int,
+    ) -> FcBool ---
 
     // Config substitution
     FcConfigSubstitute :: proc(
@@ -164,4 +184,51 @@ fc_get_default_pixel_size :: proc(fallback: u32 = 14) -> u32 {
     }
 
     return u32(pixels + 0.5)  // Round to nearest
+}
+
+// Get font file path by family name
+// family: font family name (e.g. "sans", "serif", "monospace")
+// bold: if true, request bold weight
+// Returns the file path or empty string if not found
+// Note: The returned string is cloned and must be freed by the caller
+fc_get_font_path :: proc(family: string = "sans", bold: bool = false) -> string {
+    if FcInit() == FcFalse {
+        return ""
+    }
+
+    pattern := FcPatternCreate()
+    if pattern == nil {
+        return ""
+    }
+    defer FcPatternDestroy(pattern)
+
+    // Add family name
+    c_family := cstring(raw_data(family))
+    FcPatternAddString(pattern, FC_FAMILY, c_family)
+
+    // Add bold weight if requested
+    if bold {
+        FcPatternAddInteger(pattern, FC_WEIGHT, FC_WEIGHT_BOLD)
+    }
+
+    // Apply config substitutions and defaults
+    FcConfigSubstitute(nil, pattern, .Pattern)
+    FcDefaultSubstitute(pattern)
+
+    // Match the font
+    result: FcResult
+    match := FcFontMatch(nil, pattern, &result)
+    if match == nil || result != .Match {
+        return ""
+    }
+    defer FcPatternDestroy(match)
+
+    // Get the file path
+    file_path: cstring
+    if FcPatternGetString(match, FC_FILE, 0, &file_path) != .Match {
+        return ""
+    }
+
+    // Clone the string since fontconfig memory is freed on pattern destroy
+    return strings.clone_from_cstring(file_path)
 }
