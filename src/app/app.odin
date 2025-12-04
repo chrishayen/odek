@@ -256,7 +256,8 @@ scroll_container :: proc(
 	return sc
 }
 
-// Create an image grid and add to root (auto-wired for async loading)
+// Create an image grid and add to root.
+// Use queue_image_load() to load images asynchronously into the grid.
 image_grid :: proc(a: ^App) -> ^widgets.Image_Grid {
 	ig := create_image_grid(a)
 	widgets.widget_add_child(a.root, ig)
@@ -310,7 +311,8 @@ create_scroll_container :: proc(
 	return widgets.scroll_container_create(direction)
 }
 
-// Create an image grid (does not add to root, auto-wired for async loading)
+// Create an image grid (does not add to root - for custom layouts).
+// Use queue_image_load() to load images asynchronously into the grid.
 create_image_grid :: proc(a: ^App) -> ^widgets.Image_Grid {
 	ig := widgets.image_grid_create()
 	if a.font_loaded {
@@ -575,7 +577,22 @@ _pointer_button_callback :: proc(win: ^core.Window, button: u32, pressed: bool) 
 		widgets.close_dropdowns_outside(g_app.root, i32(x), i32(y))
 	}
 
-	event := core.event_pointer_button(core.Mouse_Button(button), pressed, i32(x), i32(y), 0)
+	// Build modifier flags from current state
+	modifiers: core.Modifier_Flags
+	if core.is_shift_pressed(g_app.core_app) {
+		modifiers += {.Shift}
+	}
+	if core.is_ctrl_pressed(g_app.core_app) {
+		modifiers += {.Ctrl}
+	}
+	if core.is_alt_pressed(g_app.core_app) {
+		modifiers += {.Alt}
+	}
+	if core.is_super_pressed(g_app.core_app) {
+		modifiers += {.Super}
+	}
+
+	event := core.event_pointer_button(core.Mouse_Button(button), pressed, i32(x), i32(y), 0, modifiers)
 	widgets.dispatch_pointer_event(&g_app.hit_state, g_app.root, &event)
 
 	// Focus clicked widget if focusable, otherwise clear focus

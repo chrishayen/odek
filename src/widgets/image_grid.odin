@@ -50,8 +50,12 @@ Image_Grid :: struct {
 
     // State
     scroll:              Scroll_State,
-    selected_idx:        i32,    // -1 = none selected
+    selected_idx:        i32,    // -1 = none selected (primary selection for backwards compat)
     hovered_idx:         i32,    // -1 = none hovered
+
+    // Multi-selection
+    selected_set:        map[i32]bool,  // Set of selected indices
+    anchor_idx:          i32,           // Anchor for shift-click range selection
 
     // Scrollbar state
     scrollbar_width:    i32,
@@ -96,6 +100,7 @@ image_grid_create :: proc() -> ^Image_Grid {
     g.scroll = scroll_init()
     g.selected_idx = -1
     g.hovered_idx = -1
+    g.anchor_idx = -1
     g.scrollbar_width = 8
 
     return g
@@ -181,12 +186,33 @@ image_grid_remove_item :: proc(g: ^Image_Grid, index: i32) {
     }
     ordered_remove(&g.items, int(index))
 
-    // Adjust selection
+    // Adjust single selection
     if g.selected_idx == index {
         g.selected_idx = -1
     } else if g.selected_idx > index {
         g.selected_idx -= 1
     }
+
+    // Adjust anchor
+    if g.anchor_idx == index {
+        g.anchor_idx = -1
+    } else if g.anchor_idx > index {
+        g.anchor_idx -= 1
+    }
+
+    // Rebuild selected_set with adjusted indices
+    new_set: map[i32]bool
+    for sel_idx in g.selected_set {
+        if sel_idx == index {
+            continue  // Remove this one
+        } else if sel_idx > index {
+            new_set[sel_idx - 1] = true
+        } else {
+            new_set[sel_idx] = true
+        }
+    }
+    delete(g.selected_set)
+    g.selected_set = new_set
 
     widget_mark_dirty(g)
 }
@@ -207,6 +233,8 @@ image_grid_clear :: proc(g: ^Image_Grid) {
     clear(&g.items)
     g.selected_idx = -1
     g.hovered_idx = -1
+    g.anchor_idx = -1
+    clear(&g.selected_set)
     g.scroll.offset = 0
     widget_mark_dirty(g)
 }
@@ -246,19 +274,154 @@ image_grid_update_videos :: proc(g: ^Image_Grid, delta_time: f64) -> bool {
     return needs_redraw
 }
 
-// Set selected item
+// Set selected item (single selection, clears multi-selection)
 image_grid_set_selected :: proc(g: ^Image_Grid, index: i32) {
-    if index == g.selected_idx {
+    if index == g.selected_idx && len(g.selected_set) <= 1 {
         return
     }
 
     old_idx := g.selected_idx
     g.selected_idx = index
+    g.anchor_idx = index
+
+    // Clear multi-selection and set single item
+    clear(&g.selected_set)
+    if index >= 0 {
+        g.selected_set[index] = true
+    }
 
     if g.on_selection_change != nil {
         g.on_selection_change(g, old_idx, index)
     }
 
+    widget_mark_dirty(g)
+}
+
+// Check if an item is selected (works with multi-selection)
+image_grid_is_selected :: proc(g: ^Image_Grid, index: i32) -> bool {
+    return index in g.selected_set
+}
+
+// Get all selected indices
+image_grid_get_selected_indices :: proc(g: ^Image_Grid) -> []i32 {
+    if len(g.selected_set) == 0 {
+        return nil
+    }
+    result := make([]i32, len(g.selected_set))
+    i := 0
+    for idx in g.selected_set {
+        result[i] = idx
+        i += 1
+    }
+    return result
+}
+
+// Get count of selected items
+image_grid_selection_count :: proc(g: ^Image_Grid) -> int {
+    return len(g.selected_set)
+}
+
+// Clear all selections
+image_grid_clear_selection :: proc(g: ^Image_Grid) {
+    if len(g.selected_set) == 0 && g.selected_idx == -1 {
+        return
+    }
+    old_idx := g.selected_idx
+    g.selected_idx = -1
+    g.anchor_idx = -1
+    clear(&g.selected_set)
+    if g.on_selection_change != nil {
+        g.on_selection_change(g, old_idx, -1)
+    }
+    widget_mark_dirty(g)
+}
+
+// Toggle selection of a single item (for Ctrl+click)
+image_grid_toggle_selection :: proc(g: ^Image_Grid, index: i32) {
+    if index < 0 || index >= i32(len(g.items)) {
+        return
+    }
+
+    old_idx := g.selected_idx
+
+    if index in g.selected_set {
+        delete_key(&g.selected_set, index)
+        // Update primary selection
+        if g.selected_idx == index {
+            // Pick another selected item as primary, or -1
+            g.selected_idx = -1
+            for idx in g.selected_set {
+                g.selected_idx = idx
+                break
+            }
+        }
+    } else {
+        g.selected_set[index] = true
+        g.selected_idx = index
+    }
+
+    g.anchor_idx = index
+
+    if g.on_selection_change != nil {
+        g.on_selection_change(g, old_idx, g.selected_idx)
+    }
+    widget_mark_dirty(g)
+}
+
+// Select a range from anchor to index (for Shift+click)
+image_grid_select_range :: proc(g: ^Image_Grid, index: i32) {
+    if index < 0 || index >= i32(len(g.items)) {
+        return
+    }
+
+    anchor := g.anchor_idx
+    if anchor < 0 {
+        anchor = 0
+    }
+
+    old_idx := g.selected_idx
+
+    // Clear current selection and select range
+    clear(&g.selected_set)
+
+    start := min(anchor, index)
+    end := max(anchor, index)
+    for i in start ..= end {
+        g.selected_set[i] = true
+    }
+
+    g.selected_idx = index
+
+    if g.on_selection_change != nil {
+        g.on_selection_change(g, old_idx, g.selected_idx)
+    }
+    widget_mark_dirty(g)
+}
+
+// Add to selection (for Shift+Ctrl+click - extend range without clearing)
+image_grid_extend_selection :: proc(g: ^Image_Grid, index: i32) {
+    if index < 0 || index >= i32(len(g.items)) {
+        return
+    }
+
+    anchor := g.anchor_idx
+    if anchor < 0 {
+        anchor = 0
+    }
+
+    old_idx := g.selected_idx
+
+    start := min(anchor, index)
+    end := max(anchor, index)
+    for i in start ..= end {
+        g.selected_set[i] = true
+    }
+
+    g.selected_idx = index
+
+    if g.on_selection_change != nil {
+        g.on_selection_change(g, old_idx, g.selected_idx)
+    }
     widget_mark_dirty(g)
 }
 
@@ -534,7 +697,8 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         }
 
         // Draw selection/hover highlight
-        if i == g.selected_idx {
+        is_selected := image_grid_is_selected(g, i)
+        if is_selected {
             render.fill_rect_blend(ctx, item_abs, g.selection_color)
         } else if i == g.hovered_idx {
             render.fill_rect_blend(ctx, item_abs, g.hover_color)
@@ -542,34 +706,46 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
 
         item := &g.items[i]
 
-        // Reserve space for label at bottom
-        label_height: i32 = 20 if g.font != nil else 0
-        icon_rect := core.Rect{
-            x = item_abs.x,
-            y = item_abs.y,
-            width = item_abs.width,
-            height = item_abs.height - label_height,
+        // For images/videos: fill the cell, overlay label at bottom
+        // For folders/files: use smaller icon with label below
+        is_thumbnail := item.type == .Image || item.type == .Video
+
+        // Label metrics
+        text_line_height: i32 = 16
+        if g.font != nil {
+            text_line_height = render.font_get_logical_line_height(g.font)
+        }
+        label_padding: i32 = 4
+        label_height: i32 = text_line_height + label_padding * 2
+
+        // For icons (folder/file), reserve space below. For images, use full cell.
+        icon_rect: core.Rect
+        if is_thumbnail {
+            icon_rect = item_abs  // Full cell for images
+        } else {
+            // Smaller reserved space for icon labels (just text height + small gap)
+            icon_label_space := text_line_height + 4
+            icon_rect = core.Rect{
+                x = item_abs.x,
+                y = item_abs.y,
+                width = item_abs.width,
+                height = item_abs.height - icon_label_space,
+            }
         }
 
         if item.type == .Folder {
-            // Draw folder icon
             draw_folder_icon(ctx, icon_rect)
         } else if item.type == .File {
-            // Draw file icon
             draw_file_icon(ctx, icon_rect)
         } else if item.type == .Video {
-            // Draw video frame or placeholder
             if item.video_frame != nil {
                 render.draw_image_scaled(ctx, item.video_frame, icon_rect)
             } else {
-                // Draw video placeholder icon
                 draw_video_icon(ctx, icon_rect)
             }
         } else if item.loading {
-            // Draw loading placeholder
             draw_loading_placeholder(ctx, icon_rect)
         } else {
-            // Draw image (use thumbnail if available)
             display_img := item.thumbnail if item.thumbnail != nil else item.image
             if display_img != nil {
                 render.draw_image_scaled(ctx, display_img, icon_rect)
@@ -577,27 +753,24 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
         }
 
         // Draw selection border
-        if i == g.selected_idx {
+        if is_selected {
             render.draw_rect(ctx, item_abs, g.selection_color, 2)
         }
 
         // Draw label
         if g.font != nil {
             label_text: string
-            if item.type == .Folder || item.type == .File || item.type == .Video {
+            // Use name if available, otherwise extract from path
+            if len(item.name) > 0 {
                 label_text = item.name
-            } else {
-                // Extract filename from path
+            } else if len(item.path) > 0 {
                 label_text = filepath.base(item.path)
             }
 
             if len(label_text) > 0 {
-                // Convert max_width to physical for comparison with text measurements
-                // (font is loaded at scaled size, so text_measure returns physical width)
                 max_width_phys := i32(f64(g.cell_width - 10) * ctx.scale)
                 text_width_phys := render.text_measure(g.font, label_text)
 
-                // Truncate with ellipsis if too wide
                 display_text := label_text
                 truncated_buf: [256]u8
                 if text_width_phys > max_width_phys {
@@ -605,12 +778,10 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
                     ellipsis_width := render.text_measure(g.font, ellipsis)
                     target_width := max_width_phys - ellipsis_width
 
-                    // Find truncation point
-                    for i := len(label_text) - 1; i > 0; i -= 1 {
-                        truncated := label_text[:i]
+                    for j := len(label_text) - 1; j > 0; j -= 1 {
+                        truncated := label_text[:j]
                         width := render.text_measure(g.font, truncated)
                         if width <= target_width {
-                            // Build truncated string with ellipsis
                             display_text = fmt.bprintf(truncated_buf[:], "%s...", truncated)
                             break
                         }
@@ -618,15 +789,25 @@ image_grid_draw :: proc(w: ^Widget, ctx: ^render.Draw_Context) {
                     text_width_phys = render.text_measure(g.font, display_text)
                 }
 
-                // Convert text width back to logical for centering calculation
                 text_width_logical := i32(f64(text_width_phys) / ctx.scale)
-
-                // Center the text (all in logical coordinates)
                 text_x := item_abs.x + (item_abs.width - text_width_logical) / 2
-                text_y := icon_rect.y + icon_rect.height + 2  // Position below icon with small gap
 
-                label_color := core.color_hex(0xCCCCCC)
-                render.draw_text_top(ctx, g.font, display_text, text_x, text_y, label_color)
+                if is_thumbnail {
+                    // Overlay label at bottom with semi-transparent background
+                    label_bg_rect := core.Rect{
+                        x = item_abs.x,
+                        y = item_abs.y + item_abs.height - label_height,
+                        width = item_abs.width,
+                        height = label_height,
+                    }
+                    render.fill_rect_blend(ctx, label_bg_rect, core.color_rgba(0, 0, 0, 180))
+                    text_y := label_bg_rect.y + label_padding
+                    render.draw_text_top(ctx, g.font, display_text, text_x, text_y, core.COLOR_WHITE)
+                } else {
+                    // Label below icon - minimal gap
+                    text_y := icon_rect.y + icon_rect.height + 2
+                    render.draw_text_top(ctx, g.font, display_text, text_x, text_y, core.color_hex(0xCCCCCC))
+                }
             }
         }
     }
@@ -740,7 +921,24 @@ image_grid_handle_event :: proc(w: ^Widget, event: ^core.Event) -> bool {
             // Check if clicking on item
             clicked_idx := image_grid_get_item_at(g, local_x, local_y)
             if clicked_idx >= 0 {
-                image_grid_set_selected(g, clicked_idx)
+                // Handle selection based on modifier keys
+                has_shift := .Shift in event.modifiers
+                has_ctrl := .Ctrl in event.modifiers
+
+                if has_shift && has_ctrl {
+                    // Shift+Ctrl: extend selection to range without clearing
+                    image_grid_extend_selection(g, clicked_idx)
+                } else if has_shift {
+                    // Shift: select range from anchor
+                    image_grid_select_range(g, clicked_idx)
+                } else if has_ctrl {
+                    // Ctrl: toggle individual item
+                    image_grid_toggle_selection(g, clicked_idx)
+                } else {
+                    // No modifiers: single selection
+                    image_grid_set_selected(g, clicked_idx)
+                }
+
                 item := &g.items[clicked_idx]
                 if item.type == .Folder {
                     if g.on_folder_click != nil {
@@ -856,6 +1054,7 @@ image_grid_measure :: proc(w: ^Widget, available_width: i32) -> core.Size {
 image_grid_destroy :: proc(w: ^Widget) {
     g := cast(^Image_Grid)w
     delete(g.items)
+    delete(g.selected_set)
     // Note: Images are not owned by grid, caller must destroy them
 }
 

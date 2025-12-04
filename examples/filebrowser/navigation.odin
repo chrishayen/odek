@@ -91,7 +91,7 @@ load_entries :: proc(dir_path: string, entries: []os.File_Info) -> Entry_Counts 
 
 		switch ext {
 		case ".png", ".jpg", ".jpeg":
-			app.queue_image_load(g_browser.app, g_browser.image_grid, full_path, name_clone)
+			app.queue_image_load(g_browser.app, g_browser.image_grid, path_clone, name_clone)
 			counts.images += 1
 		case ".mp4", ".mkv", ".avi", ".webm", ".mov":
 			widgets.image_grid_add_video(g_browser.image_grid, name_clone, path_clone)

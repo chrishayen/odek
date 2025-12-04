@@ -98,13 +98,14 @@ event_pointer_motion :: proc(x, y: i32, time: u32) -> Event {
     }
 }
 
-event_pointer_button :: proc(button: Mouse_Button, pressed: bool, x, y: i32, time: u32) -> Event {
+event_pointer_button :: proc(button: Mouse_Button, pressed: bool, x, y: i32, time: u32, modifiers: Modifier_Flags = {}) -> Event {
     return Event{
         type = pressed ? .Pointer_Button_Press : .Pointer_Button_Release,
         button = button,
         pointer_x = x,
         pointer_y = y,
         time = time,
+        modifiers = modifiers,
     }
 }
 
