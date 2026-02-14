@@ -1,0 +1,226 @@
+/* Password-only login page */
+.login-scene {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.dot-grid {
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(circle at center, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.noise {
+  position: fixed;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+}
+
+.scan-lines {
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    transparent 0 3px,
+    rgba(0, 0, 0, 0.08) 3px 6px
+  );
+}
+
+.vignette {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 35%, rgba(0, 0, 0, 0.62) 100%);
+}
+
+.login-container {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(244, 114, 182, 0.08), transparent 30%),
+    radial-gradient(circle at 100% 100%, rgba(56, 189, 248, 0.08), transparent 32%),
+    #080808;
+}
+
+.login-left-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 60px;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.brand-icon {
+  width: 80px;
+  height: 80px;
+  margin-bottom: 24px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(135deg, #f97316 0%, #ec4899 100%);
+  box-shadow: 0 8px 32px rgba(249, 115, 22, 0.34);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-family: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 36px;
+  font-weight: 700;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.brand-icon:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 36px rgba(236, 72, 153, 0.34);
+}
+
+.brand-name {
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.94);
+  font-family: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 48px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.brand-tagline {
+  color: rgba(255, 255, 255, 0.56);
+  font-family: "Fira Code", "SFMono-Regular", Menlo, monospace;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.brand-decoration {
+  margin-top: 24px;
+  display: flex;
+  gap: 12px;
+}
+
+.brand-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.login-right-panel {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 60px;
+}
+
+.login-form-container {
+  width: 100%;
+  max-width: 360px;
+}
+
+.login-form-title {
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.94);
+  font-family: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.login-form-subtitle {
+  margin-bottom: 32px;
+  color: rgba(255, 255, 255, 0.62);
+  font-family: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.form-section {
+  margin-bottom: 20px;
+}
+
+.form-section .fieldset {
+  margin-bottom: 0;
+}
+
+.form-section .label {
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.68);
+  font-family: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.form-input {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.34);
+  outline: none;
+  font-family: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
+  font-size: 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.form-input::placeholder {
+  color: rgba(255, 255, 255, 0.44);
+}
+
+.form-input:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.form-input:focus {
+  border-color: #f97316;
+  background: rgba(0, 0, 0, 0.44);
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.1);
+}
+
+.btn--full {
+  width: 100%;
+}
+
+.login-form-container .btn-primary {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: linear-gradient(135deg, #f97316 0%, #ec4899 100%);
+  box-shadow: 0 4px 16px rgba(249, 115, 22, 0.35);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.login-form-container .btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(236, 72, 153, 0.35);
+}
+
+@media (max-width: 768px) {
+  .login-container {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .login-left-panel {
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 40px;
+  }
+
+  .brand-icon {
+    width: 60px;
+    height: 60px;
+    margin-bottom: 16px;
+    font-size: 28px;
+  }
+
+  .brand-name {
+    font-size: 32px;
+  }
+
+  .login-right-panel {
+    padding: 40px 24px;
+  }
+}
