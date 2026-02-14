@@ -11,6 +11,7 @@ defmodule ValkyrieWeb.Router do
     plug :protect_from_forgery
     plug :put_secure_browser_headers
     plug :fetch_current_scope_for_user
+    plug :require_password_change
   end
 
   pipeline :api do

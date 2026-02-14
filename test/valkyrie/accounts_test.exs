@@ -242,6 +242,20 @@ defmodule Valkyrie.AccountsTest do
       assert Accounts.get_user_by_email_and_password(user.email, "new valid password")
     end
 
+    test "clears must_change_password when password is updated", %{user: user} do
+      user =
+        user
+        |> Ecto.Changeset.change(must_change_password: true)
+        |> Repo.update!()
+
+      {:ok, {user, _expired_tokens}} =
+        Accounts.update_user_password(user, %{
+          password: "new valid password"
+        })
+
+      refute user.must_change_password
+    end
+
     test "deletes all tokens for the given user", %{user: user} do
       _ = Accounts.generate_user_session_token(user)
 

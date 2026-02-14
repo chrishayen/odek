@@ -164,6 +164,7 @@ defmodule Valkyrie.Accounts do
   def update_user_password(user, attrs) do
     user
     |> User.password_changeset(attrs)
+    |> Ecto.Changeset.put_change(:must_change_password, false)
     |> update_user_and_delete_all_tokens()
   end
 

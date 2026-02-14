@@ -366,6 +366,45 @@ defmodule ValkyrieWeb.UserAuthTest do
     end
   end
 
+  describe "require_password_change/2" do
+    test "redirects authenticated users who must change their password", %{conn: conn, user: user} do
+      conn =
+        %{conn | request_path: "/"}
+        |> fetch_flash()
+        |> assign(:current_scope, Scope.for_user(%{user | must_change_password: true}))
+        |> UserAuth.require_password_change([])
+
+      assert conn.halted
+      assert redirected_to(conn) == ~p"/users/settings"
+
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
+               "You must change your password before continuing."
+    end
+
+    test "allows password-change paths for users who must change their password", %{
+      conn: conn,
+      user: user
+    } do
+      for path <- ["/users/settings", "/users/settings/confirm-email/token", "/users/update-password", "/users/log-out"] do
+        updated_conn =
+          %{conn | request_path: path}
+          |> assign(:current_scope, Scope.for_user(%{user | must_change_password: true}))
+          |> UserAuth.require_password_change([])
+
+        refute updated_conn.halted
+      end
+    end
+
+    test "does not redirect users without the password-change requirement", %{conn: conn, user: user} do
+      conn =
+        %{conn | request_path: "/"}
+        |> assign(:current_scope, Scope.for_user(user))
+        |> UserAuth.require_password_change([])
+
+      refute conn.halted
+    end
+  end
+
   describe "disconnect_sessions/1" do
     test "broadcasts disconnect messages for each token" do
       tokens = [%{token: "token1"}, %{token: "token2"}]

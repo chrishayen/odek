@@ -279,9 +279,32 @@ defmodule ValkyrieWeb.UserAuth do
     end
   end
 
+  @doc """
+  Plug for routes that require users with temporary credentials to
+  update their password first.
+  """
+  def require_password_change(conn, _opts) do
+    user = conn.assigns.current_scope && conn.assigns.current_scope.user
+
+    if user && user.must_change_password && !password_change_exempt_path?(conn.request_path) do
+      conn
+      |> put_flash(:error, "You must change your password before continuing.")
+      |> redirect(to: ~p"/users/settings")
+      |> halt()
+    else
+      conn
+    end
+  end
+
   defp maybe_store_return_to(%{method: "GET"} = conn) do
     put_session(conn, :user_return_to, current_path(conn))
   end
 
   defp maybe_store_return_to(conn), do: conn
+
+  defp password_change_exempt_path?(path) do
+    path == "/users/update-password" ||
+      path == "/users/log-out" ||
+      String.starts_with?(path, "/users/settings")
+  end
 end
