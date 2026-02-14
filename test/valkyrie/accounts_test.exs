@@ -81,6 +81,8 @@ defmodule Valkyrie.AccountsTest do
       email = unique_user_email()
       {:ok, user} = Accounts.register_user(valid_user_attributes(email: email))
       assert user.email == email
+      refute user.is_admin
+      refute user.must_change_password
       assert is_nil(user.hashed_password)
       assert is_nil(user.confirmed_at)
       assert is_nil(user.password)
