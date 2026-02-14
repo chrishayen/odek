@@ -14,8 +14,8 @@ defmodule ValkyrieWeb.UserLive.Login do
 
       <section id="login-page" class="login-container">
         <div class="login-left-panel">
-          <div class="brand-icon">S</div>
-          <h1 class="brand-name">Sessions</h1>
+          <div class="brand-icon">V</div>
+          <h1 class="brand-name">Valkyrie</h1>
           <p class="brand-tagline">agent orchestration platform</p>
           <div class="brand-decoration">
             <span class="brand-dot"></span>
