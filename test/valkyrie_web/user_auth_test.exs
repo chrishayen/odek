@@ -385,7 +385,12 @@ defmodule ValkyrieWeb.UserAuthTest do
       conn: conn,
       user: user
     } do
-      for path <- ["/users/settings", "/users/settings/confirm-email/token", "/users/update-password", "/users/log-out"] do
+      for path <- [
+            "/users/settings",
+            "/users/settings/confirm-email/token",
+            "/users/update-password",
+            "/users/log-out"
+          ] do
         updated_conn =
           %{conn | request_path: path}
           |> assign(:current_scope, Scope.for_user(%{user | must_change_password: true}))
@@ -395,7 +400,10 @@ defmodule ValkyrieWeb.UserAuthTest do
       end
     end
 
-    test "does not redirect users without the password-change requirement", %{conn: conn, user: user} do
+    test "does not redirect users without the password-change requirement", %{
+      conn: conn,
+      user: user
+    } do
       conn =
         %{conn | request_path: "/"}
         |> assign(:current_scope, Scope.for_user(user))
