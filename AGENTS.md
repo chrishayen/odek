@@ -508,3 +508,11 @@ And **never** do this:
 <!-- phoenix:liveview-end -->
 
 <!-- usage-rules-end -->
+## BDD Change Governance
+
+- BDD behavior docs in this repo are colocated in domain-level `AGENTS.md` files under `lib/valkyrie/**` and `lib/valkyrie_web/**`.
+- BDD text is normative for implemented behavior. If behavior changes, update the relevant domain `AGENTS.md` in the same change.
+- If you add a new domain, create a new local `AGENTS.md` with concrete Given/When/Then scenarios.
+- If behavior is removed or renamed, remove or rewrite stale scenarios immediately.
+- Code changes that affect behavior must update tests and the matching BDD section together.
+- Keep `docs/BDD_INDEX.md` current with each domain-level `AGENTS.md` location.
