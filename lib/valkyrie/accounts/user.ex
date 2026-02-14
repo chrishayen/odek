@@ -1,6 +1,7 @@
 defmodule Valkyrie.Accounts.User do
   use Ecto.Schema
   import Ecto.Changeset
+  @compile {:no_warn_undefined, Bcrypt}
 
   schema "users" do
     field :email, :string
