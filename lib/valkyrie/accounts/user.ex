@@ -5,6 +5,7 @@ defmodule Valkyrie.Accounts.User do
 
   schema "users" do
     field :email, :string
+    field :name, :string, default: ""
     field :is_admin, :boolean, default: false
     field :must_change_password, :boolean, default: false
     field :password, :string, virtual: true, redact: true
@@ -30,6 +31,16 @@ defmodule Valkyrie.Accounts.User do
     user
     |> cast(attrs, [:email])
     |> validate_email(opts)
+  end
+
+  @doc """
+  A user changeset for registration.
+  """
+  def registration_changeset(user, attrs, opts \\ []) do
+    user
+    |> cast(attrs, [:email, :name])
+    |> validate_email(opts)
+    |> validate_length(:name, max: 160)
   end
 
   defp validate_email(changeset, opts) do

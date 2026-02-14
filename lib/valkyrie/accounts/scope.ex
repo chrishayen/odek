@@ -18,7 +18,11 @@ defmodule Valkyrie.Accounts.Scope do
 
   alias Valkyrie.Accounts.User
 
-  defstruct user: nil
+  defstruct user: nil,
+            organization_id: nil,
+            role: nil,
+            api_key_id: nil,
+            auth_mode: :session
 
   @doc """
   Creates a scope for the given user.
@@ -26,8 +30,21 @@ defmodule Valkyrie.Accounts.Scope do
   Returns nil if no user is given.
   """
   def for_user(%User{} = user) do
-    %__MODULE__{user: user}
+    %__MODULE__{user: user, auth_mode: :session}
   end
 
   def for_user(nil), do: nil
+
+  @doc """
+  Creates a scope resolved from API key authentication.
+  """
+  def for_api_key(%User{} = user, organization_id, role, api_key_id) do
+    %__MODULE__{
+      user: user,
+      organization_id: organization_id,
+      role: role,
+      api_key_id: api_key_id,
+      auth_mode: :api_key
+    }
+  end
 end

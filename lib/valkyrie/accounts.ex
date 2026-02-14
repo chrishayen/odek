@@ -60,6 +60,11 @@ defmodule Valkyrie.Accounts do
   """
   def get_user!(id), do: Repo.get!(User, id)
 
+  @doc """
+  Gets a single user or nil.
+  """
+  def get_user(id), do: Repo.get(User, id)
+
   ## User registration
 
   @doc """
@@ -76,7 +81,7 @@ defmodule Valkyrie.Accounts do
   """
   def register_user(attrs) do
     %User{}
-    |> User.email_changeset(attrs)
+    |> User.registration_changeset(attrs)
     |> Repo.insert()
   end
 
