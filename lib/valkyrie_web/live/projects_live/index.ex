@@ -71,6 +71,9 @@ defmodule ValkyrieWeb.ProjectsLive.Index do
             phx-window-keydown="toggle-create"
             phx-key="escape"
           >
+            <% project_name = project_form_value(@project_form, :name) %>
+            <% project_name_length = String.length(project_name) %>
+
             <button
               type="button"
               class="project-create-backdrop"
@@ -86,58 +89,112 @@ defmodule ValkyrieWeb.ProjectsLive.Index do
               aria-modal="true"
               aria-labelledby="project-create-title"
             >
-              <div class="project-create-header">
-                <h2 id="project-create-title" class="project-create-title">New Project</h2>
-                <button
-                  id="close-project-create"
-                  type="button"
-                  class="project-create-close"
-                  phx-click="toggle-create"
-                  aria-label="Close create project modal"
-                >
-                  <.icon name="hero-x-mark" class="size-4" />
-                </button>
-              </div>
-
-              <.form
-                for={@project_form}
-                id="project-create-form"
-                phx-change="validate-project"
-                phx-submit="create-project"
-                class="project-create-form"
-              >
-                <div class="project-create-grid">
-                  <.input
-                    field={@project_form[:name]}
-                    label="Project name"
-                    placeholder="Phoenix migration runner"
-                    class="project-create-input"
-                    required
-                  />
-                  <.input
-                    field={@project_form[:description]}
-                    type="textarea"
-                    label="Description (optional)"
-                    placeholder="What this project is for, in one or two lines"
-                    class="project-create-input"
-                    rows="3"
-                  />
-                </div>
-
-                <div class="project-create-actions">
-                  <.button id="create-project-submit" variant="primary" phx-disable-with="Creating...">
-                    Create project
-                  </.button>
+              <div class="project-create-panel">
+                <div class="project-create-header">
+                  <div class="project-create-header-left">
+                    <h2 id="project-create-title" class="project-create-title">New project</h2>
+                    <p class="project-create-subtitle">Add a project to your workspace</p>
+                  </div>
                   <button
-                    id="cancel-project-create"
+                    id="close-project-create"
                     type="button"
-                    class="workspace-ghost-button"
+                    class="project-create-close"
                     phx-click="toggle-create"
+                    aria-label="Close create project modal"
                   >
-                    Cancel
+                    <.icon name="hero-x-mark" class="size-4" />
                   </button>
                 </div>
-              </.form>
+
+                <.form
+                  for={@project_form}
+                  id="project-create-form"
+                  phx-change="validate-project"
+                  phx-submit="create-project"
+                  class="project-create-form"
+                >
+                  <div class="project-create-field">
+                    <div class="project-create-field-label">
+                      <label class="project-create-label-text" for="project-name-input">
+                        Project name
+                      </label>
+                      <span
+                        :if={project_name_length > 0}
+                        class={[
+                          "project-create-char-count",
+                          project_name_length > 140 && "project-create-char-count-warn"
+                        ]}
+                      >
+                        {project_name_length}/160
+                      </span>
+                    </div>
+
+                    <.input
+                      field={@project_form[:name]}
+                      id="project-name-input"
+                      placeholder="Phoenix migration runner"
+                      class="project-create-input"
+                      maxlength="160"
+                      required
+                    />
+
+                    <div class={[
+                      "project-create-slug-row",
+                      project_name_length > 0 && "project-create-slug-row-visible"
+                    ]}>
+                      <span class="project-create-slug-label">slug</span>
+                      <span class="project-create-slug-value">{project_slug(project_name)}</span>
+                    </div>
+                  </div>
+
+                  <div class="project-create-field">
+                    <div class="project-create-field-label">
+                      <label class="project-create-label-text" for="project-description-input">
+                        Description
+                      </label>
+                      <span class="project-create-label-hint">optional</span>
+                    </div>
+
+                    <.input
+                      field={@project_form[:description]}
+                      id="project-description-input"
+                      type="textarea"
+                      placeholder="What this project is about and when it's done"
+                      class="project-create-input project-create-textarea"
+                      maxlength="4000"
+                      rows="4"
+                    />
+                  </div>
+
+                  <div class="project-create-actions">
+                    <div class="project-create-shortcut-hint">
+                      <span class="project-create-kbd">Ctrl</span>
+                      <span>+</span>
+                      <span class="project-create-kbd">Enter</span>
+                    </div>
+
+                    <div class="project-create-actions-right">
+                      <button
+                        id="cancel-project-create"
+                        type="button"
+                        class="project-create-cancel"
+                        phx-click="toggle-create"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        id="create-project-submit"
+                        type="submit"
+                        class="project-create-submit"
+                        phx-disable-with="Creating..."
+                        disabled={project_name == ""}
+                      >
+                        Create project
+                      </button>
+                    </div>
+                  </div>
+                </.form>
+              </div>
             </div>
           </section>
 
@@ -385,6 +442,17 @@ defmodule ValkyrieWeb.ProjectsLive.Index do
     params
     |> project_changeset()
     |> to_form(as: :project)
+  end
+
+  defp project_form_value(form, field) do
+    form
+    |> Access.get(field)
+    |> case do
+      nil -> ""
+      field_state -> field_state.value || ""
+    end
+    |> to_string()
+    |> String.trim()
   end
 
   defp project_changeset(params) do
