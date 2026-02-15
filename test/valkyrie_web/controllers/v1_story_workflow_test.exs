@@ -9,6 +9,7 @@ defmodule ValkyrieWeb.V1.StoryWorkflowTest do
     key_conn =
       conn
       |> log_in_user(user)
+      |> Plug.Conn.put_session(:active_organization_id, organization.id)
       |> post("/v1/api-keys", %{"organization_id" => organization.id})
 
     %{"api_key" => raw_key} = json_response(key_conn, 201)

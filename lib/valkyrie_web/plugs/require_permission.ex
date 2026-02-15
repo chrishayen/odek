@@ -1,6 +1,6 @@
 defmodule ValkyrieWeb.Plugs.RequirePermission do
   @moduledoc """
-  Enforces role permissions for API-key authenticated requests.
+  Enforces role permissions for API principals.
   """
 
   import Plug.Conn

@@ -11,6 +11,7 @@ defmodule ValkyrieWeb.V1.APIKeyControllerTest do
     conn =
       conn
       |> log_in_user(user)
+      |> Plug.Conn.put_session(:active_organization_id, organization.id)
       |> post("/v1/api-keys", %{"organization_id" => organization.id})
 
     %{"id" => key_id, "api_key" => raw_key} = json_response(conn, 201)
@@ -20,6 +21,7 @@ defmodule ValkyrieWeb.V1.APIKeyControllerTest do
       conn
       |> recycle()
       |> log_in_user(user)
+      |> Plug.Conn.put_session(:active_organization_id, organization.id)
       |> get("/v1/api-keys")
 
     %{"api_keys" => [first | _]} = json_response(conn, 200)
@@ -37,6 +39,7 @@ defmodule ValkyrieWeb.V1.APIKeyControllerTest do
     revoke_conn =
       build_conn()
       |> log_in_user(user)
+      |> Plug.Conn.put_session(:active_organization_id, organization.id)
       |> post("/v1/api-keys/#{key_id}/revoke")
 
     assert %{"revoked" => true} = json_response(revoke_conn, 200)
