@@ -5,6 +5,8 @@ Projects, features, stories, cursor pagination, and soft-delete behavior.
 
 ## Scenarios
 - Given project definition of done markdown, when reading the project, then the markdown is returned unchanged.
+- Given project names in mixed order, when listing projects, then results are sorted alphabetically by name.
+- Given an organization already has an active project name (case-insensitive), when another project with the same name is created, then creation fails with uniqueness validation.
 - Given feature-linked and featureless stories, when creating stories, then `feature_id` is optional and stored accordingly.
 - Given organization-scoped resources, when cross-org reads occur, then access is denied.
 - Given paginated story listing, when requesting subsequent pages with cursor, then results continue without duplicates.

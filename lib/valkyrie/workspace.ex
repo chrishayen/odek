@@ -35,7 +35,7 @@ defmodule Valkyrie.Workspace do
     Repo.all(
       from p in Project,
         where: p.organization_id == ^scope.organization_id and is_nil(p.deleted_at),
-        order_by: [asc: p.inserted_at, asc: p.id]
+        order_by: [asc: fragment("lower(?)", p.name), asc: p.name, asc: p.inserted_at, asc: p.id]
     )
   end
 
