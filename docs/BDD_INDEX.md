@@ -13,3 +13,4 @@ Behavior guidance is colocated with implementation in domain `AGENTS.md` files.
 - API route contracts and resource catalog: `lib/valkyrie_web/controllers/v1/AGENTS.md`
 - API authentication/authorization plug behavior: `lib/valkyrie_web/plugs/AGENTS.md`
 - Req client runtime behavior: `lib/valkyrie/client/AGENTS.md`
+- Authenticated projects UI shell and routes: `lib/valkyrie_web/live/projects_live/AGENTS.md`

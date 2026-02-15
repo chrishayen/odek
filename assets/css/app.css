@@ -3,6 +3,7 @@
 
 @import "tailwindcss" source(none);
 @import "./pages/login.css";
+@import "./pages/projects.css";
 @source "../css";
 @source "../js";
 @source "../../lib/valkyrie_web";
