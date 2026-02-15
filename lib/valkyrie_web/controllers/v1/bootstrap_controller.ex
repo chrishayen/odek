@@ -26,10 +26,17 @@ defmodule ValkyrieWeb.V1.BootstrapController do
          {:ok, user} <- Accounts.register_user(%{email: params["email"], name: name}),
          {:ok, {user, _tokens}} <- Accounts.update_user_password(user, %{password: password}),
          {:ok, user} <-
-           user |> Ecto.Changeset.change(name: name, must_change_password: true) |> Repo.update() do
+           user |> Ecto.Changeset.change(name: name, must_change_password: true) |> Repo.update(),
+         {:ok, membership} <- Organizations.ensure_user_membership(user.id) do
       conn
       |> put_status(:created)
-      |> json(%{id: user.id, email: user.email, name: user.name})
+      |> json(%{
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        organization_id: membership.organization_id,
+        role: membership.role
+      })
     else
       true ->
         render_error(conn, :bad_request, "invalid_request", "email and password are required")

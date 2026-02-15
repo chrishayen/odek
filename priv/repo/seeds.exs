@@ -1,4 +1,5 @@
 alias Valkyrie.Accounts.User
+alias Valkyrie.Organizations
 alias Valkyrie.Repo
 
 admin_email = "chris@shotgun.dev"
@@ -12,14 +13,17 @@ admin_attrs = %{
   must_change_password: true
 }
 
-case Repo.get_by(User, email: admin_email) do
-  nil ->
-    %User{}
-    |> Ecto.Changeset.change(admin_attrs)
-    |> Repo.insert!()
+admin_user =
+  case Repo.get_by(User, email: admin_email) do
+    nil ->
+      %User{}
+      |> Ecto.Changeset.change(admin_attrs)
+      |> Repo.insert!()
 
-  user ->
-    user
-    |> Ecto.Changeset.change(admin_attrs)
-    |> Repo.update!()
-end
+    user ->
+      user
+      |> Ecto.Changeset.change(admin_attrs)
+      |> Repo.update!()
+  end
+
+{:ok, _membership} = Organizations.ensure_user_membership(admin_user.id)
