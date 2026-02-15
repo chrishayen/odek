@@ -6,6 +6,7 @@ Authenticated workspace project shell, project listing/search, create flow, and 
 ## Scenarios
 - Given an authenticated user, when the user visits `/projects` or `/`, then the projects list UI is rendered.
 - Given an unauthenticated visitor, when the visitor requests `/projects` or `/`, then access is redirected to log in.
+- Given an authenticated user has no organization memberships, when the user visits `/projects` or `/`, then a default organization membership is provisioned and the workspace shell still renders.
 - Given a user has projects in workspace scope, when the page loads, then projects are shown sorted alphabetically by name.
 - Given the user types into project search, when the query changes, then the list updates immediately with case-insensitive name matching.
 - Given an empty workspace, when no query is active, then a helpful empty-state message and create-project call-to-action are shown.

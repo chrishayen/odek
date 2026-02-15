@@ -1,12 +1,27 @@
 defmodule ValkyrieWeb.ProjectsLive.IndexTest do
   use ValkyrieWeb.ConnCase, async: true
 
+  import Valkyrie.AccountsFixtures
   import Phoenix.LiveViewTest
   import Valkyrie.V1Fixtures
+
+  alias Valkyrie.Organizations
 
   describe "authentication" do
     test "redirects anonymous users", %{conn: conn} do
       assert {:error, {:redirect, %{to: "/users/log-in"}}} = live(conn, ~p"/projects")
+    end
+  end
+
+  describe "organization membership provisioning" do
+    test "auto-provisions membership for authenticated users with none", %{conn: conn} do
+      user = user_fixture() |> set_password()
+      assert [] == Organizations.list_user_memberships(user.id)
+
+      conn = log_in_user(conn, user)
+      {:ok, view, _html} = live(conn, ~p"/projects")
+      assert has_element?(view, "#projects-page")
+      assert [_membership] = Organizations.list_user_memberships(user.id)
     end
   end
 

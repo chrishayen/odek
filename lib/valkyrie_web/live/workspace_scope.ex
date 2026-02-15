@@ -9,10 +9,22 @@ defmodule ValkyrieWeb.WorkspaceScope do
   def resolve(%Scope{user: nil}), do: nil
 
   def resolve(%Scope{} = scope) do
-    scope.user.id
-    |> Organizations.list_user_memberships()
-    |> pick_membership(scope.organization_id)
-    |> case do
+    membership =
+      scope.user.id
+      |> Organizations.list_user_memberships()
+      |> pick_membership(scope.organization_id)
+      |> case do
+        nil ->
+          case Organizations.ensure_user_membership(scope.user.id) do
+            {:ok, ensured_membership} -> ensured_membership
+            {:error, _reason} -> nil
+          end
+
+        selected_membership ->
+          selected_membership
+      end
+
+    case membership do
       nil ->
         nil
 
