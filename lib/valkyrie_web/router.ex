@@ -90,7 +90,7 @@ defmodule ValkyrieWeb.Router do
   scope "/", ValkyrieWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    get "/landing", PageController, :home
   end
 
   scope "/", ValkyrieWeb do
@@ -250,6 +250,13 @@ defmodule ValkyrieWeb.Router do
 
     live_session :require_authenticated_user,
       on_mount: [{ValkyrieWeb.UserAuth, :require_authenticated}] do
+      live "/", ProjectsLive.Index, :index
+      live "/projects", ProjectsLive.Index, :index
+      live "/projects/:project_id", ProjectsLive.Show, :show
+      live "/rules", WorkspacePlaceholderLive, :rules
+      live "/skills", WorkspacePlaceholderLive, :skills
+      live "/agents", WorkspacePlaceholderLive, :agents
+      live "/settings", WorkspacePlaceholderLive, :settings
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
     end
