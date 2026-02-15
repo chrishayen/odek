@@ -1,8 +1,6 @@
 defmodule ValkyrieWeb.V1.BaseController do
   @moduledoc false
 
-  alias Valkyrie.Authorization
-
   defmacro __using__(_opts) do
     quote do
       use ValkyrieWeb, :controller
@@ -12,21 +10,24 @@ defmodule ValkyrieWeb.V1.BaseController do
 
   def current_scope!(conn), do: conn.assigns.current_scope
 
-  def authorize(conn, permission) do
-    role = conn.assigns[:current_scope] && conn.assigns.current_scope.role
-
-    if is_binary(role) and Authorization.can?(role, permission) do
-      :ok
-    else
-      {:error, render_error(conn, :forbidden, "forbidden", "insufficient permissions")}
-    end
-  end
-
   def render_error(conn, status, code, message) do
     conn
     |> Plug.Conn.put_status(status)
     |> Phoenix.Controller.json(%{error: %{code: code, message: message}})
   end
+
+  def unauthorized(conn, message \\ "authentication required"),
+    do: render_error(conn, :unauthorized, "unauthorized", message)
+
+  def forbidden(conn, message \\ "insufficient permissions"),
+    do: render_error(conn, :forbidden, "forbidden", message)
+
+  def bad_request(conn, code, message), do: render_error(conn, :bad_request, code, message)
+  def not_found(conn, message), do: render_error(conn, :not_found, "not_found", message)
+  def conflict(conn, code, message), do: render_error(conn, :conflict, code, message)
+
+  def validation_error(conn, code, changeset),
+    do: render_error(conn, :bad_request, code, inspect(changeset.errors))
 
   def parse_limit(params, fallback \\ 20) do
     case Map.get(params, "limit") do

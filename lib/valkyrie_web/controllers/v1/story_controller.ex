@@ -7,125 +7,113 @@ defmodule ValkyrieWeb.V1.StoryController do
   def create(conn, params) do
     scope = current_scope!(conn)
 
-    with :ok <- authorize(conn, "stories.write"),
-         {:ok, story} <- Workspace.create_story(scope, params) do
-      conn
-      |> put_status(:created)
-      |> json(%{
-        id: story.id,
-        project_id: story.project_id,
-        feature_id: story.feature_id,
-        name: story.name,
-        description: story.description,
-        state: story.state
-      })
-    else
-      {:error, error_conn} when is_struct(error_conn, Plug.Conn) ->
-        error_conn
+    case Workspace.create_story(scope, params) do
+      {:ok, story} ->
+        conn
+        |> put_status(:created)
+        |> json(%{
+          id: story.id,
+          project_id: story.project_id,
+          feature_id: story.feature_id,
+          name: story.name,
+          description: story.description,
+          state: story.state
+        })
 
       {:error, :not_found} ->
-        render_error(conn, :not_found, "not_found", "project/feature not found")
+        not_found(conn, "project/feature not found")
 
       {:error, changeset} ->
-        render_error(conn, :bad_request, "story_error", inspect(changeset.errors))
+        validation_error(conn, "story_error", changeset)
     end
   end
 
   def show(conn, %{"story_id" => story_id}) do
     scope = current_scope!(conn)
 
-    with :ok <- authorize(conn, "stories.read"),
-         story when not is_nil(story) <- Workspace.get_story(scope, story_id) do
-      json(conn, %{
-        id: story.id,
-        project_id: story.project_id,
-        feature_id: story.feature_id,
-        name: story.name,
-        description: story.description,
-        state: story.state,
-        created_at: story.inserted_at,
-        updated_at: story.updated_at
-      })
-    else
-      {:error, error_conn} when is_struct(error_conn, Plug.Conn) -> error_conn
-      _ -> render_error(conn, :not_found, "not_found", "story not found")
+    case Workspace.get_story(scope, story_id) do
+      nil ->
+        not_found(conn, "story not found")
+
+      story ->
+        json(conn, %{
+          id: story.id,
+          project_id: story.project_id,
+          feature_id: story.feature_id,
+          name: story.name,
+          description: story.description,
+          state: story.state,
+          created_at: story.inserted_at,
+          updated_at: story.updated_at
+        })
     end
   end
 
   def update(conn, %{"story_id" => story_id} = params) do
     scope = current_scope!(conn)
 
-    with :ok <- authorize(conn, "stories.write"),
-         story_before when not is_nil(story_before) <- Workspace.get_story(scope, story_id),
-         {:ok, story_after} <- Workspace.patch_story_details(scope, story_id, params) do
-      changed_fields = changed_fields(story_before, story_after)
-      _ = Workflow.record_field_update(scope, story_id, changed_fields)
+    case Workspace.get_story(scope, story_id) do
+      nil ->
+        not_found(conn, "story not found")
 
-      json(conn, %{
-        id: story_after.id,
-        project_id: story_after.project_id,
-        feature_id: story_after.feature_id,
-        name: story_after.name,
-        description: story_after.description,
-        updated: true
-      })
-    else
-      {:error, error_conn} when is_struct(error_conn, Plug.Conn) ->
-        error_conn
+      story_before ->
+        case Workspace.patch_story_details(scope, story_id, params) do
+          {:ok, story_after} ->
+            changed_fields = changed_fields(story_before, story_after)
+            _ = Workflow.record_field_update(scope, story_id, changed_fields)
 
-      {:error, :not_found} ->
-        render_error(conn, :not_found, "not_found", "story or feature not found")
+            json(conn, %{
+              id: story_after.id,
+              project_id: story_after.project_id,
+              feature_id: story_after.feature_id,
+              name: story_after.name,
+              description: story_after.description,
+              updated: true
+            })
 
-      {:error, changeset} ->
-        render_error(conn, :bad_request, "story_error", inspect(changeset.errors))
+          {:error, :not_found} ->
+            not_found(conn, "story or feature not found")
 
-      _ ->
-        render_error(conn, :not_found, "not_found", "story not found")
+          {:error, changeset} ->
+            validation_error(conn, "story_error", changeset)
+        end
     end
   end
 
   def index(conn, params) do
     scope = current_scope!(conn)
+    project_id = Map.get(params, "project_id")
+    cursor = Map.get(params, "cursor")
+    limit = parse_limit(params, 20)
 
-    with :ok <- authorize(conn, "stories.read") do
-      project_id = Map.get(params, "project_id")
-      cursor = Map.get(params, "cursor")
-      limit = parse_limit(params, 20)
+    result = Workspace.list_stories(scope, project_id, cursor, limit)
 
-      result = Workspace.list_stories(scope, project_id, cursor, limit)
+    response = %{
+      stories: Enum.map(result.stories, &story_to_json/1)
+    }
 
-      response = %{
-        stories: Enum.map(result.stories, &story_to_json/1)
-      }
+    response =
+      if result.next_cursor do
+        Map.put(response, :next_cursor, result.next_cursor)
+      else
+        response
+      end
 
-      response =
-        if result.next_cursor do
-          Map.put(response, :next_cursor, result.next_cursor)
-        else
-          response
-        end
-
-      json(conn, response)
-    else
-      {:error, error_conn} when is_struct(error_conn, Plug.Conn) -> error_conn
-    end
+    json(conn, response)
   end
 
   def delete(conn, %{"story_id" => story_id}) do
     scope = current_scope!(conn)
 
-    with :ok <- authorize(conn, "stories.write"),
-         {:ok, story} <- Workspace.soft_delete_story(scope, story_id) do
-      json(conn, %{id: story.id, deleted: true})
-    else
-      {:error, error_conn} when is_struct(error_conn, Plug.Conn) ->
-        error_conn
+    case Workspace.soft_delete_story(scope, story_id) do
+      {:ok, story} ->
+        json(conn, %{id: story.id, deleted: true})
 
       {:error, :not_found} ->
-        render_error(conn, :not_found, "not_found", "story not found")
+        not_found(conn, "story not found")
 
       {:error, changeset} ->
-        render_error(conn, :bad_request, "delete_error", inspect(changeset.errors))
+        validation_error(conn, "delete_error", changeset)
     end
   end
 

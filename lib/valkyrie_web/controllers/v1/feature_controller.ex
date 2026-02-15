@@ -6,25 +6,22 @@ defmodule ValkyrieWeb.V1.FeatureController do
   def create(conn, params) do
     scope = current_scope!(conn)
 
-    with :ok <- authorize(conn, "projects.write"),
-         {:ok, feature} <- Workspace.create_feature(scope, params) do
-      conn
-      |> put_status(:created)
-      |> json(%{
-        id: feature.id,
-        project_id: feature.project_id,
-        name: feature.name,
-        description: feature.description
-      })
-    else
-      {:error, error_conn} when is_struct(error_conn, Plug.Conn) ->
-        error_conn
+    case Workspace.create_feature(scope, params) do
+      {:ok, feature} ->
+        conn
+        |> put_status(:created)
+        |> json(%{
+          id: feature.id,
+          project_id: feature.project_id,
+          name: feature.name,
+          description: feature.description
+        })
 
       {:error, :not_found} ->
-        render_error(conn, :not_found, "not_found", "project not found")
+        not_found(conn, "project not found")
 
       {:error, changeset} ->
-        render_error(conn, :bad_request, "feature_error", inspect(changeset.errors))
+        validation_error(conn, "feature_error", changeset)
     end
   end
 end

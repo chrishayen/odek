@@ -9,8 +9,9 @@ defmodule ValkyrieWeb.V1.EventsController do
     scope = current_scope!(conn)
     project_id = Map.get(params, "project_id")
 
-    with :ok <- authorize(conn, "chat.read"),
-         false <- blank?(project_id) do
+    if blank?(project_id) do
+      bad_request(conn, "invalid_request", "project_id is required")
+    else
       :ok = Chat.subscribe(project_id)
 
       conn =
@@ -27,9 +28,6 @@ defmodule ValkyrieWeb.V1.EventsController do
         {:ok, conn} -> stream_events(conn)
         {:error, _reason} -> conn
       end
-    else
-      {:error, error_conn} when is_struct(error_conn, Plug.Conn) -> error_conn
-      true -> render_error(conn, :bad_request, "invalid_request", "project_id is required")
     end
   end
 

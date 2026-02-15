@@ -6,71 +6,65 @@ defmodule ValkyrieWeb.V1.ProjectController do
   def create(conn, params) do
     scope = current_scope!(conn)
 
-    with :ok <- authorize(conn, "projects.write"),
-         {:ok, project} <- Workspace.create_project(scope, params) do
-      conn
-      |> put_status(:created)
-      |> json(%{
-        id: project.id,
-        organization_id: project.organization_id,
-        name: project.name,
-        definition_of_done: project.definition_of_done
-      })
-    else
-      {:error, error_conn} when is_struct(error_conn, Plug.Conn) ->
-        error_conn
+    case Workspace.create_project(scope, params) do
+      {:ok, project} ->
+        conn
+        |> put_status(:created)
+        |> json(%{
+          id: project.id,
+          organization_id: project.organization_id,
+          name: project.name,
+          definition_of_done: project.definition_of_done
+        })
 
       {:error, :invalid_request} ->
-        render_error(conn, :bad_request, "invalid_request", "organization_id is required")
+        bad_request(conn, "invalid_request", "organization_id is required")
 
       {:error, :forbidden} ->
-        render_error(conn, :forbidden, "forbidden", "organization mismatch")
+        forbidden(conn, "organization mismatch")
 
       {:error, changeset} ->
-        render_error(conn, :bad_request, "project_error", inspect(changeset.errors))
+        validation_error(conn, "project_error", changeset)
     end
   end
 
   def show(conn, %{"project_id" => project_id}) do
     scope = current_scope!(conn)
 
-    with :ok <- authorize(conn, "projects.read"),
-         project when not is_nil(project) <- Workspace.get_project(scope, project_id) do
-      json(conn, %{
-        id: project.id,
-        organization_id: project.organization_id,
-        name: project.name,
-        definition_of_done: project.definition_of_done,
-        created_at: project.inserted_at,
-        updated_at: project.updated_at
-      })
-    else
-      {:error, error_conn} when is_struct(error_conn, Plug.Conn) -> error_conn
-      _ -> render_error(conn, :not_found, "not_found", "project not found")
+    case Workspace.get_project(scope, project_id) do
+      nil ->
+        not_found(conn, "project not found")
+
+      project ->
+        json(conn, %{
+          id: project.id,
+          organization_id: project.organization_id,
+          name: project.name,
+          definition_of_done: project.definition_of_done,
+          created_at: project.inserted_at,
+          updated_at: project.updated_at
+        })
     end
   end
 
   def update(conn, %{"project_id" => project_id} = params) do
     scope = current_scope!(conn)
 
-    with :ok <- authorize(conn, "projects.write"),
-         {:ok, project} <- Workspace.update_project(scope, project_id, params) do
-      json(conn, %{
-        id: project.id,
-        organization_id: project.organization_id,
-        name: project.name,
-        definition_of_done: project.definition_of_done,
-        updated: true
-      })
-    else
-      {:error, error_conn} when is_struct(error_conn, Plug.Conn) ->
-        error_conn
+    case Workspace.update_project(scope, project_id, params) do
+      {:ok, project} ->
+        json(conn, %{
+          id: project.id,
+          organization_id: project.organization_id,
+          name: project.name,
+          definition_of_done: project.definition_of_done,
+          updated: true
+        })
 
       {:error, :not_found} ->
-        render_error(conn, :not_found, "not_found", "project not found")
+        not_found(conn, "project not found")
 
       {:error, changeset} ->
-        render_error(conn, :bad_request, "project_error", inspect(changeset.errors))
+        validation_error(conn, "project_error", changeset)
     end
   end
 end

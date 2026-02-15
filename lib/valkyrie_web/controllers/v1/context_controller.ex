@@ -6,19 +6,19 @@ defmodule ValkyrieWeb.V1.ContextController do
   def show(conn, %{"project_id" => project_id}) do
     scope = current_scope!(conn)
 
-    with :ok <- authorize(conn, "projects.read"),
-         {:ok, context} <- Context.build_project_context(scope, project_id) do
-      json(conn, %{
-        project: project_json(context.project),
-        stories: Enum.map(context.stories, &story_json/1),
-        comments: Enum.map(context.comments, &comment_json/1),
-        history: Enum.map(context.history, &history_json/1),
-        threads: Enum.map(context.threads, &thread_json/1),
-        messages: Enum.map(context.messages, &message_json/1)
-      })
-    else
-      {:error, error_conn} when is_struct(error_conn, Plug.Conn) -> error_conn
-      {:error, :not_found} -> render_error(conn, :not_found, "not_found", "project not found")
+    case Context.build_project_context(scope, project_id) do
+      {:ok, context} ->
+        json(conn, %{
+          project: project_json(context.project),
+          stories: Enum.map(context.stories, &story_json/1),
+          comments: Enum.map(context.comments, &comment_json/1),
+          history: Enum.map(context.history, &history_json/1),
+          threads: Enum.map(context.threads, &thread_json/1),
+          messages: Enum.map(context.messages, &message_json/1)
+        })
+
+      {:error, :not_found} ->
+        not_found(conn, "project not found")
     end
   end
 
