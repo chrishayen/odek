@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/chrishayen/valkyrie/config"
@@ -19,29 +18,28 @@ func newClaudePro(agent config.Agent) *claudeProRunner {
 	return &claudeProRunner{agent: agent}
 }
 
-// credentialsPath returns the resolved path to Claude credentials.
-// Defaults to ~/.claude/.credentials.json if not set in config.
-func (r *claudeProRunner) credentialsPath() string {
-	if r.agent.CredentialsPath != "" {
-		return r.agent.CredentialsPath
+// tokenEnv returns the name of the env var holding the OAuth token.
+// Defaults to CLAUDE_CODE_OAUTH_TOKEN (produced by `claude setup-token`).
+func (r *claudeProRunner) tokenEnv() string {
+	if r.agent.TokenEnv != "" {
+		return r.agent.TokenEnv
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".claude", ".credentials.json")
+	return "CLAUDE_CODE_OAUTH_TOKEN"
 }
 
-// Validate checks that the claude CLI is available and credentials exist.
+// Validate checks that the claude CLI is available and the token is set.
 func (r *claudeProRunner) Validate() error {
 	if _, err := exec.LookPath("claude"); err != nil {
 		return fmt.Errorf("claude CLI not found in PATH — run: npm install -g @anthropic-ai/claude-code")
 	}
-	credPath := r.credentialsPath()
-	if _, err := os.Stat(credPath); os.IsNotExist(err) {
-		return fmt.Errorf("claude credentials not found at %s — run: claude setup-token", credPath)
+	tokenVar := r.tokenEnv()
+	if os.Getenv(tokenVar) == "" {
+		return fmt.Errorf("%s is not set — run: claude setup-token", tokenVar)
 	}
 	return nil
 }
 
-// Run executes the task using the claude CLI in non-interactive mode.
+// Run executes the task using the claude CLI with OAuth subscription auth.
 func (r *claudeProRunner) Run(ctx context.Context, task string) (string, error) {
 	if err := r.Validate(); err != nil {
 		return "", err
@@ -58,15 +56,21 @@ func (r *claudeProRunner) Run(ctx context.Context, task string) (string, error) 
 
 	cmd := exec.CommandContext(ctx, "claude", args...)
 
-	// Ensure ANTHROPIC_API_KEY is unset so subscription auth takes precedence
-	env := os.Environ()
-	filtered := env[:0]
-	for _, e := range env {
-		if !strings.HasPrefix(e, "ANTHROPIC_API_KEY=") {
-			filtered = append(filtered, e)
+	// Build env: unset ANTHROPIC_API_KEY so subscription auth takes precedence,
+	// ensure CLAUDE_CODE_OAUTH_TOKEN is set from the configured env var.
+	token := os.Getenv(r.tokenEnv())
+	var env []string
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "ANTHROPIC_API_KEY=") {
+			continue
 		}
+		if strings.HasPrefix(e, "CLAUDE_CODE_OAUTH_TOKEN=") {
+			continue
+		}
+		env = append(env, e)
 	}
-	cmd.Env = filtered
+	env = append(env, "CLAUDE_CODE_OAUTH_TOKEN="+token)
+	cmd.Env = env
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {

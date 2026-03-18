@@ -1,7 +1,7 @@
 [agents.claude-pro]
 type = "claude-pro"
 model = "claude-sonnet-4-5"
-# credentials_path = "~/.claude/.credentials.json"  # optional, this is the default
+# token_env = "CLAUDE_CODE_OAUTH_TOKEN"  # default — run `claude setup-token` to get this
 
 [agents.claude-api]
 type = "claude-api"

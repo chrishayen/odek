@@ -8,11 +8,11 @@ import (
 )
 
 type Agent struct {
-	Type            string `toml:"type"`
-	Model           string `toml:"model,omitempty"`
-	APIKeyEnv       string `toml:"api_key_env,omitempty"`
-	Image           string `toml:"image,omitempty"`
-	CredentialsPath string `toml:"credentials_path,omitempty"` // claude-pro: path to ~/.claude/.credentials.json
+	Type      string `toml:"type"`
+	Model     string `toml:"model,omitempty"`
+	APIKeyEnv string `toml:"api_key_env,omitempty"`
+	Image     string `toml:"image,omitempty"`
+	TokenEnv  string `toml:"token_env,omitempty"` // claude-pro: env var holding CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`)
 }
 
 type Config struct {
