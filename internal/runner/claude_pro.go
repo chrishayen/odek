@@ -56,21 +56,11 @@ func (r *claudeProRunner) Run(ctx context.Context, task string) (string, error) 
 
 	cmd := exec.CommandContext(ctx, "claude", args...)
 
-	// Build env: unset ANTHROPIC_API_KEY so subscription auth takes precedence,
-	// ensure CLAUDE_CODE_OAUTH_TOKEN is set from the configured env var.
-	token := os.Getenv(r.tokenEnv())
-	var env []string
-	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "ANTHROPIC_API_KEY=") {
-			continue
-		}
-		if strings.HasPrefix(e, "CLAUDE_CODE_OAUTH_TOKEN=") {
-			continue
-		}
-		env = append(env, e)
+	// Build env from config only — no inherited env, no stripping hacks.
+	cmd.Env = []string{
+		"CLAUDE_CODE_OAUTH_TOKEN=" + os.Getenv(r.tokenEnv()),
+		"PATH=" + os.Getenv("PATH"), // claude CLI needs PATH to find itself
 	}
-	env = append(env, "CLAUDE_CODE_OAUTH_TOKEN="+token)
-	cmd.Env = env
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
