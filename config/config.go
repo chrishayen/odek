@@ -16,8 +16,22 @@ type Agent struct {
 	TokenEnv  string `toml:"token_env,omitempty"`
 }
 
+type Auth struct {
+	Disabled bool   `toml:"disabled"` // true = no token required (local use only)
+	Token    string `toml:"token"`     // bearer token; falls back to VALKYRIE_API_TOKEN env var
+}
+
+// ResolveToken returns the API token from config or env var.
+func (a Auth) ResolveToken() string {
+	if a.Token != "" {
+		return a.Token
+	}
+	return os.Getenv("VALKYRIE_API_TOKEN")
+}
+
 type Config struct {
 	RegistryPath string           `toml:"registry_path"`
+	Auth         Auth             `toml:"auth"`
 	Agents       map[string]Agent `toml:"agents"`
 }
 

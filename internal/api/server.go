@@ -10,21 +10,28 @@ import (
 )
 
 type Server struct {
-	store *runepkg.Store
-	mux   *http.ServeMux
+	store   *runepkg.Store
+	mux     *http.ServeMux
+	handler http.Handler
 }
 
-func NewServer(store *runepkg.Store) *Server {
+type Options struct {
+	AuthToken    string
+	AuthDisabled bool
+}
+
+func NewServer(store *runepkg.Store, opts Options) *Server {
 	s := &Server{
 		store: store,
 		mux:   http.NewServeMux(),
 	}
 	s.routes()
+	s.handler = authMiddleware(opts.AuthToken, opts.AuthDisabled, s.mux)
 	return s
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.mux.ServeHTTP(w, r)
+	s.handler.ServeHTTP(w, r)
 }
 
 func (s *Server) routes() {

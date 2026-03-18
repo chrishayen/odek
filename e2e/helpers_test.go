@@ -50,8 +50,20 @@ func writeTempTOML(t *testing.T, content string) string {
 	return f.Name()
 }
 
-// startServer spins up `valkyrie serve` with config TOML and returns the base URL + cleanup func.
+// startServer spins up `valkyrie serve` with auth disabled (for local/test use).
 func startServer(t *testing.T, configTOML string) (baseURL string, cleanup func()) {
+	t.Helper()
+	return startServerRaw(t, configTOML, true, "")
+}
+
+// startServerWithToken spins up `valkyrie serve` with bearer token auth enabled.
+func startServerWithToken(t *testing.T, token string) (baseURL string, cleanup func()) {
+	t.Helper()
+	return startServerRaw(t, "", false, token)
+}
+
+// startServerRaw is the underlying helper for starting the server with full control.
+func startServerRaw(t *testing.T, configTOML string, authDisabled bool, authToken string) (baseURL string, cleanup func()) {
 	t.Helper()
 
 	registryDir, err := os.MkdirTemp("", "valkyrie-registry-*")
@@ -59,8 +71,14 @@ func startServer(t *testing.T, configTOML string) (baseURL string, cleanup func(
 		t.Fatal(err)
 	}
 
-	// Prepend registry_path to config
-	fullConfig := fmt.Sprintf("registry_path = %q\n%s", registryDir, configTOML)
+	var authSection string
+	if authDisabled {
+		authSection = "[auth]\ndisabled = true\n"
+	} else {
+		authSection = fmt.Sprintf("[auth]\ntoken = %q\n", authToken)
+	}
+
+	fullConfig := fmt.Sprintf("registry_path = %q\n\n%s\n%s", registryDir, authSection, configTOML)
 	cfgFile := writeTempTOML(t, fullConfig)
 
 	port := allocPort()
