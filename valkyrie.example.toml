@@ -1,7 +1,8 @@
 [agents.claude-pro]
 type = "claude-pro"
 model = "claude-sonnet-4-5"
-# token = "sk-ant-oat01-..."  # OAuth token from `claude setup-token` (or set CLAUDE_CODE_OAUTH_TOKEN env var)
+# token = "sk-ant-oat01-..."  # from `claude setup-token` (or set CLAUDE_CODE_OAUTH_TOKEN env var)
+# image = "ghcr.io/chrishayen/valkyrie-claude:latest"  # default
 
 [agents.claude-api]
 type = "claude-api"
