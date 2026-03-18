@@ -1,11 +1,14 @@
 package e2e_test
 
 import (
+	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 var binaryPath string
@@ -26,27 +29,78 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// run executes the binary with the given TOML config content.
-func run(t *testing.T, configContent string) (stdout string, exitCode int) {
+var nextPort = 18200
+
+func allocPort() int {
+	nextPort++
+	return nextPort
+}
+
+func writeTempTOML(t *testing.T, content string) string {
 	t.Helper()
 	f, err := os.CreateTemp("", "valkyrie-*.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(f.Name())
-	if _, err := f.WriteString(configContent); err != nil {
+	t.Cleanup(func() { os.Remove(f.Name()) })
+	if _, err := f.WriteString(content); err != nil {
 		t.Fatal(err)
 	}
 	f.Close()
+	return f.Name()
+}
 
-	cmd := exec.Command(binaryPath)
-	cmd.Env = append(os.Environ(), "VALKYRIE_CONFIG="+f.Name())
+// startServer spins up `valkyrie serve` with config TOML and returns the base URL + cleanup func.
+func startServer(t *testing.T, configTOML string) (baseURL string, cleanup func()) {
+	t.Helper()
+
+	registryDir, err := os.MkdirTemp("", "valkyrie-registry-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Prepend registry_path to config
+	fullConfig := fmt.Sprintf("registry_path = %q\n%s", registryDir, configTOML)
+	cfgFile := writeTempTOML(t, fullConfig)
+
+	port := allocPort()
+	addr := fmt.Sprintf(":%d", port)
+	baseURL = fmt.Sprintf("http://localhost:%d", port)
+
+	cmd := exec.Command(binaryPath, "serve", "--addr", addr)
+	cmd.Env = append(os.Environ(), "VALKYRIE_CONFIG="+cfgFile)
+
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for server to be ready
+	for i := 0; i < 30; i++ {
+		resp, err := http.Get(baseURL + "/health")
+		if err == nil && resp.StatusCode == 200 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	return baseURL, func() {
+		cmd.Process.Kill()
+		os.RemoveAll(registryDir)
+	}
+}
+
+// runBinary runs the binary with a config file and returns stdout+stderr and exit code.
+func runBinary(t *testing.T, configContent string, args ...string) (output string, exitCode int) {
+	t.Helper()
+	cfgFile := writeTempTOML(t, configContent)
+	cmd := exec.Command(binaryPath, args...)
+	cmd.Env = append(os.Environ(), "VALKYRIE_CONFIG="+cfgFile)
 	out, err := cmd.CombinedOutput()
-	stdout = strings.TrimSpace(string(out))
+	output = strings.TrimSpace(string(out))
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			return stdout, exitErr.ExitCode()
+			return output, exitErr.ExitCode()
 		}
 	}
-	return stdout, 0
+	return output, 0
 }

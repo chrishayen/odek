@@ -8,16 +8,17 @@ import (
 )
 
 type Agent struct {
-	Type     string `toml:"type"`
-	Model    string `toml:"model,omitempty"`
+	Type      string `toml:"type"`
+	Model     string `toml:"model,omitempty"`
 	APIKeyEnv string `toml:"api_key_env,omitempty"`
-	Image    string `toml:"image,omitempty"`
-	Token    string `toml:"token,omitempty"`     // claude-pro: OAuth token directly (takes precedence over env)
-	TokenEnv string `toml:"token_env,omitempty"` // claude-pro: env var to read token from (default: CLAUDE_CODE_OAUTH_TOKEN)
+	Image     string `toml:"image,omitempty"`
+	Token     string `toml:"token,omitempty"`
+	TokenEnv  string `toml:"token_env,omitempty"`
 }
 
 type Config struct {
-	Agents map[string]Agent `toml:"agents"`
+	RegistryPath string           `toml:"registry_path"`
+	Agents       map[string]Agent `toml:"agents"`
 }
 
 var validTypes = map[string]bool{
@@ -31,8 +32,10 @@ func Load() (*Config, error) {
 	if path == "" {
 		return nil, fmt.Errorf("VALKYRIE_CONFIG is not set")
 	}
-	var cfg Config
-	if _, err := toml.DecodeFile(path, &cfg); err != nil {
+	cfg := &Config{
+		RegistryPath: "./registry",
+	}
+	if _, err := toml.DecodeFile(path, cfg); err != nil {
 		return nil, fmt.Errorf("reading config %s: %w", path, err)
 	}
 	for name, agent := range cfg.Agents {
@@ -40,5 +43,5 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("agent %q: unknown type %q (valid: claude-api, claude-pro, docker)", name, agent.Type)
 		}
 	}
-	return &cfg, nil
+	return cfg, nil
 }
