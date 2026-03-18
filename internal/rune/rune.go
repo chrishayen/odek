@@ -18,12 +18,10 @@ const (
 )
 
 type Rune struct {
-	Name        string `toml:"name"                   json:"name"`
-	Description string `toml:"description"            json:"description"` // English description — this is the spec
-	Version     string `toml:"version"                json:"version"`
-	Stage       Stage  `toml:"stage"                  json:"stage"`
-	Runtime     string `toml:"runtime,omitempty"      json:"runtime,omitempty"` // optional hint: go, python, node, etc.
-	Path        string `toml:"path,omitempty"         json:"path,omitempty"`    // where generated code lives
+	Name        string `toml:"name"        json:"name"`
+	Description string `toml:"description" json:"description"` // English description — this is the spec
+	Version     string `toml:"version"     json:"version"`
+	Stage       Stage  `toml:"stage"       json:"stage"`
 }
 
 type Store struct {
