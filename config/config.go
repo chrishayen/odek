@@ -8,14 +8,21 @@ import (
 )
 
 type Agent struct {
-	Type      string `toml:"type"`
-	Model     string `toml:"model,omitempty"`
-	APIKeyEnv string `toml:"api_key_env,omitempty"`
-	Image     string `toml:"image,omitempty"`
+	Type            string `toml:"type"`
+	Model           string `toml:"model,omitempty"`
+	APIKeyEnv       string `toml:"api_key_env,omitempty"`
+	Image           string `toml:"image,omitempty"`
+	CredentialsPath string `toml:"credentials_path,omitempty"` // claude-pro: path to ~/.claude/.credentials.json
 }
 
 type Config struct {
 	Agents map[string]Agent `toml:"agents"`
+}
+
+var validTypes = map[string]bool{
+	"claude-api": true,
+	"claude-pro": true,
+	"docker":     true,
 }
 
 func Load() (*Config, error) {
@@ -26,6 +33,11 @@ func Load() (*Config, error) {
 	var cfg Config
 	if _, err := toml.DecodeFile(path, &cfg); err != nil {
 		return nil, fmt.Errorf("reading config %s: %w", path, err)
+	}
+	for name, agent := range cfg.Agents {
+		if !validTypes[agent.Type] {
+			return nil, fmt.Errorf("agent %q: unknown type %q (valid: claude-api, claude-pro, docker)", name, agent.Type)
+		}
 	}
 	return &cfg, nil
 }

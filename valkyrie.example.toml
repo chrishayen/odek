@@ -1,11 +1,12 @@
+[agents.claude-pro]
+type = "claude-pro"
+model = "claude-sonnet-4-5"
+# credentials_path = "~/.claude/.credentials.json"  # optional, this is the default
+
 [agents.claude-api]
 type = "claude-api"
 model = "claude-sonnet-4-5"
 api_key_env = "ANTHROPIC_API_KEY"
-
-[agents.claude-max]
-type = "claude-max"
-model = "claude-sonnet-4-5"
 
 [agents.docker]
 type = "docker"
