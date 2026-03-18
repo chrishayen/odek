@@ -1,0 +1,22 @@
+# valkyrie.sample.toml
+# Copy to valkyrie.toml and configure your agents.
+# Point to it with: export VALKYRIE_CONFIG=./valkyrie.toml
+
+# Claude Pro / Max (subscription-based, no API key needed)
+# Run `claude setup-token` to get your token.
+[agents.claude-pro]
+type = "claude-pro"
+model = "claude-sonnet-4-5"
+token = "sk-ant-oat01-..."
+# image = "ghcr.io/chrishayen/valkyrie-claude:latest"  # default
+
+# Claude via API key
+[agents.claude-api]
+type = "claude-api"
+model = "claude-sonnet-4-5"
+api_key_env = "ANTHROPIC_API_KEY"
+
+# Docker (bring your own image)
+[agents.docker]
+type = "docker"
+image = "ubuntu:22.04"
