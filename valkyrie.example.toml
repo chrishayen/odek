@@ -1,7 +1,8 @@
 [agents.claude-pro]
 type = "claude-pro"
 model = "claude-sonnet-4-5"
-# token_env = "CLAUDE_CODE_OAUTH_TOKEN"  # default — run `claude setup-token` to get this
+# token = "sk-ant-oat01-..."             # put token directly here (takes precedence)
+# token_env = "CLAUDE_CODE_OAUTH_TOKEN"  # or name the env var (default: CLAUDE_CODE_OAUTH_TOKEN)
 
 [agents.claude-api]
 type = "claude-api"

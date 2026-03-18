@@ -8,11 +8,12 @@ import (
 )
 
 type Agent struct {
-	Type      string `toml:"type"`
-	Model     string `toml:"model,omitempty"`
+	Type     string `toml:"type"`
+	Model    string `toml:"model,omitempty"`
 	APIKeyEnv string `toml:"api_key_env,omitempty"`
-	Image     string `toml:"image,omitempty"`
-	TokenEnv  string `toml:"token_env,omitempty"` // claude-pro: env var holding CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`)
+	Image    string `toml:"image,omitempty"`
+	Token    string `toml:"token,omitempty"`     // claude-pro: OAuth token directly (takes precedence over env)
+	TokenEnv string `toml:"token_env,omitempty"` // claude-pro: env var to read token from (default: CLAUDE_CODE_OAUTH_TOKEN)
 }
 
 type Config struct {

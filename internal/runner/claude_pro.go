@@ -18,23 +18,28 @@ func newClaudePro(agent config.Agent) *claudeProRunner {
 	return &claudeProRunner{agent: agent}
 }
 
-// tokenEnv returns the name of the env var holding the OAuth token.
-// Defaults to CLAUDE_CODE_OAUTH_TOKEN (produced by `claude setup-token`).
-func (r *claudeProRunner) tokenEnv() string {
-	if r.agent.TokenEnv != "" {
-		return r.agent.TokenEnv
+// resolveToken returns the OAuth token using this precedence:
+// 1. token field in config (literal value)
+// 2. token_env field in config (named env var)
+// 3. CLAUDE_CODE_OAUTH_TOKEN env var (default)
+func (r *claudeProRunner) resolveToken() string {
+	if r.agent.Token != "" {
+		return r.agent.Token
 	}
-	return "CLAUDE_CODE_OAUTH_TOKEN"
+	envVar := r.agent.TokenEnv
+	if envVar == "" {
+		envVar = "CLAUDE_CODE_OAUTH_TOKEN"
+	}
+	return os.Getenv(envVar)
 }
 
-// Validate checks that the claude CLI is available and the token is set.
+// Validate checks that the claude CLI is available and a token is resolvable.
 func (r *claudeProRunner) Validate() error {
 	if _, err := exec.LookPath("claude"); err != nil {
 		return fmt.Errorf("claude CLI not found in PATH — run: npm install -g @anthropic-ai/claude-code")
 	}
-	tokenVar := r.tokenEnv()
-	if os.Getenv(tokenVar) == "" {
-		return fmt.Errorf("%s is not set — run: claude setup-token", tokenVar)
+	if r.resolveToken() == "" {
+		return fmt.Errorf("no token configured — set token in config or export CLAUDE_CODE_OAUTH_TOKEN (run: claude setup-token)")
 	}
 	return nil
 }
@@ -58,7 +63,7 @@ func (r *claudeProRunner) Run(ctx context.Context, task string) (string, error) 
 
 	// Build env from config only — no inherited env, no stripping hacks.
 	cmd.Env = []string{
-		"CLAUDE_CODE_OAUTH_TOKEN=" + os.Getenv(r.tokenEnv()),
+		"CLAUDE_CODE_OAUTH_TOKEN=" + r.resolveToken(),
 		"PATH=" + os.Getenv("PATH"), // claude CLI needs PATH to find itself
 	}
 
