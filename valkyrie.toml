@@ -1,0 +1,2 @@
+default_sandbox = "claude-api"
+registry_path = "./registry"
