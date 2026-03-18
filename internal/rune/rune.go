@@ -18,19 +18,12 @@ const (
 )
 
 type Rune struct {
-	Name             string   `toml:"name"              json:"name"`
-	Description      string   `toml:"description"       json:"description"`
-	Version          string   `toml:"version"           json:"version"`
-	Stage            Stage    `toml:"stage"             json:"stage"`
-	Runtime          string   `toml:"runtime,omitempty" json:"runtime,omitempty"`
-	Path             string   `toml:"path,omitempty"    json:"path,omitempty"`
-	Inputs           []string `toml:"inputs,omitempty"           json:"inputs,omitempty"`
-	Outputs          []string `toml:"outputs,omitempty"          json:"outputs,omitempty"`
-	EventsPublished  []string `toml:"events_published,omitempty" json:"events_published,omitempty"`
-	EventsSubscribed []string `toml:"events_subscribed,omitempty" json:"events_subscribed,omitempty"`
-	Dependencies     []string `toml:"dependencies,omitempty"     json:"dependencies,omitempty"`
-	Requirements     []string `toml:"requirements,omitempty"     json:"requirements,omitempty"`
-	Config           []string `toml:"config,omitempty"           json:"config,omitempty"`
+	Name        string `toml:"name"                   json:"name"`
+	Description string `toml:"description"            json:"description"` // English description — this is the spec
+	Version     string `toml:"version"                json:"version"`
+	Stage       Stage  `toml:"stage"                  json:"stage"`
+	Runtime     string `toml:"runtime,omitempty"      json:"runtime,omitempty"` // optional hint: go, python, node, etc.
+	Path        string `toml:"path,omitempty"         json:"path,omitempty"`    // where generated code lives
 }
 
 type Store struct {
