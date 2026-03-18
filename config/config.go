@@ -7,6 +7,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+
 type Agent struct {
 	Type      string `toml:"type"`
 	Model     string `toml:"model,omitempty"`
@@ -17,16 +18,7 @@ type Agent struct {
 }
 
 type Auth struct {
-	Disabled bool   `toml:"disabled"` // true = no token required (local use only)
-	Token    string `toml:"token"`     // bearer token; falls back to VALKYRIE_API_TOKEN env var
-}
-
-// ResolveToken returns the API token from config or env var.
-func (a Auth) ResolveToken() string {
-	if a.Token != "" {
-		return a.Token
-	}
-	return os.Getenv("VALKYRIE_API_TOKEN")
+	Disabled bool `toml:"disabled"` // set true to acknowledge no auth (local use)
 }
 
 type Config struct {

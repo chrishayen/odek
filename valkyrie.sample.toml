@@ -3,12 +3,7 @@
 # export VALKYRIE_CONFIG=./valkyrie.toml
 
 [auth]
-# For local use — no token required:
-# disabled = true
-
-# For remote/shared use — set a bearer token:
-# token = "your-secret-token"
-# Or: export VALKYRIE_API_TOKEN=your-secret-token
+disabled = true  # set false (and add auth) before exposing to a network
 
 [agents.claude-pro]
 type = "claude-pro"

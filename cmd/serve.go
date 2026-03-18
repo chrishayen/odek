@@ -16,20 +16,13 @@ var serveCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		addr, _ := cmd.Flags().GetString("addr")
 
-		token := cfg.Auth.ResolveToken()
-		if !cfg.Auth.Disabled && token == "" {
-			return fmt.Errorf("auth.token is not set — set it in config, export VALKYRIE_API_TOKEN, or set auth.disabled = true for local use")
+		if !cfg.Auth.Disabled {
+			fmt.Fprintln(os.Stderr, "warning: auth is not disabled — set auth.disabled = true in config for local use")
 		}
 
 		store := runepkg.NewStore(cfg.RegistryPath)
-		server := api.NewServer(store, api.Options{
-			AuthToken:    token,
-			AuthDisabled: cfg.Auth.Disabled,
-		})
+		server := api.NewServer(store)
 
-		if cfg.Auth.Disabled {
-			fmt.Fprintln(os.Stdout, "⚠️  Auth disabled — for local use only")
-		}
 		fmt.Fprintf(os.Stdout, "Valkyrie serving on %s\n", addr)
 		fmt.Fprintf(os.Stdout, "Registry: %s\n", cfg.RegistryPath)
 		return http.ListenAndServe(addr, server)
