@@ -9,19 +9,10 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-type Stage string
-
-const (
-	StageDraft    Stage = "draft"
-	StageReviewed Stage = "reviewed"
-	StageStable   Stage = "stable"
-)
-
 type Rune struct {
 	Name        string `toml:"name"        json:"name"`
 	Description string `toml:"description" json:"description"` // English description — this is the spec
 	Version     string `toml:"version"     json:"version"`
-	Stage       Stage  `toml:"stage"       json:"stage"`
 }
 
 type Store struct {
@@ -49,9 +40,6 @@ func (s *Store) Create(r Rune) error {
 	}
 	if _, err := os.Stat(s.filePath(r.Name)); err == nil {
 		return fmt.Errorf("rune %q already exists", r.Name)
-	}
-	if r.Stage == "" {
-		r.Stage = StageDraft
 	}
 	if r.Version == "" {
 		r.Version = "0.1.0"
@@ -109,27 +97,6 @@ func (s *Store) Delete(name string) error {
 		return fmt.Errorf("rune %q not found", name)
 	}
 	return os.Remove(p)
-}
-
-func (s *Store) Promote(name string) (*Rune, error) {
-	r, err := s.Get(name)
-	if err != nil {
-		return nil, err
-	}
-	switch r.Stage {
-	case StageDraft:
-		r.Stage = StageReviewed
-	case StageReviewed:
-		r.Stage = StageStable
-	case StageStable:
-		return nil, fmt.Errorf("rune %q is already stable", name)
-	default:
-		return nil, fmt.Errorf("unknown stage %q", r.Stage)
-	}
-	if err := write(s.filePath(name), *r); err != nil {
-		return nil, err
-	}
-	return r, nil
 }
 
 func validate(r Rune) error {

@@ -53,8 +53,7 @@ func TestAPICreateRune(t *testing.T) {
 
 	resp := apiPost(t, base+"/runes", map[string]any{
 		"name":        "user-auth",
-		"description": "Handles user authentication via JWT",
-		"runtime":     "go@1.22",
+		"description": "Accepts a username and password, validates credentials, returns a session token",
 	})
 	if resp.StatusCode != 201 {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
@@ -65,9 +64,6 @@ func TestAPICreateRune(t *testing.T) {
 
 	if rune["name"] != "user-auth" {
 		t.Errorf("expected name=user-auth, got %v", rune["name"])
-	}
-	if rune["stage"] != "draft" {
-		t.Errorf("expected stage=draft, got %v", rune["stage"])
 	}
 	if rune["version"] != "0.1.0" {
 		t.Errorf("expected version=0.1.0, got %v", rune["version"])
@@ -143,36 +139,7 @@ func TestAPIGetRuneNotFound(t *testing.T) {
 	}
 }
 
-func TestAPIPromoteRune(t *testing.T) {
-	base, cleanup := startServer(t, "")
-	defer cleanup()
 
-	apiPost(t, base+"/runes", map[string]any{"name": "promo-rune", "description": "to promote"})
-
-	// draft → reviewed
-	resp, _ := http.Post(base+"/runes/promo-rune/promote", "application/json", nil)
-	if resp.StatusCode != 200 {
-		t.Fatalf("expected 200 on first promote, got %d", resp.StatusCode)
-	}
-	var rune map[string]any
-	decodeBody(t, resp, &rune)
-	if rune["stage"] != "reviewed" {
-		t.Errorf("expected reviewed, got %v", rune["stage"])
-	}
-
-	// reviewed → stable
-	resp, _ = http.Post(base+"/runes/promo-rune/promote", "application/json", nil)
-	decodeBody(t, resp, &rune)
-	if rune["stage"] != "stable" {
-		t.Errorf("expected stable, got %v", rune["stage"])
-	}
-
-	// stable → error
-	resp, _ = http.Post(base+"/runes/promo-rune/promote", "application/json", nil)
-	if resp.StatusCode != 400 {
-		t.Errorf("expected 400 when already stable, got %d", resp.StatusCode)
-	}
-}
 
 func TestAPIDeleteRune(t *testing.T) {
 	base, cleanup := startServer(t, "")

@@ -110,17 +110,6 @@ func (s *Server) runesItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// /runes/{name}/promote
-	if len(parts) == 3 && parts[2] == "promote" && r.Method == http.MethodPost {
-		rune, err := s.store.Promote(parts[1])
-		if err != nil {
-			writeError(w, err, clientOrServer(err))
-			return
-		}
-		writeJSON(w, http.StatusOK, rune)
-		return
-	}
-
 	http.NotFound(w, r)
 }
 
