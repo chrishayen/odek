@@ -6,18 +6,25 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/chrishayen/valkyrie/config"
+	"github.com/chrishayen/valkyrie/internal/hydrator"
 	runepkg "github.com/chrishayen/valkyrie/internal/rune"
+	"github.com/chrishayen/valkyrie/internal/runner"
 )
 
 type Server struct {
-	store *runepkg.Store
-	mux   *http.ServeMux
+	store    *runepkg.Store
+	hydrator *hydrator.Hydrator
+	agents   map[string]config.Agent
+	mux      *http.ServeMux
 }
 
-func NewServer(store *runepkg.Store) *Server {
+func NewServer(store *runepkg.Store, agents map[string]config.Agent) *Server {
 	s := &Server{
-		store: store,
-		mux:   http.NewServeMux(),
+		store:    store,
+		hydrator: hydrator.New(store),
+		agents:   agents,
+		mux:      http.NewServeMux(),
 	}
 	s.routes()
 	return s
@@ -110,7 +117,47 @@ func (s *Server) runesItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// /runes/{name}/hydrate
+	if len(parts) == 3 && parts[2] == "hydrate" && r.Method == http.MethodPost {
+		s.hydrateRune(w, r, parts[1])
+		return
+	}
+
 	http.NotFound(w, r)
+}
+
+func (s *Server) hydrateRune(w http.ResponseWriter, r *http.Request, name string) {
+	var req struct {
+		Sandbox string `json:"sandbox"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeError(w, err, http.StatusBadRequest)
+		return
+	}
+	if req.Sandbox == "" {
+		writeError(w, fmt.Errorf("sandbox is required"), http.StatusBadRequest)
+		return
+	}
+
+	agent, ok := s.agents[req.Sandbox]
+	if !ok {
+		writeError(w, fmt.Errorf("sandbox %q not found in config", req.Sandbox), http.StatusBadRequest)
+		return
+	}
+
+	run, err := runner.New(agent)
+	if err != nil {
+		writeError(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	result, err := s.hydrator.Hydrate(r.Context(), name, run)
+	if err != nil {
+		writeError(w, err, clientOrServer(err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -135,8 +182,7 @@ func clientOrServer(err error) int {
 	if strings.Contains(msg, "not found") ||
 		strings.Contains(msg, "already exists") ||
 		strings.Contains(msg, "required") ||
-		strings.Contains(msg, "slug") ||
-		strings.Contains(msg, "already stable") {
+		strings.Contains(msg, "slug") {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError

@@ -21,7 +21,7 @@ var serveCmd = &cobra.Command{
 		}
 
 		store := runepkg.NewStore(cfg.RegistryPath)
-		server := api.NewServer(store)
+		server := api.NewServer(store, cfg.Agents)
 
 		fmt.Fprintf(os.Stdout, "Valkyrie serving on %s\n", addr)
 		fmt.Fprintf(os.Stdout, "Registry: %s\n", cfg.RegistryPath)
