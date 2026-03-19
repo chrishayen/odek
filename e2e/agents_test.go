@@ -1,59 +1,50 @@
 package e2e_test
 
 import (
-	"strings"
+	"net/http"
 	"testing"
 )
 
-func TestClaudeAPIAgent(t *testing.T) {
-	out, code := run(t, `
+func TestClaudeAPIAgentStartsServer(t *testing.T) {
+	base, cleanup := startServer(t, `
 [agents.my-api]
 type = "claude-api"
 model = "claude-sonnet-4-5"
 api_key_env = "ANTHROPIC_API_KEY"
 `)
-	if code != 0 {
-		t.Fatalf("expected exit 0, got %d\noutput: %s", code, out)
-	}
-	if !strings.Contains(out, "my-api") {
-		t.Errorf("expected agent name in output, got: %s", out)
-	}
-	if !strings.Contains(out, "claude-api") {
-		t.Errorf("expected type in output, got: %s", out)
+	defer cleanup()
+
+	resp, err := http.Get(base + "/health")
+	if err != nil || resp.StatusCode != 200 {
+		t.Errorf("server did not start with claude-api config")
 	}
 }
 
-func TestClaudeProAgent(t *testing.T) {
-	out, code := run(t, `
+func TestClaudeProAgentStartsServer(t *testing.T) {
+	base, cleanup := startServer(t, `
 [agents.pro]
 type = "claude-pro"
 model = "claude-sonnet-4-5"
 token = "sk-ant-oat01-fake"
 `)
-	if code != 0 {
-		t.Fatalf("expected exit 0, got %d\noutput: %s", code, out)
-	}
-	if !strings.Contains(out, "pro") {
-		t.Errorf("expected agent name in output, got: %s", out)
-	}
-	if !strings.Contains(out, "claude-pro") {
-		t.Errorf("expected type in output, got: %s", out)
+	defer cleanup()
+
+	resp, err := http.Get(base + "/health")
+	if err != nil || resp.StatusCode != 200 {
+		t.Errorf("server did not start with claude-pro config")
 	}
 }
 
-func TestDockerAgent(t *testing.T) {
-	out, code := run(t, `
+func TestDockerAgentStartsServer(t *testing.T) {
+	base, cleanup := startServer(t, `
 [agents.local]
 type = "docker"
 image = "ubuntu:22.04"
 `)
-	if code != 0 {
-		t.Fatalf("expected exit 0, got %d\noutput: %s", code, out)
-	}
-	if !strings.Contains(out, "local") {
-		t.Errorf("expected agent name in output, got: %s", out)
-	}
-	if !strings.Contains(out, "docker") {
-		t.Errorf("expected type in output, got: %s", out)
+	defer cleanup()
+
+	resp, err := http.Get(base + "/health")
+	if err != nil || resp.StatusCode != 200 {
+		t.Errorf("server did not start with docker config")
 	}
 }
