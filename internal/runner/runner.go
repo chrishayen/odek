@@ -17,6 +17,8 @@ func New(agent config.Agent) (Runner, error) {
 	switch agent.Type {
 	case "claude-pro":
 		return newClaudePro(agent), nil
+	case "mock":
+		return newMock(agent), nil
 	case "claude-api":
 		return nil, fmt.Errorf("claude-api runner not yet implemented")
 	case "docker":

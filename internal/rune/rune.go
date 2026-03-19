@@ -13,6 +13,8 @@ type Rune struct {
 	Name        string `toml:"name"        json:"name"`
 	Description string `toml:"description" json:"description"` // English description — this is the spec
 	Version     string `toml:"version"     json:"version"`
+	Hydrated    bool   `toml:"hydrated"    json:"hydrated"`  // true once code has been generated
+	Coverage    float64 `toml:"coverage"   json:"coverage"`  // test coverage %, set after hydration
 }
 
 type Store struct {
@@ -29,6 +31,11 @@ func (s *Store) dir() string {
 
 func (s *Store) filePath(name string) string {
 	return filepath.Join(s.dir(), name+".toml")
+}
+
+// CodeDir returns the directory where generated code for a rune is stored.
+func (s *Store) CodeDir(name string) string {
+	return filepath.Join(s.dir(), name)
 }
 
 func (s *Store) Create(r Rune) error {

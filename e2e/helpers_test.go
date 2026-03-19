@@ -51,22 +51,26 @@ func writeTempTOML(t *testing.T, content string) string {
 }
 
 // startServer spins up `valkyrie serve` with auth disabled (for local/test use).
+// Returns baseURL, registryDir, and cleanup func.
 func startServer(t *testing.T, configTOML string) (baseURL string, cleanup func()) {
 	t.Helper()
-	return startServerRaw(t, configTOML, true, "")
+	base, _, cl := startServerFull(t, configTOML, true, "")
+	return base, cl
 }
 
 // startServerWithToken spins up `valkyrie serve` with bearer token auth enabled.
 func startServerWithToken(t *testing.T, token string) (baseURL string, cleanup func()) {
 	t.Helper()
-	return startServerRaw(t, "", false, token)
+	base, _, cl := startServerFull(t, "", false, token)
+	return base, cl
 }
 
-// startServerRaw is the underlying helper for starting the server with full control.
-func startServerRaw(t *testing.T, configTOML string, authDisabled bool, authToken string) (baseURL string, cleanup func()) {
+// startServerFull is the underlying helper — returns base URL, registry dir, and cleanup.
+func startServerFull(t *testing.T, configTOML string, authDisabled bool, authToken string) (baseURL string, registryDir string, cleanup func()) {
 	t.Helper()
 
-	registryDir, err := os.MkdirTemp("", "valkyrie-registry-*")
+	var err error
+	registryDir, err = os.MkdirTemp("", "valkyrie-registry-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,19 +97,29 @@ func startServerRaw(t *testing.T, configTOML string, authDisabled bool, authToke
 	}
 
 	// Wait for server to be ready
-	for i := 0; i < 30; i++ {
+	ready := false
+	for i := 0; i < 50; i++ {
 		resp, err := http.Get(baseURL + "/health")
 		if err == nil && resp.StatusCode == 200 {
+			ready = true
 			break
 		}
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !ready {
+		cmd.Process.Kill()
+		os.RemoveAll(registryDir)
+		t.Fatalf("server on %s never became ready", addr)
 	}
 
-	return baseURL, func() {
+	cleanup = func() {
 		cmd.Process.Kill()
 		os.RemoveAll(registryDir)
 	}
+	return baseURL, registryDir, cleanup
 }
+
+
 
 // runBinary runs the binary with a config file and returns stdout+stderr and exit code.
 func runBinary(t *testing.T, configContent string, args ...string) (output string, exitCode int) {

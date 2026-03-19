@@ -31,6 +31,7 @@ var validTypes = map[string]bool{
 	"claude-api": true,
 	"claude-pro": true,
 	"docker":     true,
+	"mock":       true, // for testing only
 }
 
 func Load() (*Config, error) {
