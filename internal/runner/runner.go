@@ -15,8 +15,8 @@ type Runner interface {
 // New returns the appropriate Runner for the given agent config.
 func New(agent config.Agent) (Runner, error) {
 	switch agent.Type {
-	case "claude-pro":
-		return newClaudePro(agent), nil
+	case "claude-max":
+		return newClaudeMax(agent), nil
 	case "mock":
 		return newMock(agent), nil
 	case "claude-api":

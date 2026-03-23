@@ -5,14 +5,30 @@ import (
 	"os"
 
 	"github.com/chrishayen/valkyrie/config"
+	"github.com/chrishayen/valkyrie/internal/hydrator"
+	runepkg "github.com/chrishayen/valkyrie/internal/rune"
 	"github.com/spf13/cobra"
 )
 
-var cfg *config.Config
+var (
+	cfg   *config.Config
+	store *runepkg.Store
+	hyd   *hydrator.Hydrator
+)
 
 var rootCmd = &cobra.Command{
 	Use:   "valkyrie",
-	Short: "The rune server — agentic code orchestration",
+	Short: "Valkyrie — agentic code orchestration",
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		var err error
+		cfg, err = config.Load()
+		if err != nil {
+			return fmt.Errorf("config: %w", err)
+		}
+		store = runepkg.NewStore(cfg.RegistryPath)
+		hyd = hydrator.New(store)
+		return nil
+	},
 }
 
 func Execute() {
@@ -23,16 +39,5 @@ func Execute() {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
-	rootCmd.AddCommand(serveCmd)
-	rootCmd.AddCommand(mcpCmd)
-}
-
-func initConfig() {
-	var err error
-	cfg, err = config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
+	rootCmd.AddCommand(runesCmd)
 }

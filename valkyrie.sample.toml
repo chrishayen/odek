@@ -1,12 +1,11 @@
-# valkyrie.sample.toml
-# Copy to valkyrie.toml and configure.
-# export VALKYRIE_CONFIG=./valkyrie.toml
+# Valkyrie config
+# Copy to ~/.config/valkyrie/config.toml
 
 [auth]
 disabled = true  # set false (and add auth) before exposing to a network
 
-[agents.claude-pro]
-type = "claude-pro"
+[agents.claude-max]
+type = "claude-max"
 model = "claude-sonnet-4-5"
 # token = "sk-ant-oat01-..."  # from `claude setup-token` (or set CLAUDE_CODE_OAUTH_TOKEN env var)
 # image = "ghcr.io/chrishayen/valkyrie-claude:latest"  # default

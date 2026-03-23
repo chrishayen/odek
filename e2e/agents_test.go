@@ -1,12 +1,11 @@
 package e2e_test
 
 import (
-	"net/http"
 	"testing"
 )
 
-func TestClaudeAPIAgentStartsServer(t *testing.T) {
-	base, cleanup := startServer(t, `
+func TestClaudeAPIAgentConfigLoads(t *testing.T) {
+	dir, cleanup := testEnv(t, `
 [agents.my-api]
 type = "claude-api"
 model = "claude-sonnet-4-5"
@@ -14,37 +13,37 @@ api_key_env = "ANTHROPIC_API_KEY"
 `)
 	defer cleanup()
 
-	resp, err := http.Get(base + "/health")
-	if err != nil || resp.StatusCode != 200 {
-		t.Errorf("server did not start with claude-api config")
+	_, code := run(t, dir, "runes", "list")
+	if code != 0 {
+		t.Error("config with claude-api agent should load successfully")
 	}
 }
 
-func TestClaudeProAgentStartsServer(t *testing.T) {
-	base, cleanup := startServer(t, `
-[agents.pro]
-type = "claude-pro"
+func TestClaudeMaxAgentConfigLoads(t *testing.T) {
+	dir, cleanup := testEnv(t, `
+[agents.max]
+type = "claude-max"
 model = "claude-sonnet-4-5"
 token = "sk-ant-oat01-fake"
 `)
 	defer cleanup()
 
-	resp, err := http.Get(base + "/health")
-	if err != nil || resp.StatusCode != 200 {
-		t.Errorf("server did not start with claude-pro config")
+	_, code := run(t, dir, "runes", "list")
+	if code != 0 {
+		t.Error("config with claude-max agent should load successfully")
 	}
 }
 
-func TestDockerAgentStartsServer(t *testing.T) {
-	base, cleanup := startServer(t, `
+func TestDockerAgentConfigLoads(t *testing.T) {
+	dir, cleanup := testEnv(t, `
 [agents.local]
 type = "docker"
 image = "ubuntu:22.04"
 `)
 	defer cleanup()
 
-	resp, err := http.Get(base + "/health")
-	if err != nil || resp.StatusCode != 200 {
-		t.Errorf("server did not start with docker config")
+	_, code := run(t, dir, "runes", "list")
+	if code != 0 {
+		t.Error("config with docker agent should load successfully")
 	}
 }

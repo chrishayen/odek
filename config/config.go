@@ -3,10 +3,19 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/BurntSushi/toml"
 )
 
+// Dir returns the Valkyrie config directory (~/.config/valkyrie).
+func Dir() string {
+	if d := os.Getenv("VALKYRIE_CONFIG_DIR"); d != "" {
+		return d
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "valkyrie")
+}
 
 type Agent struct {
 	Type      string `toml:"type"`
@@ -29,25 +38,27 @@ type Config struct {
 
 var validTypes = map[string]bool{
 	"claude-api": true,
-	"claude-pro": true,
+	"claude-max": true,
 	"docker":     true,
 	"mock":       true, // for testing only
 }
 
 func Load() (*Config, error) {
-	path := os.Getenv("VALKYRIE_CONFIG")
-	if path == "" {
-		return nil, fmt.Errorf("VALKYRIE_CONFIG is not set")
-	}
+	dir := Dir()
+	path := filepath.Join(dir, "config.toml")
+
 	cfg := &Config{
-		RegistryPath: "./registry",
+		RegistryPath: filepath.Join(dir, "registry"),
 	}
 	if _, err := toml.DecodeFile(path, cfg); err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("config not found at %s — run 'valkyrie init' or create it manually", path)
+		}
 		return nil, fmt.Errorf("reading config %s: %w", path, err)
 	}
 	for name, agent := range cfg.Agents {
 		if !validTypes[agent.Type] {
-			return nil, fmt.Errorf("agent %q: unknown type %q (valid: claude-api, claude-pro, docker)", name, agent.Type)
+			return nil, fmt.Errorf("agent %q: unknown type %q (valid: claude-api, claude-max, docker)", name, agent.Type)
 		}
 	}
 	return cfg, nil

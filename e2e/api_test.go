@@ -1,185 +1,112 @@
 package e2e_test
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"net/http"
 	"strings"
 	"testing"
 )
 
-func apiPost(t *testing.T, url string, body any) *http.Response {
-	t.Helper()
-	b, _ := json.Marshal(body)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(b))
-	if err != nil {
-		t.Fatalf("POST %s: %v", url, err)
-	}
-	return resp
-}
-
-func apiGet(t *testing.T, url string) *http.Response {
-	t.Helper()
-	resp, err := http.Get(url)
-	if err != nil {
-		t.Fatalf("GET %s: %v", url, err)
-	}
-	return resp
-}
-
-func decodeBody(t *testing.T, resp *http.Response, v any) {
-	t.Helper()
-	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
-		t.Fatalf("decoding response: %v", err)
-	}
-}
-
-// --- Tests ---
-
-func TestAPIHealth(t *testing.T) {
-	base, cleanup := startServer(t, "")
+func TestCLICreateRune(t *testing.T) {
+	dir, cleanup := testEnv(t, "")
 	defer cleanup()
 
-	resp := apiGet(t, base+"/health")
-	if resp.StatusCode != 200 {
-		t.Errorf("expected 200, got %d", resp.StatusCode)
+	out, code := run(t, dir, "runes", "create", "--name", "user-auth", "--description", "Accepts a username and password")
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d: %s", code, out)
+	}
+	if !strings.Contains(out, "user-auth") {
+		t.Errorf("expected name in output, got: %s", out)
+	}
+	if !strings.Contains(out, "0.1.0") {
+		t.Errorf("expected default version, got: %s", out)
 	}
 }
 
-func TestAPICreateRune(t *testing.T) {
-	base, cleanup := startServer(t, "")
+func TestCLICreateRuneDuplicate(t *testing.T) {
+	dir, cleanup := testEnv(t, "")
 	defer cleanup()
 
-	resp := apiPost(t, base+"/runes", map[string]any{
-		"name":        "user-auth",
-		"description": "Accepts a username and password, validates credentials, returns a session token",
-	})
-	if resp.StatusCode != 201 {
-		t.Fatalf("expected 201, got %d", resp.StatusCode)
-	}
-
-	var rune map[string]any
-	decodeBody(t, resp, &rune)
-
-	if rune["name"] != "user-auth" {
-		t.Errorf("expected name=user-auth, got %v", rune["name"])
-	}
-	if rune["version"] != "0.1.0" {
-		t.Errorf("expected version=0.1.0, got %v", rune["version"])
+	run(t, dir, "runes", "create", "--name", "dup", "--description", "first")
+	_, code := run(t, dir, "runes", "create", "--name", "dup", "--description", "second")
+	if code == 0 {
+		t.Error("expected non-zero exit for duplicate rune")
 	}
 }
 
-func TestAPICreateRuneValidation(t *testing.T) {
-	base, cleanup := startServer(t, "")
+func TestCLIListRunes(t *testing.T) {
+	dir, cleanup := testEnv(t, "")
 	defer cleanup()
 
-	// missing description
-	resp := apiPost(t, base+"/runes", map[string]any{"name": "bad"})
-	if resp.StatusCode != 400 {
-		t.Errorf("expected 400 for missing description, got %d", resp.StatusCode)
-	}
+	run(t, dir, "runes", "create", "--name", "rune-a", "--description", "first")
+	run(t, dir, "runes", "create", "--name", "rune-b", "--description", "second")
 
-	// missing name
-	resp = apiPost(t, base+"/runes", map[string]any{"description": "no name"})
-	if resp.StatusCode != 400 {
-		t.Errorf("expected 400 for missing name, got %d", resp.StatusCode)
+	out, code := run(t, dir, "runes", "list")
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d: %s", code, out)
 	}
-
-	// duplicate
-	apiPost(t, base+"/runes", map[string]any{"name": "dup", "description": "first"})
-	resp = apiPost(t, base+"/runes", map[string]any{"name": "dup", "description": "second"})
-	if resp.StatusCode != 400 {
-		t.Errorf("expected 400 for duplicate, got %d", resp.StatusCode)
+	if !strings.Contains(out, "rune-a") || !strings.Contains(out, "rune-b") {
+		t.Errorf("expected both runes in output, got: %s", out)
 	}
 }
 
-func TestAPIListRunes(t *testing.T) {
-	base, cleanup := startServer(t, "")
+func TestCLIGetRune(t *testing.T) {
+	dir, cleanup := testEnv(t, "")
 	defer cleanup()
 
-	apiPost(t, base+"/runes", map[string]any{"name": "rune-a", "description": "first"})
-	apiPost(t, base+"/runes", map[string]any{"name": "rune-b", "description": "second"})
+	run(t, dir, "runes", "create", "--name", "my-rune", "--description", "test rune")
 
-	resp := apiGet(t, base+"/runes")
-	if resp.StatusCode != 200 {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	out, code := run(t, dir, "runes", "get", "my-rune")
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d: %s", code, out)
 	}
-	var runes []map[string]any
-	decodeBody(t, resp, &runes)
-	if len(runes) != 2 {
-		t.Errorf("expected 2 runes, got %d", len(runes))
+	if !strings.Contains(out, "my-rune") {
+		t.Errorf("expected rune name in output, got: %s", out)
 	}
 }
 
-func TestAPIGetRune(t *testing.T) {
-	base, cleanup := startServer(t, "")
+func TestCLIGetRuneNotFound(t *testing.T) {
+	dir, cleanup := testEnv(t, "")
 	defer cleanup()
 
-	apiPost(t, base+"/runes", map[string]any{"name": "my-rune", "description": "test rune"})
-
-	resp := apiGet(t, base+"/runes/my-rune")
-	if resp.StatusCode != 200 {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-	var rune map[string]any
-	decodeBody(t, resp, &rune)
-	if rune["name"] != "my-rune" {
-		t.Errorf("expected my-rune, got %v", rune["name"])
+	_, code := run(t, dir, "runes", "get", "does-not-exist")
+	if code == 0 {
+		t.Error("expected non-zero exit for missing rune")
 	}
 }
 
-func TestAPIGetRuneNotFound(t *testing.T) {
-	base, cleanup := startServer(t, "")
+func TestCLIUpdateRune(t *testing.T) {
+	dir, cleanup := testEnv(t, "")
 	defer cleanup()
 
-	resp := apiGet(t, base+"/runes/does-not-exist")
-	if resp.StatusCode != 404 {
-		t.Errorf("expected 404, got %d", resp.StatusCode)
+	run(t, dir, "runes", "create", "--name", "update-me", "--description", "original")
+
+	out, code := run(t, dir, "runes", "update", "update-me", "--description", "updated description", "--version", "0.2.0")
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d: %s", code, out)
+	}
+	if !strings.Contains(out, "updated description") {
+		t.Errorf("expected updated description in output, got: %s", out)
+	}
+	if !strings.Contains(out, "0.2.0") {
+		t.Errorf("expected updated version in output, got: %s", out)
 	}
 }
 
-
-
-func TestAPIDeleteRune(t *testing.T) {
-	base, cleanup := startServer(t, "")
+func TestCLIDeleteRune(t *testing.T) {
+	dir, cleanup := testEnv(t, "")
 	defer cleanup()
 
-	apiPost(t, base+"/runes", map[string]any{"name": "delete-me", "description": "gone soon"})
+	run(t, dir, "runes", "create", "--name", "delete-me", "--description", "gone soon")
 
-	req, _ := http.NewRequest(http.MethodDelete, base+"/runes/delete-me", nil)
-	resp, _ := http.DefaultClient.Do(req)
-	if resp.StatusCode != 204 {
-		t.Errorf("expected 204, got %d", resp.StatusCode)
+	out, code := run(t, dir, "runes", "delete", "delete-me")
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d: %s", code, out)
+	}
+	if !strings.Contains(out, "deleted") {
+		t.Errorf("expected deleted confirmation, got: %s", out)
 	}
 
-	resp = apiGet(t, base+"/runes/delete-me")
-	if resp.StatusCode != 404 {
-		t.Errorf("expected 404 after delete, got %d", resp.StatusCode)
-	}
-}
-
-func TestAPIUpdateRune(t *testing.T) {
-	base, cleanup := startServer(t, "")
-	defer cleanup()
-
-	apiPost(t, base+"/runes", map[string]any{"name": "update-me", "description": "original"})
-
-	body, _ := json.Marshal(map[string]any{
-		"name":        "update-me",
-		"description": "updated description",
-		"version":     "0.2.0",
-		"stage":       "draft",
-	})
-	req, _ := http.NewRequest(http.MethodPut, base+"/runes/update-me", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	resp, _ := http.DefaultClient.Do(req)
-	if resp.StatusCode != 200 {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-	var rune map[string]any
-	decodeBody(t, resp, &rune)
-	if !strings.Contains(fmt.Sprint(rune["description"]), "updated") {
-		t.Errorf("expected updated description, got %v", rune["description"])
+	_, code = run(t, dir, "runes", "get", "delete-me")
+	if code == 0 {
+		t.Error("expected non-zero exit after delete")
 	}
 }

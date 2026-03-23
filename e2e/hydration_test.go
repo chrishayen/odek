@@ -1,132 +1,44 @@
 package e2e_test
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
+	"strings"
 	"testing"
 )
 
-const helloWorldDescription = "Returns the string 'Hello, World!' when called"
-
-func startServerWithMock(t *testing.T) (baseURL string, registryDir string, cleanup func()) {
-	t.Helper()
-	return startServerFull(t, `
-[agents.mock]
-type = "mock"
-`, true, "")
-}
-
-func hydrateRune(t *testing.T, base, runeName, sandbox string) map[string]any {
-	t.Helper()
-	body, _ := json.Marshal(map[string]string{"sandbox": sandbox})
-	resp, err := http.Post(base+"/runes/"+runeName+"/hydrate", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("hydrate request failed: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		var errBody map[string]any
-		_ = json.NewDecoder(resp.Body).Decode(&errBody)
-		t.Fatalf("hydrate returned %d: %v", resp.StatusCode, errBody)
-	}
-	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatalf("decode hydrate result: %v", err)
-	}
-	return result
-}
-
-func createRune(t *testing.T, base, name string) {
-	t.Helper()
-	resp := apiPost(t, base+"/runes", map[string]any{
-		"name":        name,
-		"description": helloWorldDescription,
-	})
-	defer resp.Body.Close()
-	if resp.StatusCode != 201 {
-		var errBody map[string]any
-		_ = json.NewDecoder(resp.Body).Decode(&errBody)
-		t.Fatalf("create rune %q: expected 201, got %d: %v", name, resp.StatusCode, errBody)
-	}
-}
-
 func TestHydrateHelloWorld(t *testing.T) {
-	base, _, cleanup := startServerWithMock(t)
+	dir, cleanup := testEnv(t, "[agents.mock]\ntype = \"mock\"\n")
 	defer cleanup()
 
-	createRune(t, base, "hello-world-single")
-	result := hydrateRune(t, base, "hello-world-single", "mock")
+	run(t, dir, "runes", "create", "--name", "hello-world-single", "--description", "Returns the string Hello World when called")
 
-	if result["RuneName"] != "hello-world-single" && result["rune_name"] != "hello-world-single" {
-		t.Errorf("expected rune name in hydrate result, got %v", result)
+	out, code := run(t, dir, "runes", "hydrate", "hello-world-single", "--sandbox", "mock")
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d: %s", code, out)
 	}
-	if _, ok := result["Coverage"]; !ok {
-		if _, ok2 := result["coverage"]; !ok2 {
-			t.Errorf("expected coverage in hydrate result, got %v", result)
-		}
+	if !strings.Contains(out, "hello-world-single") {
+		t.Errorf("expected rune name in hydrate output, got: %s", out)
 	}
-
-	resp := apiGet(t, base+"/runes/hello-world-single")
-	defer resp.Body.Close()
-	var rune map[string]any
-	_ = json.NewDecoder(resp.Body).Decode(&rune)
-	if rune["hydrated"] != true {
-		t.Errorf("expected hydrated=true, got %v", rune["hydrated"])
-	}
-}
-
-func TestHydrateFourSessions(t *testing.T) {
-	type session struct {
-		base    string
-		cleanup func()
+	if !strings.Contains(out, "coverage") {
+		t.Errorf("expected coverage in hydrate output, got: %s", out)
 	}
 
-	sessions := make([]session, 4)
-	for i := range sessions {
-		base, _, cleanup := startServerWithMock(t)
-		sessions[i] = session{base: base, cleanup: cleanup}
-	}
-	defer func() {
-		for _, s := range sessions {
-			s.cleanup()
-		}
-	}()
-
-	for i, s := range sessions {
-		createRune(t, s.base, fmt.Sprintf("hello-world-%d", i+1))
-	}
-
-	var wg sync.WaitGroup
-	errCh := make(chan error, 4)
-	for i, s := range sessions {
-		wg.Add(1)
-		go func(idx int, base string) {
-			defer wg.Done()
-			result := hydrateRune(t, base, fmt.Sprintf("hello-world-%d", idx+1), "mock")
-			if result["RuneName"] == nil && result["rune_name"] == nil {
-				errCh <- fmt.Errorf("session %d: missing rune name in result", idx)
-			}
-		}(i, s.base)
-	}
-	wg.Wait()
-	close(errCh)
-	for err := range errCh {
-		t.Error(err)
+	// Verify rune is marked hydrated
+	out, _ = run(t, dir, "runes", "get", "hello-world-single")
+	if !strings.Contains(out, `"hydrated": true`) {
+		t.Errorf("expected hydrated=true, got: %s", out)
 	}
 }
 
 func TestHydrateGeneratesCodeFiles(t *testing.T) {
-	base, registryDir, cleanup := startServerWithMock(t)
+	dir, cleanup := testEnv(t, "[agents.mock]\ntype = \"mock\"\n")
 	defer cleanup()
 
-	createRune(t, base, "hello-world-files")
-	hydrateRune(t, base, "hello-world-files", "mock")
+	run(t, dir, "runes", "create", "--name", "hello-world-files", "--description", "Returns Hello World")
+	run(t, dir, "runes", "hydrate", "hello-world-files", "--sandbox", "mock")
 
+	registryDir := filepath.Join(dir, "registry")
 	codeDir := filepath.Join(registryDir, "runes", "hello-world-files")
 	entries, err := os.ReadDir(codeDir)
 	if err != nil {
@@ -138,17 +50,40 @@ func TestHydrateGeneratesCodeFiles(t *testing.T) {
 }
 
 func TestHydrateCoverageTracked(t *testing.T) {
-	base, _, cleanup := startServerWithMock(t)
+	dir, cleanup := testEnv(t, "[agents.mock]\ntype = \"mock\"\n")
 	defer cleanup()
 
-	createRune(t, base, "hello-world-coverage")
-	hydrateRune(t, base, "hello-world-coverage", "mock")
+	run(t, dir, "runes", "create", "--name", "hello-world-coverage", "--description", "Returns Hello World")
+	run(t, dir, "runes", "hydrate", "hello-world-coverage", "--sandbox", "mock")
 
-	resp := apiGet(t, base+"/runes/hello-world-coverage")
-	defer resp.Body.Close()
-	var rune map[string]any
-	_ = json.NewDecoder(resp.Body).Decode(&rune)
-	if _, ok := rune["coverage"]; !ok {
-		t.Errorf("expected coverage field on rune, got %v", rune)
+	out, _ := run(t, dir, "runes", "get", "hello-world-coverage")
+	if !strings.Contains(out, "coverage") {
+		t.Errorf("expected coverage field on rune, got: %s", out)
+	}
+}
+
+func TestHydrateDefaultSandbox(t *testing.T) {
+	dir, cleanup := testEnv(t, "[agents.mock]\ntype = \"mock\"\n")
+	defer cleanup()
+
+	run(t, dir, "runes", "create", "--name", "hello-default", "--description", "Returns Hello World")
+
+	out, code := run(t, dir, "runes", "hydrate", "hello-default")
+	if code != 0 {
+		t.Fatalf("expected exit 0 without --sandbox, got %d: %s", code, out)
+	}
+	if !strings.Contains(out, "hello-default") {
+		t.Errorf("expected rune name in output, got: %s", out)
+	}
+}
+
+func TestHydrateMissingSandbox(t *testing.T) {
+	dir, cleanup := testEnv(t, "")
+	defer cleanup()
+
+	run(t, dir, "runes", "create", "--name", "no-sandbox", "--description", "test")
+	_, code := run(t, dir, "runes", "hydrate", "no-sandbox", "--sandbox", "nonexistent")
+	if code == 0 {
+		t.Error("expected non-zero exit for missing sandbox")
 	}
 }

@@ -12,19 +12,19 @@ import (
 
 const defaultClaudeImage = "ghcr.io/chrishayen/valkyrie-claude:latest"
 
-type claudeProRunner struct {
+type claudeMaxRunner struct {
 	agent config.Agent
 }
 
-func newClaudePro(agent config.Agent) *claudeProRunner {
-	return &claudeProRunner{agent: agent}
+func newClaudeMax(agent config.Agent) *claudeMaxRunner {
+	return &claudeMaxRunner{agent: agent}
 }
 
 // resolveToken returns the OAuth token using this precedence:
 // 1. token field in config (literal value)
 // 2. token_env field in config (named env var)
 // 3. CLAUDE_CODE_OAUTH_TOKEN env var (default)
-func (r *claudeProRunner) resolveToken() string {
+func (r *claudeMaxRunner) resolveToken() string {
 	if r.agent.Token != "" {
 		return r.agent.Token
 	}
@@ -35,7 +35,7 @@ func (r *claudeProRunner) resolveToken() string {
 	return os.Getenv(envVar)
 }
 
-func (r *claudeProRunner) image() string {
+func (r *claudeMaxRunner) image() string {
 	if r.agent.Image != "" {
 		return r.agent.Image
 	}
@@ -43,9 +43,9 @@ func (r *claudeProRunner) image() string {
 }
 
 // Validate checks that Docker is available and a token is resolvable.
-func (r *claudeProRunner) Validate() error {
+func (r *claudeMaxRunner) Validate() error {
 	if _, err := exec.LookPath("docker"); err != nil {
-		return fmt.Errorf("docker not found in PATH — install Docker to use claude-pro sandbox")
+		return fmt.Errorf("docker not found in PATH — install Docker to use claude-max sandbox")
 	}
 	if r.resolveToken() == "" {
 		return fmt.Errorf("no token configured — set token in config or export CLAUDE_CODE_OAUTH_TOKEN (run: claude setup-token)")
@@ -54,7 +54,7 @@ func (r *claudeProRunner) Validate() error {
 }
 
 // Run executes the task inside a Docker container with the claude CLI.
-func (r *claudeProRunner) Run(ctx context.Context, task string) (string, error) {
+func (r *claudeMaxRunner) Run(ctx context.Context, task string) (string, error) {
 	if err := r.Validate(); err != nil {
 		return "", err
 	}
