@@ -1,9 +1,13 @@
 package cmd
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 
+	"github.com/chrishayen/valkyrie/internal/analyzer"
 	runepkg "github.com/chrishayen/valkyrie/internal/rune"
 	"github.com/chrishayen/valkyrie/internal/runner"
 	"github.com/spf13/cobra"
@@ -114,34 +118,92 @@ var runesHydrateCmd = &cobra.Command{
 	Short: "Hydrate a rune (generate code via sandbox agent)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		sandbox, _ := cmd.Flags().GetString("sandbox")
-
-		if sandbox == "" {
-			if len(cfg.Agents) == 0 {
-				return fmt.Errorf("no agents configured — add an agent to your config")
-			}
-			for name := range cfg.Agents {
-				sandbox = name
-				break
-			}
-		}
-
-		agent, ok := cfg.Agents[sandbox]
-		if !ok {
-			return fmt.Errorf("sandbox %q not found in config", sandbox)
-		}
-
-		run, err := runner.New(agent)
+		run, err := runner.New(cfg.Agent)
 		if err != nil {
 			return err
 		}
 
-		result, err := hyd.Hydrate(cmd.Context(), args[0], run)
+		result, err := hyd.Hydrate(cmd.Context(), args[0], run, os.Stderr)
 		if err != nil {
 			return err
 		}
 		return printJSON(result)
 	},
+}
+
+var runesAnalyzeCmd = &cobra.Command{
+	Use:   "analyze",
+	Short: "Decompose requirements into runes via sandbox agent",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		requirements, _ := cmd.Flags().GetString("requirements")
+		yes, _ := cmd.Flags().GetBool("yes")
+
+		run, err := runner.New(cfg.Agent)
+		if err != nil {
+			return err
+		}
+
+		result, err := ana.Analyze(cmd.Context(), requirements, run, os.Stderr)
+		if err != nil {
+			return err
+		}
+
+		printAnalysis(result)
+
+		if len(result.NewRunes) == 0 {
+			fmt.Println("\nNo new runes to create.")
+			return nil
+		}
+
+		if !yes {
+			fmt.Print("\nCreate these runes? [y/N] ")
+			reader := bufio.NewReader(os.Stdin)
+			answer, _ := reader.ReadString('\n')
+			answer = strings.TrimSpace(strings.ToLower(answer))
+			if answer != "y" && answer != "yes" {
+				fmt.Println("Aborted.")
+				return nil
+			}
+		}
+
+		for _, p := range result.NewRunes {
+			r := p.ToRune()
+			if err := store.Create(r); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to create rune %q: %v\n", p.Name, err)
+				continue
+			}
+			fmt.Printf("created rune %q\n", p.Name)
+		}
+
+		return nil
+	},
+}
+
+func printAnalysis(r *analyzer.Result) {
+	if len(r.NewRunes) > 0 {
+		fmt.Println("=== New runes ===")
+		for _, p := range r.NewRunes {
+			fmt.Printf("\n  %s\n", p.Name)
+			fmt.Printf("    %s\n", p.Description)
+			fmt.Printf("    Behavior: %s\n", p.Behavior)
+			for _, t := range p.PositiveTests {
+				fmt.Printf("    + %s\n", t)
+			}
+			for _, t := range p.NegativeTests {
+				fmt.Printf("    - %s\n", t)
+			}
+		}
+		fmt.Println()
+	}
+
+	if len(r.ExistingRunes) > 0 {
+		fmt.Println("=== Existing runes ===")
+		for _, e := range r.ExistingRunes {
+			fmt.Printf("\n  %s\n", e.Name)
+			fmt.Printf("    Covers: %s\n", e.Covers)
+		}
+		fmt.Println()
+	}
 }
 
 func init() {
@@ -151,6 +213,7 @@ func init() {
 	runesCmd.AddCommand(runesUpdateCmd)
 	runesCmd.AddCommand(runesDeleteCmd)
 	runesCmd.AddCommand(runesHydrateCmd)
+	runesCmd.AddCommand(runesAnalyzeCmd)
 
 	runesCreateCmd.Flags().String("name", "", "Rune name (slug)")
 	runesCreateCmd.Flags().String("description", "", "Rune description")
@@ -160,7 +223,9 @@ func init() {
 	runesUpdateCmd.Flags().String("description", "", "New description")
 	runesUpdateCmd.Flags().String("version", "", "New version")
 
-	runesHydrateCmd.Flags().String("sandbox", "", "Sandbox agent name from config (defaults to first agent)")
+	runesAnalyzeCmd.Flags().String("requirements", "", "Plain-text requirements to decompose")
+	runesAnalyzeCmd.Flags().Bool("yes", false, "Auto-approve rune creation without prompting")
+	_ = runesAnalyzeCmd.MarkFlagRequired("requirements")
 }
 
 func printJSON(v any) error {

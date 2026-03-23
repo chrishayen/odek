@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,58 +9,96 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Dir returns the Valkyrie config directory (~/.config/valkyrie).
-func Dir() string {
-	if d := os.Getenv("VALKYRIE_CONFIG_DIR"); d != "" {
-		return d
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "valkyrie")
-}
-
 type Agent struct {
-	Type      string `toml:"type"`
-	Model     string `toml:"model,omitempty"`
-	APIKeyEnv string `toml:"api_key_env,omitempty"`
-	Image     string `toml:"image,omitempty"`
-	Token     string `toml:"token,omitempty"`
-	TokenEnv  string `toml:"token_env,omitempty"`
-}
-
-type Auth struct {
-	Disabled bool `toml:"disabled"` // set true to acknowledge no auth (local use)
+	Type     string `toml:"type"`
+	Model    string `toml:"model,omitempty"`
+	Image    string `toml:"image,omitempty"`
+	Token    string `toml:"token,omitempty"`
+	TokenEnv string `toml:"token_env,omitempty"`
 }
 
 type Config struct {
-	RegistryPath string           `toml:"registry_path"`
-	Auth         Auth             `toml:"auth"`
-	Agents       map[string]Agent `toml:"agents"`
+	Project      string `toml:"project"`
+	RegistryPath string `toml:"registry_path"`
+	Agent        Agent  `toml:"agent"`
 }
 
 var validTypes = map[string]bool{
-	"claude-api": true,
-	"claude-max": true,
-	"docker":     true,
+	"claude-sub": true,
 	"mock":       true, // for testing only
 }
 
-func Load() (*Config, error) {
-	dir := Dir()
-	path := filepath.Join(dir, "config.toml")
+// FindRoot walks up from cwd (or VALKYRIE_PROJECT_DIR) looking for valkyrie.toml.
+func FindRoot() (string, error) {
+	start := os.Getenv("VALKYRIE_PROJECT_DIR")
+	if start == "" {
+		var err error
+		start, err = os.Getwd()
+		if err != nil {
+			return "", err
+		}
+	}
 
+	dir := start
+	for {
+		path := filepath.Join(dir, "valkyrie.toml")
+		if _, err := os.Stat(path); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("valkyrie.toml not found — run 'valkyrie init' to create a project")
+		}
+		dir = parent
+	}
+}
+
+func Load() (*Config, error) {
+	root, err := FindRoot()
+	if err != nil {
+		return nil, err
+	}
+
+	path := filepath.Join(root, "valkyrie.toml")
 	cfg := &Config{
-		RegistryPath: filepath.Join(dir, "registry"),
+		RegistryPath: filepath.Join(root, "runes"),
+		Agent: Agent{
+			Type: "claude-sub",
+		},
 	}
 	if _, err := toml.DecodeFile(path, cfg); err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("config not found at %s — run 'valkyrie init' or create it manually", path)
-		}
 		return nil, fmt.Errorf("reading config %s: %w", path, err)
 	}
-	for name, agent := range cfg.Agents {
-		if !validTypes[agent.Type] {
-			return nil, fmt.Errorf("agent %q: unknown type %q (valid: claude-api, claude-max, docker)", name, agent.Type)
-		}
+
+	if cfg.Project == "" {
+		return nil, fmt.Errorf("project name is required in %s", path)
 	}
+
+	if !validTypes[cfg.Agent.Type] {
+		return nil, fmt.Errorf("agent: unknown type %q (valid: claude-sub)", cfg.Agent.Type)
+	}
+
 	return cfg, nil
+}
+
+// ClaudeToken reads the OAuth access token from ~/.claude/.credentials.json.
+// Returns empty string if the file doesn't exist or can't be parsed.
+func ClaudeToken() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
+	if err != nil {
+		return ""
+	}
+	var creds struct {
+		ClaudeAiOauth struct {
+			AccessToken string `json:"accessToken"`
+		} `json:"claudeAiOauth"`
+	}
+	if json.Unmarshal(data, &creds) != nil {
+		return ""
+	}
+	return creds.ClaudeAiOauth.AccessToken
 }

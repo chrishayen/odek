@@ -26,36 +26,41 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// testEnv creates an isolated config dir with config.toml and returns the dir
-// path and a cleanup function. The registry lives inside the config dir.
-func testEnv(t *testing.T, extraTOML string) (configDir string, cleanup func()) {
+// testEnv creates an isolated project dir with valkyrie.toml and returns the dir
+// path and a cleanup function. The registry lives inside the project dir.
+func testEnv(t *testing.T, extraTOML string) (projectDir string, cleanup func()) {
 	t.Helper()
 
-	configDir, err := os.MkdirTemp("", "valkyrie-env-*")
+	projectDir, err := os.MkdirTemp("", "valkyrie-env-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	registryDir := filepath.Join(configDir, "registry")
-	if err := os.MkdirAll(registryDir, 0755); err != nil {
+	runesDir := filepath.Join(projectDir, "runes")
+	if err := os.MkdirAll(runesDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	toml := "registry_path = " + quote(registryDir) + "\n\n[auth]\ndisabled = true\n\n" + extraTOML
-	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(toml), 0644); err != nil {
+	agentTOML := extraTOML
+	if agentTOML == "" {
+		agentTOML = "[agent]\ntype = \"mock\"\n"
+	}
+	toml := "project = \"test-project\"\n\n" + agentTOML
+	if err := os.WriteFile(filepath.Join(projectDir, "valkyrie.toml"), []byte(toml), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	cleanup = func() { os.RemoveAll(configDir) }
-	return configDir, cleanup
+	cleanup = func() { os.RemoveAll(projectDir) }
+	return projectDir, cleanup
 }
 
-// run executes the valkyrie binary with the given config dir and args.
+// run executes the valkyrie binary with the given project dir and args.
 // Returns combined output and exit code.
-func run(t *testing.T, configDir string, args ...string) (output string, exitCode int) {
+func run(t *testing.T, projectDir string, args ...string) (output string, exitCode int) {
 	t.Helper()
 	cmd := exec.Command(binaryPath, args...)
-	cmd.Env = append(os.Environ(), "VALKYRIE_CONFIG_DIR="+configDir)
+	cmd.Dir = projectDir
+	cmd.Env = append(os.Environ(), "VALKYRIE_PROJECT_DIR="+projectDir)
 	out, err := cmd.CombinedOutput()
 	output = strings.TrimSpace(string(out))
 	if err != nil {
@@ -64,8 +69,4 @@ func run(t *testing.T, configDir string, args ...string) (output string, exitCod
 		}
 	}
 	return output, 0
-}
-
-func quote(s string) string {
-	return `"` + s + `"`
 }

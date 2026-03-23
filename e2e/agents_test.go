@@ -4,25 +4,10 @@ import (
 	"testing"
 )
 
-func TestClaudeAPIAgentConfigLoads(t *testing.T) {
+func TestClaudeSubAgentConfigLoads(t *testing.T) {
 	dir, cleanup := testEnv(t, `
-[agents.my-api]
-type = "claude-api"
-model = "claude-sonnet-4-5"
-api_key_env = "ANTHROPIC_API_KEY"
-`)
-	defer cleanup()
-
-	_, code := run(t, dir, "runes", "list")
-	if code != 0 {
-		t.Error("config with claude-api agent should load successfully")
-	}
-}
-
-func TestClaudeMaxAgentConfigLoads(t *testing.T) {
-	dir, cleanup := testEnv(t, `
-[agents.max]
-type = "claude-max"
+[agent]
+type = "claude-sub"
 model = "claude-sonnet-4-5"
 token = "sk-ant-oat01-fake"
 `)
@@ -30,20 +15,33 @@ token = "sk-ant-oat01-fake"
 
 	_, code := run(t, dir, "runes", "list")
 	if code != 0 {
-		t.Error("config with claude-max agent should load successfully")
+		t.Error("config with claude-sub agent should load successfully")
 	}
 }
 
-func TestDockerAgentConfigLoads(t *testing.T) {
+func TestMockAgentConfigLoads(t *testing.T) {
 	dir, cleanup := testEnv(t, `
-[agents.local]
-type = "docker"
-image = "ubuntu:22.04"
+[agent]
+type = "mock"
 `)
 	defer cleanup()
 
 	_, code := run(t, dir, "runes", "list")
 	if code != 0 {
-		t.Error("config with docker agent should load successfully")
+		t.Error("config with mock agent should load successfully")
+	}
+}
+
+func TestDefaultAgentType(t *testing.T) {
+	// No [agent] section — should default to claude-sub
+	dir, cleanup := testEnv(t, `
+[agent]
+token = "sk-ant-oat01-fake"
+`)
+	defer cleanup()
+
+	_, code := run(t, dir, "runes", "list")
+	if code != 0 {
+		t.Error("config without explicit agent type should default to claude-sub")
 	}
 }

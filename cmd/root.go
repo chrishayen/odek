@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/chrishayen/valkyrie/config"
+	"github.com/chrishayen/valkyrie/internal/analyzer"
 	"github.com/chrishayen/valkyrie/internal/hydrator"
 	runepkg "github.com/chrishayen/valkyrie/internal/rune"
 	"github.com/spf13/cobra"
@@ -14,12 +15,18 @@ var (
 	cfg   *config.Config
 	store *runepkg.Store
 	hyd   *hydrator.Hydrator
+	ana   *analyzer.Analyzer
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "valkyrie",
 	Short: "Valkyrie — agentic code orchestration",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Skip config loading for init — config doesn't exist yet
+		if cmd.Name() == "init" {
+			return nil
+		}
+
 		var err error
 		cfg, err = config.Load()
 		if err != nil {
@@ -27,6 +34,7 @@ var rootCmd = &cobra.Command{
 		}
 		store = runepkg.NewStore(cfg.RegistryPath)
 		hyd = hydrator.New(store)
+		ana = analyzer.New(store)
 		return nil
 	},
 }
@@ -40,4 +48,6 @@ func Execute() {
 
 func init() {
 	rootCmd.AddCommand(runesCmd)
+	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(mcpCmd)
 }

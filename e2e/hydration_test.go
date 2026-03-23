@@ -8,12 +8,12 @@ import (
 )
 
 func TestHydrateHelloWorld(t *testing.T) {
-	dir, cleanup := testEnv(t, "[agents.mock]\ntype = \"mock\"\n")
+	dir, cleanup := testEnv(t, "[agent]\ntype = \"mock\"\n")
 	defer cleanup()
 
 	run(t, dir, "runes", "create", "--name", "hello-world-single", "--description", "Returns the string Hello World when called")
 
-	out, code := run(t, dir, "runes", "hydrate", "hello-world-single", "--sandbox", "mock")
+	out, code := run(t, dir, "runes", "hydrate", "hello-world-single")
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d: %s", code, out)
 	}
@@ -32,14 +32,13 @@ func TestHydrateHelloWorld(t *testing.T) {
 }
 
 func TestHydrateGeneratesCodeFiles(t *testing.T) {
-	dir, cleanup := testEnv(t, "[agents.mock]\ntype = \"mock\"\n")
+	dir, cleanup := testEnv(t, "[agent]\ntype = \"mock\"\n")
 	defer cleanup()
 
 	run(t, dir, "runes", "create", "--name", "hello-world-files", "--description", "Returns Hello World")
-	run(t, dir, "runes", "hydrate", "hello-world-files", "--sandbox", "mock")
+	run(t, dir, "runes", "hydrate", "hello-world-files")
 
-	registryDir := filepath.Join(dir, "registry")
-	codeDir := filepath.Join(registryDir, "runes", "hello-world-files")
+	codeDir := filepath.Join(dir, "runes", "hello-world-files")
 	entries, err := os.ReadDir(codeDir)
 	if err != nil {
 		t.Fatalf("code dir not created: %v", err)
@@ -50,11 +49,11 @@ func TestHydrateGeneratesCodeFiles(t *testing.T) {
 }
 
 func TestHydrateCoverageTracked(t *testing.T) {
-	dir, cleanup := testEnv(t, "[agents.mock]\ntype = \"mock\"\n")
+	dir, cleanup := testEnv(t, "[agent]\ntype = \"mock\"\n")
 	defer cleanup()
 
 	run(t, dir, "runes", "create", "--name", "hello-world-coverage", "--description", "Returns Hello World")
-	run(t, dir, "runes", "hydrate", "hello-world-coverage", "--sandbox", "mock")
+	run(t, dir, "runes", "hydrate", "hello-world-coverage")
 
 	out, _ := run(t, dir, "runes", "get", "hello-world-coverage")
 	if !strings.Contains(out, "coverage") {
@@ -62,28 +61,17 @@ func TestHydrateCoverageTracked(t *testing.T) {
 	}
 }
 
-func TestHydrateDefaultSandbox(t *testing.T) {
-	dir, cleanup := testEnv(t, "[agents.mock]\ntype = \"mock\"\n")
+func TestHydrateDefaultAgent(t *testing.T) {
+	dir, cleanup := testEnv(t, "[agent]\ntype = \"mock\"\n")
 	defer cleanup()
 
 	run(t, dir, "runes", "create", "--name", "hello-default", "--description", "Returns Hello World")
 
 	out, code := run(t, dir, "runes", "hydrate", "hello-default")
 	if code != 0 {
-		t.Fatalf("expected exit 0 without --sandbox, got %d: %s", code, out)
+		t.Fatalf("expected exit 0, got %d: %s", code, out)
 	}
 	if !strings.Contains(out, "hello-default") {
 		t.Errorf("expected rune name in output, got: %s", out)
-	}
-}
-
-func TestHydrateMissingSandbox(t *testing.T) {
-	dir, cleanup := testEnv(t, "")
-	defer cleanup()
-
-	run(t, dir, "runes", "create", "--name", "no-sandbox", "--description", "test")
-	_, code := run(t, dir, "runes", "hydrate", "no-sandbox", "--sandbox", "nonexistent")
-	if code == 0 {
-		t.Error("expected non-zero exit for missing sandbox")
 	}
 }

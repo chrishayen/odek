@@ -3,6 +3,7 @@ package hydrator
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,7 +34,8 @@ func New(store *runepkg.Store) *Hydrator {
 }
 
 // Hydrate generates code for the named rune using the given runner, stores it, runs tests.
-func (h *Hydrator) Hydrate(ctx context.Context, name string, r runner.Runner) (*Result, error) {
+// If logOut is non-nil, sandbox output is streamed to it in real time.
+func (h *Hydrator) Hydrate(ctx context.Context, name string, r runner.Runner, logOut io.Writer) (*Result, error) {
 	rune, err := h.store.Get(name)
 	if err != nil {
 		return nil, err
@@ -49,7 +51,7 @@ func (h *Hydrator) Hydrate(ctx context.Context, name string, r runner.Runner) (*
 	}
 
 	// Run the sandbox agent
-	output, err := r.Run(ctx, prompt)
+	output, err := r.Run(ctx, prompt, logOut)
 	if err != nil {
 		return nil, fmt.Errorf("sandbox run failed: %w", err)
 	}

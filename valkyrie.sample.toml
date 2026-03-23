@@ -1,20 +1,12 @@
-# Valkyrie config
-# Copy to ~/.config/valkyrie/config.toml
+# Valkyrie project config
+# Run `valkyrie init` to generate this file, or copy and edit manually.
 
-[auth]
-disabled = true  # set false (and add auth) before exposing to a network
+project = "myapp"
 
-[agents.claude-max]
-type = "claude-max"
-model = "claude-sonnet-4-5"
-# token = "sk-ant-oat01-..."  # from `claude setup-token` (or set CLAUDE_CODE_OAUTH_TOKEN env var)
+[agent]
+type = "claude-sub"
+# model = "claude-sonnet-4-5"
+# token = "sk-ant-oat01-..."       # explicit token (optional)
+# token_env = "MY_TOKEN_VAR"       # env var name (optional)
 # image = "ghcr.io/chrishayen/valkyrie-claude:latest"  # default
-
-[agents.claude-api]
-type = "claude-api"
-model = "claude-sonnet-4-5"
-api_key_env = "ANTHROPIC_API_KEY"
-
-[agents.docker]
-type = "docker"
-image = "ubuntu:22.04"
+# By default, token is parsed from ~/.claude/.credentials.json
