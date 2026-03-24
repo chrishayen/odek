@@ -9,7 +9,7 @@ func TestCLICreateRune(t *testing.T) {
 	dir, cleanup := testEnv(t, "")
 	defer cleanup()
 
-	out, code := run(t, dir, "runes", "create", "--name", "user-auth", "--description", "Accepts a username and password")
+	out, code := run(t, dir, "runes", "create", "--name", "user-auth", "--description", "Accepts a username and password", "--signature", "(username: string, password: string) -> result[bool, string]")
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d: %s", code, out)
 	}
@@ -25,8 +25,8 @@ func TestCLICreateRuneDuplicate(t *testing.T) {
 	dir, cleanup := testEnv(t, "")
 	defer cleanup()
 
-	run(t, dir, "runes", "create", "--name", "dup", "--description", "first")
-	_, code := run(t, dir, "runes", "create", "--name", "dup", "--description", "second")
+	run(t, dir, "runes", "create", "--name", "dup", "--description", "first", "--signature", "(x: i32) -> bool")
+	_, code := run(t, dir, "runes", "create", "--name", "dup", "--description", "second", "--signature", "(x: i32) -> bool")
 	if code == 0 {
 		t.Error("expected non-zero exit for duplicate rune")
 	}
@@ -36,8 +36,8 @@ func TestCLIListRunes(t *testing.T) {
 	dir, cleanup := testEnv(t, "")
 	defer cleanup()
 
-	run(t, dir, "runes", "create", "--name", "rune-a", "--description", "first")
-	run(t, dir, "runes", "create", "--name", "rune-b", "--description", "second")
+	run(t, dir, "runes", "create", "--name", "rune-a", "--description", "first", "--signature", "(x: i32) -> bool")
+	run(t, dir, "runes", "create", "--name", "rune-b", "--description", "second", "--signature", "(y: string) -> i64")
 
 	out, code := run(t, dir, "runes", "list")
 	if code != 0 {
@@ -52,7 +52,7 @@ func TestCLIGetRune(t *testing.T) {
 	dir, cleanup := testEnv(t, "")
 	defer cleanup()
 
-	run(t, dir, "runes", "create", "--name", "my-rune", "--description", "test rune")
+	run(t, dir, "runes", "create", "--name", "my-rune", "--description", "test rune", "--signature", "(x: i32) -> bool")
 
 	out, code := run(t, dir, "runes", "get", "my-rune")
 	if code != 0 {
@@ -77,7 +77,7 @@ func TestCLIUpdateRune(t *testing.T) {
 	dir, cleanup := testEnv(t, "")
 	defer cleanup()
 
-	run(t, dir, "runes", "create", "--name", "update-me", "--description", "original")
+	run(t, dir, "runes", "create", "--name", "update-me", "--description", "original", "--signature", "(x: i32) -> bool")
 
 	out, code := run(t, dir, "runes", "update", "update-me", "--description", "updated description", "--version", "0.2.0")
 	if code != 0 {
@@ -95,7 +95,7 @@ func TestCLIDeleteRune(t *testing.T) {
 	dir, cleanup := testEnv(t, "")
 	defer cleanup()
 
-	run(t, dir, "runes", "create", "--name", "delete-me", "--description", "gone soon")
+	run(t, dir, "runes", "create", "--name", "delete-me", "--description", "gone soon", "--signature", "(x: i32) -> bool")
 
 	out, code := run(t, dir, "runes", "delete", "delete-me")
 	if code != 0 {

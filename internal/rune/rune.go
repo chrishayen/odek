@@ -12,6 +12,7 @@ import (
 type Rune struct {
 	Name          string   `json:"name"                    yaml:"-"`
 	Description   string   `json:"description"             yaml:"-"`
+	Signature     string   `json:"signature"               yaml:"-"`
 	Behavior      string   `json:"behavior,omitempty"       yaml:"-"`
 	PositiveTests []string `json:"positive_tests,omitempty" yaml:"-"`
 	NegativeTests []string `json:"negative_tests,omitempty" yaml:"-"`
@@ -134,6 +135,9 @@ func validate(r Rune) error {
 	if r.Description == "" {
 		return fmt.Errorf("description is required")
 	}
+	if r.Signature == "" {
+		return fmt.Errorf("signature is required")
+	}
 	return nil
 }
 
@@ -154,6 +158,11 @@ func write(path string, r Rune) error {
 
 	// Title and description
 	fmt.Fprintf(f, "\n# %s\n\n%s\n", r.Name, r.Description)
+
+	// Signature
+	if r.Signature != "" {
+		fmt.Fprintf(f, "\n## Signature\n\n%s\n", r.Signature)
+	}
 
 	// Behavior
 	if r.Behavior != "" {
@@ -207,6 +216,8 @@ func parse(content string) (*Rune, error) {
 			if text != "" && r.Description == "" {
 				r.Description = text
 			}
+		case "signature":
+			r.Signature = text
 		case "behavior":
 			r.Behavior = text
 		case "positive tests":

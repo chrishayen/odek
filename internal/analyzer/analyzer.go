@@ -19,6 +19,7 @@ var Instructions string
 type ProposedRune struct {
 	Name          string   `json:"name"`
 	Description   string   `json:"description"`
+	Signature     string   `json:"signature"`
 	Behavior      string   `json:"behavior"`
 	PositiveTests []string `json:"positive_tests"`
 	NegativeTests []string `json:"negative_tests"`
@@ -70,6 +71,7 @@ func (p ProposedRune) ToRune() runepkg.Rune {
 	return runepkg.Rune{
 		Name:          p.Name,
 		Description:   p.Description,
+		Signature:     p.Signature,
 		Behavior:      p.Behavior,
 		PositiveTests: p.PositiveTests,
 		NegativeTests: p.NegativeTests,
@@ -106,6 +108,7 @@ Respond with ONLY a JSON object matching this exact structure. No markdown, no e
     {
       "name": "feature/verb-noun-slug",
       "description": "One or two sentences: what the function does, accepts, and returns.",
+      "signature": "(param: type, param: type) -> return_type",
       "behavior": "- Input: description of inputs and types\n- Output: description of output and type\n- Edge case details\n- Constraint details",
       "positive_tests": ["Given X, returns Y", "Given A, returns B"],
       "negative_tests": ["Given invalid X, throws error", "Given null, returns error"]
@@ -122,6 +125,7 @@ Respond with ONLY a JSON object matching this exact structure. No markdown, no e
 
 CRITICAL RULES for field separation:
 - "description" is ONLY a 1-2 sentence summary. Nothing else.
+- "signature" is the function signature with precise types. Use result[T, E] for functions that can fail.
 - "behavior" is ONLY inputs, outputs, edge cases, and constraints. DO NOT put test cases in behavior.
 - "positive_tests" is a separate array of passing test cases. NEVER put these in behavior.
 - "negative_tests" is a separate array of failure/error test cases. NEVER put these in behavior.

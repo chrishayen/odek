@@ -39,10 +39,12 @@ var runesCreateCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		description, _ := cmd.Flags().GetString("description")
+		signature, _ := cmd.Flags().GetString("signature")
 
 		r := runepkg.Rune{
 			Name:        name,
 			Description: description,
+			Signature:   signature,
 		}
 		if err := store.Create(r); err != nil {
 			return err
@@ -81,12 +83,15 @@ var runesUpdateCmd = &cobra.Command{
 		if cmd.Flags().Changed("description") {
 			r.Description, _ = cmd.Flags().GetString("description")
 		}
+		if cmd.Flags().Changed("signature") {
+			r.Signature, _ = cmd.Flags().GetString("signature")
+		}
 		if cmd.Flags().Changed("version") {
 			r.Version, _ = cmd.Flags().GetString("version")
 		}
 
-		if !cmd.Flags().Changed("description") && !cmd.Flags().Changed("version") {
-			return fmt.Errorf("at least one of --description or --version is required")
+		if !cmd.Flags().Changed("description") && !cmd.Flags().Changed("signature") && !cmd.Flags().Changed("version") {
+			return fmt.Errorf("at least one of --description, --signature, or --version is required")
 		}
 
 		if err := store.Update(*r); err != nil {
@@ -185,6 +190,7 @@ func printAnalysis(r *analyzer.Result) {
 		for _, p := range r.NewRunes {
 			fmt.Printf("\n  %s\n", p.Name)
 			fmt.Printf("    %s\n", p.Description)
+			fmt.Printf("    Signature: %s\n", p.Signature)
 			fmt.Printf("    Behavior: %s\n", p.Behavior)
 			for _, t := range p.PositiveTests {
 				fmt.Printf("    + %s\n", t)
@@ -217,10 +223,13 @@ func init() {
 
 	runesCreateCmd.Flags().String("name", "", "Rune name (slug)")
 	runesCreateCmd.Flags().String("description", "", "Rune description")
+	runesCreateCmd.Flags().String("signature", "", "Function signature, e.g. (email: string) -> bool")
 	_ = runesCreateCmd.MarkFlagRequired("name")
 	_ = runesCreateCmd.MarkFlagRequired("description")
+	_ = runesCreateCmd.MarkFlagRequired("signature")
 
 	runesUpdateCmd.Flags().String("description", "", "New description")
+	runesUpdateCmd.Flags().String("signature", "", "New function signature")
 	runesUpdateCmd.Flags().String("version", "", "New version")
 
 	runesAnalyzeCmd.Flags().String("requirements", "", "Plain-text requirements to decompose")

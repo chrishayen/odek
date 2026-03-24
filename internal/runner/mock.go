@@ -76,6 +76,7 @@ func mockAnalyzeResponse() string {
     {
       "name": "auth/validate-email",
       "description": "Validates that a string is a well-formed email address.",
+      "signature": "(email: string) -> bool",
       "behavior": "Accepts a string. Returns true if the string contains exactly one @ symbol with non-empty local and domain parts. Returns false otherwise.",
       "positive_tests": [
         "Given 'user@example.com', returns true",
@@ -90,6 +91,7 @@ func mockAnalyzeResponse() string {
     {
       "name": "auth/hash-password",
       "description": "Produces a one-way hash of a plaintext password string.",
+      "signature": "(password: string) -> result[string, string]",
       "behavior": "Accepts a non-empty string. Returns a deterministic hash string. Same input always produces the same output.",
       "positive_tests": [
         "Given 'secret123', returns a non-empty string",
@@ -102,6 +104,7 @@ func mockAnalyzeResponse() string {
     {
       "name": "auth/store-credentials",
       "description": "Persists user credentials to the database.",
+      "signature": "(user_id: string, hashed_password: string) -> result[bool, string]",
       "behavior": "Accepts a user ID and hashed password. Writes them to the credentials table. Returns success or error.",
       "positive_tests": [
         "Given valid user ID and hash, returns success"

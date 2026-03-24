@@ -32,6 +32,7 @@ var mcpCmd = &cobra.Command{
 			mcp.WithDescription("Create a new rune"),
 			mcp.WithString("name", mcp.Description("Rune name (slug, optionally prefixed with feature e.g. auth/validate-email)"), mcp.Required()),
 			mcp.WithString("description", mcp.Description("What the function does"), mcp.Required()),
+			mcp.WithString("signature", mcp.Description("Function signature, e.g. (email: string) -> result[bool, string]"), mcp.Required()),
 			mcp.WithString("behavior", mcp.Description("Inputs, outputs, edge cases")),
 		), handleRunesCreate)
 
@@ -41,9 +42,10 @@ var mcpCmd = &cobra.Command{
 		), handleRunesGet)
 
 		s.AddTool(mcp.NewTool("runes_update",
-			mcp.WithDescription("Update a rune's description or version"),
+			mcp.WithDescription("Update a rune's description, signature, or version"),
 			mcp.WithString("name", mcp.Description("Rune name"), mcp.Required()),
 			mcp.WithString("description", mcp.Description("New description")),
+			mcp.WithString("signature", mcp.Description("New function signature")),
 			mcp.WithString("version", mcp.Description("New version")),
 		), handleRunesUpdate)
 
@@ -109,7 +111,8 @@ func handleRunesCreate(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	name, _ := args["name"].(string)
 	description, _ := args["description"].(string)
 
-	r := runepkg.Rune{Name: name, Description: description}
+	signature, _ := args["signature"].(string)
+	r := runepkg.Rune{Name: name, Description: description, Signature: signature}
 	if beh, ok := args["behavior"].(string); ok {
 		r.Behavior = beh
 	}
@@ -162,12 +165,16 @@ func handleRunesUpdate(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 		r.Description = desc
 		changed = true
 	}
+	if sig, ok := args["signature"].(string); ok && sig != "" {
+		r.Signature = sig
+		changed = true
+	}
 	if ver, ok := args["version"].(string); ok && ver != "" {
 		r.Version = ver
 		changed = true
 	}
 	if !changed {
-		return errResult(fmt.Errorf("at least one of description or version is required")), nil
+		return errResult(fmt.Errorf("at least one of description, signature, or version is required")), nil
 	}
 
 	if err := store.Update(*r); err != nil {

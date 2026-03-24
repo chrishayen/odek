@@ -11,7 +11,7 @@ func TestHydrateHelloWorld(t *testing.T) {
 	dir, cleanup := testEnv(t, "[agent]\ntype = \"mock\"\n")
 	defer cleanup()
 
-	run(t, dir, "runes", "create", "--name", "hello-world-single", "--description", "Returns the string Hello World when called")
+	run(t, dir, "runes", "create", "--name", "hello-world-single", "--description", "Returns the string Hello World when called", "--signature", "() -> string")
 
 	out, code := run(t, dir, "runes", "hydrate", "hello-world-single")
 	if code != 0 {
@@ -35,7 +35,7 @@ func TestHydrateGeneratesCodeFiles(t *testing.T) {
 	dir, cleanup := testEnv(t, "[agent]\ntype = \"mock\"\n")
 	defer cleanup()
 
-	run(t, dir, "runes", "create", "--name", "hello-world-files", "--description", "Returns Hello World")
+	run(t, dir, "runes", "create", "--name", "hello-world-files", "--description", "Returns Hello World", "--signature", "() -> string")
 	run(t, dir, "runes", "hydrate", "hello-world-files")
 
 	codeDir := filepath.Join(dir, "runes", "hello-world-files")
@@ -52,7 +52,7 @@ func TestHydrateCoverageTracked(t *testing.T) {
 	dir, cleanup := testEnv(t, "[agent]\ntype = \"mock\"\n")
 	defer cleanup()
 
-	run(t, dir, "runes", "create", "--name", "hello-world-coverage", "--description", "Returns Hello World")
+	run(t, dir, "runes", "create", "--name", "hello-world-coverage", "--description", "Returns Hello World", "--signature", "() -> string")
 	run(t, dir, "runes", "hydrate", "hello-world-coverage")
 
 	out, _ := run(t, dir, "runes", "get", "hello-world-coverage")
@@ -65,7 +65,7 @@ func TestHydrateDefaultAgent(t *testing.T) {
 	dir, cleanup := testEnv(t, "[agent]\ntype = \"mock\"\n")
 	defer cleanup()
 
-	run(t, dir, "runes", "create", "--name", "hello-default", "--description", "Returns Hello World")
+	run(t, dir, "runes", "create", "--name", "hello-default", "--description", "Returns Hello World", "--signature", "() -> string")
 
 	out, code := run(t, dir, "runes", "hydrate", "hello-default")
 	if code != 0 {

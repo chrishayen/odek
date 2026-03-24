@@ -57,7 +57,7 @@ func TestAnalyzeFindsExisting(t *testing.T) {
 	dir, cleanup := testEnv(t, "[agent]\ntype = \"mock\"\n")
 	defer cleanup()
 
-	run(t, dir, "runes", "create", "--name", "auth/validate-email", "--description", "Validates email format")
+	run(t, dir, "runes", "create", "--name", "auth/validate-email", "--description", "Validates email format", "--signature", "(email: string) -> bool")
 
 	out, code := run(t, dir, "runes", "analyze",
 		"--requirements", "User login with email and password",

@@ -42,7 +42,7 @@ func (h *Hydrator) Hydrate(ctx context.Context, name string, r runner.Runner, lo
 	}
 
 	// Build prompt: instruct the agent to generate code + tests
-	prompt := buildPrompt(rune.Name, rune.Description)
+	prompt := buildPrompt(rune.Name, rune.Description, rune.Signature)
 
 	// Create code directory
 	codeDir := h.store.CodeDir(name)
@@ -79,10 +79,12 @@ func (h *Hydrator) Hydrate(ctx context.Context, name string, r runner.Runner, lo
 	}, nil
 }
 
-func buildPrompt(name, description string) string {
+func buildPrompt(name, description, signature string) string {
 	return fmt.Sprintf(`You are implementing a software component called "%s".
 
 Description: %s
+
+Signature: %s
 
 Instructions:
 1. Implement the component as described above.
@@ -94,7 +96,7 @@ Instructions:
 === END FILE ===
 
 Keep the implementation minimal and focused on the described behavior.
-Do not include explanations outside of file blocks.`, name, description)
+Do not include explanations outside of file blocks.`, name, description, signature)
 }
 
 // extractFiles parses agent output for FILE blocks and writes them to disk.

@@ -35,6 +35,29 @@ A slug using verb-noun pattern. Examples: `validate-email`, `calculate-total`, `
 **Description**
 One or two sentences stating what the function does, what it accepts, and what it returns.
 
+**Signature**
+The function signature using the format: `(param_name: type, ...) -> return_type`
+
+Primitive types with precisions:
+- Signed integers: `i8`, `i16`, `i32`, `i64`
+- Unsigned integers: `u8`, `u16`, `u32`, `u64`
+- Floating point: `f32`, `f64`
+- Other: `string`, `bool`, `bytes`
+
+Compound types:
+- `list[T]` — ordered collection, e.g. `list[f64]`
+- `map[K, V]` — key-value mapping, e.g. `map[string, i32]`
+- `optional[T]` — value that may be absent, e.g. `optional[string]`
+- `result[T, E]` — success or failure, e.g. `result[string, string]`
+
+Use `result[T, E]` for any function that can fail. Types may nest: `list[optional[string]]`, `result[list[i32], string]`.
+
+Examples:
+- `(email: string) -> bool`
+- `(prices: list[f64], tax_rate: f64) -> f64`
+- `(password: string) -> result[string, string]`
+- `(id: i64) -> result[optional[string], string]`
+
 **Behavior**
 A precise English description of expected behavior:
 - What are the inputs and their types?
@@ -57,7 +80,7 @@ English descriptions of failure and error cases. Each test states an input and t
 Present your analysis in two sections:
 
 **New runes**
-List every proposed rune with its name, description, behavior, positive tests, and negative tests.
+List every proposed rune with its name, description, signature, behavior, positive tests, and negative tests.
 
 **Existing runes**
 List runes already in the registry that cover part of the requirements. State which requirement each existing rune satisfies.
@@ -69,7 +92,7 @@ Wait for user approval before proceeding.
 After the user approves, create each new rune by calling:
 
 ```
-runes create --name <slug> --description <full description>
+runes create --name <slug> --description <full description> --signature <signature>
 ```
 
-The `--description` flag must contain the complete specification: description, behavior, positive tests, and negative tests. This is the contract that the hydration agent and validation agent will use.
+The `--description` flag must contain the complete specification: description, behavior, positive tests, and negative tests. The `--signature` flag must contain the function signature. Together these form the contract that the hydration agent and validation agent will use.
