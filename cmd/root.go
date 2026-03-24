@@ -6,16 +6,20 @@ import (
 
 	"github.com/chrishayen/valkyrie/config"
 	"github.com/chrishayen/valkyrie/internal/analyzer"
+	"github.com/chrishayen/valkyrie/internal/composer"
+	"github.com/chrishayen/valkyrie/internal/feature"
 	"github.com/chrishayen/valkyrie/internal/hydrator"
 	runepkg "github.com/chrishayen/valkyrie/internal/rune"
 	"github.com/spf13/cobra"
 )
 
 var (
-	cfg   *config.Config
-	store *runepkg.Store
-	hyd   *hydrator.Hydrator
-	ana   *analyzer.Analyzer
+	cfg          *config.Config
+	store        *runepkg.Store
+	featureStore *feature.Store
+	hyd          *hydrator.Hydrator
+	ana          *analyzer.Analyzer
+	comp         *composer.Composer
 )
 
 var rootCmd = &cobra.Command{
@@ -33,8 +37,10 @@ var rootCmd = &cobra.Command{
 			return fmt.Errorf("config: %w", err)
 		}
 		store = runepkg.NewStore(cfg.RegistryPath)
+		featureStore = feature.NewStore(cfg.RegistryPath)
 		hyd = hydrator.New(store)
 		ana = analyzer.New(store)
+		comp = composer.New(featureStore, store)
 		return nil
 	},
 }
@@ -48,6 +54,7 @@ func Execute() {
 
 func init() {
 	rootCmd.AddCommand(runesCmd)
+	rootCmd.AddCommand(featuresCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(mcpCmd)
 }

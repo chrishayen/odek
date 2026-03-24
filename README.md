@@ -27,124 +27,216 @@ A rune has a specific shape and means a specific thing. Like its namesake, it's 
 
 ### Rune Record
 
-```toml
-name = "user-auth"
-description = "Handles user authentication via email/password and JWT tokens"
-version = "0.1.0"
-stage = "draft"            # draft | reviewed | stable
-runtime = "go@1.22"        # optional — language hint for code generation
-path = "runes/user-auth"   # where the code lives
+Runes are stored as markdown with YAML frontmatter:
 
-inputs = ["credentials-schema"]
-outputs = ["auth-token-schema"]
-events_published = ["user-authenticated", "auth-failed"]
-events_subscribed = []
-dependencies = ["token-generator", "user-store"]
-requirements = ["REQ-001", "REQ-002"]
-config = ["JWT_SECRET", "TOKEN_TTL"]
+```markdown
+---
+version: 0.1.0
+hydrated: false
+coverage: -1
+---
+
+# auth/validate-email
+
+Validates that a string is a well-formed email address.
+
+## Signature
+
+(email: string) -> bool
+
+## Behavior
+
+- Input: a string
+- Output: boolean
+- Returns true if string contains exactly one @ with non-empty local and domain parts
+- Returns false otherwise
+
+## Positive tests
+
+- Given 'user@example.com', returns true
+- Given 'a@b.co', returns true
+
+## Negative tests
+
+- Given an empty string, returns false
+- Given 'no-at-sign', returns false
 ```
+
+### Signature Types
+
+Signatures use precise types with numeric precisions:
+
+| Category | Types |
+|---|---|
+| Signed integers | `i8`, `i16`, `i32`, `i64` |
+| Unsigned integers | `u8`, `u16`, `u32`, `u64` |
+| Floating point | `f32`, `f64` |
+| Other primitives | `string`, `bool`, `bytes` |
+| Collections | `list[T]`, `map[K, V]` |
+| Nullable | `optional[T]` |
+| Fallible | `result[T, E]` |
+
+Use `result[T, E]` for any function that can fail. Types nest: `result[list[i32], string]`.
 
 ## How It Works
 
-1. You (or your agent) describe a rune in English
-2. Valkyrie queues it and spins up a sandboxed coding agent
-3. The agent generates code + tests to satisfy the contract
-4. Valkyrie registers the rune, validates contracts, checks for breakage
-5. Rune lands in `draft` — human promotes to `reviewed` → `stable`
-6. Repeat for 20 runes simultaneously if needed
+1. You describe requirements in English
+2. Valkyrie's analyzer decomposes them into runes — one function each
+3. You review and approve the proposed runes (name, description, signature, behavior, tests)
+4. Valkyrie registers each rune in the registry
+5. The hydrator spins up a sandboxed agent to generate code + tests for a rune
+6. Valkyrie runs the tests, tracks coverage, and marks the rune as hydrated
 
-## Wiring: Broadcast / Respond
+### Analyze
 
-Runes communicate via events, not direct calls.
+```bash
+valkyrie runes analyze --requirements "User login with email and password"
+```
 
-- Loose coupling — runes don't know about each other, only message contracts
-- Valkyrie is the broker — sees all traffic, audits, validates, monitors
-- Adding a rune that reacts to existing events requires zero changes elsewhere
-- Full subscription map — query "what does this event trigger?" at any time
+The analyzer breaks requirements into the smallest functional parts, checks existing runes to avoid duplication, and proposes new runes with signatures, behavior specs, and test cases.
 
-Wiring is stored as text. Graphs are rendered on demand for humans.
+### Hydrate
+
+```bash
+valkyrie runes hydrate auth/validate-email
+```
+
+The hydrator sends the rune spec to a sandboxed coding agent, extracts the generated files, runs tests, and records coverage.
+
+## The Feature
+
+Runes are atomic — one function each. A **feature** groups runes into something larger. It describes the namespace, its components, and how runes wire together.
+
+A feature lives in the same directory as its runes: `runes/auth/feature.md` sits alongside `runes/auth/validate-email.md`.
+
+### Feature Record
+
+```markdown
+---
+version: 0.1.0
+status: draft
+---
+
+# auth
+
+User authentication and authorization.
+
+## Components
+
+### login
+
+Accepts a username and password, validates both, returns a session token.
+
+Composes: auth/validate-email, auth/hash-password, auth/create-session-token
+
+### password-reset
+
+Accepts an email, verifies the account exists, sends a reset link.
+
+Composes: auth/validate-email, auth/lookup-account-by-email, notifications/send-email
+
+## Connections
+
+- login receives (username: string, password: string) -> result[string, string]
+- password-reset receives (email: string) -> result[bool, string]
+- login output feeds into session/store-session
+```
+
+Components describe how runes compose. The `Composes:` line lists runes by name. Connections describe data flow between components and other features.
+
+## CLI
+
+```bash
+valkyrie init                          # Initialize a new project
+valkyrie runes list                    # List all runes
+valkyrie runes create --name <slug> --description <desc> --signature <sig>
+valkyrie runes get <name>              # Get a rune by name
+valkyrie runes update <name> --description <desc> --signature <sig> --version <ver>
+valkyrie runes delete <name>           # Delete a rune
+valkyrie runes analyze --requirements <text> [--yes]
+valkyrie runes hydrate <name>          # Generate code via sandbox agent
+valkyrie features list                 # List all features
+valkyrie features create --name <ns> --description <desc>
+valkyrie features get <name>           # Get a feature by name
+valkyrie features update <name> --description <desc> --version <ver> --status <status>
+valkyrie features delete <name>        # Delete a feature
+```
+
+## MCP Server
+
+Valkyrie exposes an **MCP (Model Context Protocol)** server. Any MCP-compatible agent connects and discovers tools dynamically.
+
+```bash
+valkyrie mcp    # Start MCP server (stdio transport)
+```
+
+Tools: `runes_list`, `runes_create`, `runes_get`, `runes_update`, `runes_delete`, `runes_analyze`, `runes_create_batch`, `runes_hydrate`, `features_list`, `features_create`, `features_get`, `features_update`, `features_delete`.
+
+Running `valkyrie init` generates `.mcp.json` so Claude Code auto-discovers the server.
 
 ## Storage
 
-Plain TOML files, one per rune/event/schema. Human-readable, git-diffable, no database.
+Plain markdown files. Human-readable, git-diffable, no database.
 
 ```
-registry/
-  runes/
-    user-auth.toml
-    payment-processor.toml
-  events/
-    user-authenticated.toml
-  schemas/
-    user.toml
-  requirements/
-    REQ-001.toml
+runes/
+  auth/
+    feature.md              # feature description
+    validate-email.md       # rune spec
+    validate-email/         # generated code (after hydration)
+      main.go
+      main_test.go
+  payment/
+    feature.md
+    calculate-total.md
+    calculate-total/
 ```
 
-Valkyrie loads the registry into memory on start. Git handles history.
+Namespaces are organizational (e.g. `auth/`, `payment/`), not judgments about purity.
 
-## Registries
-
-| Registry | What it tracks |
-|---|---|
-| Rune Registry | Named units of functionality, stage, contracts |
-| Schema Registry | Data shapes — DB tables, types, event payloads |
-| API Registry | External-facing contracts — endpoints, inputs, outputs |
-| Event Registry | Broadcastable messages — name, payload, publisher |
-| Subscription Registry | Who listens to what |
-| Requirement Registry | Requirements mapped to runes that satisfy them |
-| Dependency Registry | Rune → rune dependency graph |
-| Config Registry | Per-rune runtime config keys |
-
-## Protocol
-
-Valkyrie exposes an **MCP (Model Context Protocol)** server. Any MCP-compatible agent connects and discovers tools dynamically — no pre-configuration needed.
-
-Built in **Go** — single binary, runs on Linux/Mac/Windows.
-
-## Sandbox
-
-Valkyrie runs coding agents in isolated sandboxes to generate rune implementations. Sandbox provider is pluggable:
+## Configuration
 
 ```toml
 # valkyrie.toml
-sandbox = "docker"         # default: local Docker
-# sandbox = "valkyrie-cloud"  # hosted: fast, managed, billed
+project = "my-app"
+
+[agent]
+type = "claude-sub"              # "claude-sub" (default) or "mock" (testing)
+model = "claude-sonnet-4-5"      # optional model override
+token = "sk-ant-..."             # optional: literal API token
+token_env = "MY_TOKEN"           # optional: env var name for token
+image = "ghcr.io/..."            # optional: custom Docker image
 ```
 
-## Human Review
+## Protocol
 
-Humans review **contract changes**, not code diffs:
-- Schema changed
-- API contract changed
-- Rune X now does Y instead of Z
-- Rune promoted from `reviewed` → `stable`
+Built in **Go** — single binary, runs on Linux/Mac/Windows.
 
-`draft` → `reviewed` → `stable`
+The sandbox agent runs inside Docker. Token resolution order:
+1. `token` field in config
+2. `token_env` field in config
+3. `CLAUDE_CODE_OAUTH_TOKEN` env var
+4. `~/.claude/.credentials.json`
 
 ## Roadmap
 
-**MVP**
-- [ ] Rune registry — TOML files, flat directory, git-backed
-- [ ] CLI — `create`, `get`, `list`, `update` rune
-- [ ] MCP server — exposes registry to agents
-- [ ] Rune record schema — full field set
+**Done**
+- [x] Rune registry — markdown files, git-backed
+- [x] CLI — create, get, list, update, delete
+- [x] MCP server — exposes registry to agents
+- [x] Analyze — English requirements → rune decomposition via sandbox agent
+- [x] Hydrate — rune spec → code + tests via sandbox agent
+- [x] Coverage tracking
+- [x] Function signatures with type precisions
 
-**Agent Orchestration**
-- [ ] English description → sandboxed agent → code + tests → registered rune
-- [ ] Parallel execution — multiple runes built simultaneously
-- [ ] Pluggable sandbox provider (default: Docker)
+**Next**
+- [x] Wiring — features describe how runes compose into components
+- [ ] Validation — contract checks on submission
+- [ ] Promotion workflow — draft → reviewed → stable
+- [ ] Parallel hydration — multiple runes built simultaneously
 
-**Validation & Review**
-- [ ] Contract validation on submission — breaks deps? conflicts?
-- [ ] Promotion workflow — `draft` → `reviewed` → `stable`
-- [ ] Human approval gate
-
-**Hosted / Cloud**
-- [ ] Managed sandbox execution (`sandbox: valkyrie-cloud`)
+**Future**
+- [ ] Event system — broadcast/respond between runes
+- [ ] Schema registry — data shapes, DB tables, event payloads
+- [ ] Hosted sandbox execution
 - [ ] Public rune registry — publish and pull shared runes
-- [ ] Billing
-
----
-
-*Brainstormed with Chris — 2026-03-18*

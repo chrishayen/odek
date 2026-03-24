@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/chrishayen/valkyrie/framework"
 	"github.com/chrishayen/valkyrie/internal/analyzer"
 	"github.com/spf13/cobra"
 )
@@ -84,6 +85,16 @@ type = "claude-sub"
 		settingsPath := filepath.Join(claudeDir, "settings.json")
 		if err := os.WriteFile(settingsPath, []byte(settings), 0644); err != nil {
 			return fmt.Errorf("writing .claude/settings.json: %w", err)
+		}
+
+		// internal/dispatch/ — prebuilt dispatch framework
+		dispatchDir := filepath.Join(cwd, "internal", "dispatch")
+		if err := os.MkdirAll(dispatchDir, 0755); err != nil {
+			return fmt.Errorf("creating dispatch dir: %w", err)
+		}
+		dispatchPath := filepath.Join(dispatchDir, "dispatch.go")
+		if err := os.WriteFile(dispatchPath, []byte(framework.GoDispatch), 0644); err != nil {
+			return fmt.Errorf("writing dispatch.go: %w", err)
 		}
 
 		fmt.Printf("initialized valkyrie project %q\n", project)
