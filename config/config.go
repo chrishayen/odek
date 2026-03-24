@@ -20,6 +20,7 @@ type Agent struct {
 type Config struct {
 	Project      string `toml:"project"`
 	RegistryPath string `toml:"registry_path"`
+	OutputPath   string `toml:"output_path"`
 	Agent        Agent  `toml:"agent"`
 }
 
@@ -62,6 +63,7 @@ func Load() (*Config, error) {
 	path := filepath.Join(root, "valkyrie.toml")
 	cfg := &Config{
 		RegistryPath: filepath.Join(root, "runes"),
+		OutputPath:   filepath.Join(root, "src"),
 		Agent: Agent{
 			Type: "claude-sub",
 		},

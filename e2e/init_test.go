@@ -29,6 +29,11 @@ func TestInitCreatesProject(t *testing.T) {
 		t.Errorf("expected runes/ to exist: %v", err)
 	}
 
+	// Check src dir was created
+	if _, err := os.Stat(filepath.Join(dir, "src")); err != nil {
+		t.Errorf("expected src/ to exist: %v", err)
+	}
+
 	// Check .mcp.json was created
 	if _, err := os.Stat(filepath.Join(dir, ".mcp.json")); err != nil {
 		t.Errorf("expected .mcp.json to exist: %v", err)

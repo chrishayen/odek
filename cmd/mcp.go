@@ -98,7 +98,7 @@ var mcpCmd = &cobra.Command{
 		), handleFeaturesDelete)
 
 		s.AddTool(mcp.NewTool("features_compose",
-			mcp.WithDescription("Generate dispatcher and wiring code for a feature by composing its hydrated runes. All runes listed in the feature's components must be hydrated first. The agent reads the feature's wiring pseudocode and rune signatures to generate: (1) a dispatcher that routes all calls by name, (2) wiring functions that implement the pseudocode, (3) registration code, and (4) integration tests. Generated code is stored in runes/<feature>/_composed/."),
+			mcp.WithDescription("Generate dispatcher and wiring code for a feature by composing its hydrated runes. All runes listed in the feature's components must be hydrated first. The agent reads the feature's wiring pseudocode and rune signatures to generate: (1) an immutable dispatcher with all callables hardcoded, (2) wiring functions that implement the pseudocode, and (3) integration tests. Generated code is stored in src/<feature>/_composed/ (or the configured output_path)."),
 			mcp.WithString("name", mcp.Description("Feature name (e.g. auth, payment)"), mcp.Required()),
 		), handleFeaturesCompose)
 

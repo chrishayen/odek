@@ -36,8 +36,8 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("config: %w", err)
 		}
-		store = runepkg.NewStore(cfg.RegistryPath)
-		featureStore = feature.NewStore(cfg.RegistryPath)
+		store = runepkg.NewStore(cfg.RegistryPath, cfg.OutputPath)
+		featureStore = feature.NewStore(cfg.RegistryPath, cfg.OutputPath)
 		hyd = hydrator.New(store)
 		ana = analyzer.New(store)
 		comp = composer.New(featureStore, store)

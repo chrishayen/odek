@@ -16,10 +16,8 @@ The project already has a dispatch framework at `internal/dispatch/`. Do not bui
 
 The framework provides:
 
-- `dispatch.New()` — creates a dispatcher
-- `d.Register(name, fn)` — registers a callable by name
+- `dispatch.New(runes, middleware)` — creates an immutable dispatcher with all callables and middleware baked in
 - `d.Call(ctx, name, input)` — invokes a callable by name through the middleware chain
-- `d.Use(mw)` — adds middleware to the chain
 
 Types:
 - `dispatch.RuneFunc` — `func(ctx context.Context, input []byte) ([]byte, error)`
@@ -47,9 +45,9 @@ One function per component. Each wiring function:
 - Follows the wiring pseudocode in the feature spec exactly.
 - Returns the component's output type.
 
-### 3. Registration
+### 3. Dispatcher construction
 
-Code that creates a dispatcher, registers all rune adapters, and exposes the wired components.
+Code that creates an immutable dispatcher with all rune adapters hardcoded in the map literal passed to `dispatch.New()`.
 
 ### 4. Integration tests
 

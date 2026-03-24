@@ -31,6 +31,7 @@ var initCmd = &cobra.Command{
 
 		// valkyrie.toml
 		tomlContent := fmt.Sprintf(`project = %q
+# output_path = "src"
 
 [agent]
 type = "claude-sub"
@@ -46,6 +47,12 @@ type = "claude-sub"
 		runesDir := filepath.Join(cwd, "runes")
 		if err := os.MkdirAll(runesDir, 0755); err != nil {
 			return fmt.Errorf("creating runes dir: %w", err)
+		}
+
+		// src/ — hydrated code output
+		srcDir := filepath.Join(cwd, "src")
+		if err := os.MkdirAll(srcDir, 0755); err != nil {
+			return fmt.Errorf("creating src dir: %w", err)
 		}
 
 		// .mcp.json — Claude Code auto-discovers this

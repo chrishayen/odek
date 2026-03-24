@@ -23,10 +23,11 @@ type Rune struct {
 
 type Store struct {
 	registryPath string
+	outputPath   string
 }
 
-func NewStore(registryPath string) *Store {
-	return &Store{registryPath: registryPath}
+func NewStore(registryPath, outputPath string) *Store {
+	return &Store{registryPath: registryPath, outputPath: outputPath}
 }
 
 func (s *Store) dir() string {
@@ -39,7 +40,7 @@ func (s *Store) filePath(name string) string {
 
 // CodeDir returns the directory where generated code for a rune is stored.
 func (s *Store) CodeDir(name string) string {
-	return filepath.Join(s.dir(), name)
+	return filepath.Join(s.outputPath, name)
 }
 
 func (s *Store) Create(r Rune) error {

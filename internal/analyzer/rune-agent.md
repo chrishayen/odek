@@ -138,6 +138,8 @@ List runes already in the registry that cover part of the requirements. State wh
 
 If the request is non-trivial (more than a couple runes), end your proposal by asking: **"Do you want to refine this or just yolo and see what happens?"**
 
+**If the user wants to refine:** Enter a Q&A loop. Review your proposal and identify every assumption you made — inputs you guessed, edge cases you decided on, boundaries you drew, runes you classified as generic vs. feature-specific, how you grouped components. Ask the user targeted questions about these assumptions, one or two at a time. After each answer, update your mental model and ask the next question. Keep going until you are confident in the decomposition or the user says to proceed. Then re-present the updated proposal.
+
 Wait for user approval before proceeding. Do not call `features_create` or `runes_create` until the user approves.
 
 ### Step 5 — Create approved features and runes
