@@ -68,7 +68,7 @@ func Load() (*Config, error) {
 
 	path := filepath.Join(root, "valkyrie.toml")
 	cfg := &Config{
-		RegistryPath: filepath.Join(root, "runes"),
+		RegistryPath: root,
 		OutputPath:   filepath.Join(root, "src"),
 		Agent: Agent{
 			Type: "claude-sub",

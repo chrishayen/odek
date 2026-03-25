@@ -14,7 +14,7 @@ func TestInitCreatesProject(t *testing.T) {
 	}
 	defer os.RemoveAll(dir)
 
-	out, code := run(t, dir, "init")
+	out, code := run(t, dir, "init", "go")
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d: %s", code, out)
 	}
@@ -22,16 +22,6 @@ func TestInitCreatesProject(t *testing.T) {
 	// Check valkyrie.toml was created
 	if _, err := os.Stat(filepath.Join(dir, "valkyrie.toml")); err != nil {
 		t.Errorf("expected valkyrie.toml to exist: %v", err)
-	}
-
-	// Check runes dir was created
-	if _, err := os.Stat(filepath.Join(dir, "runes")); err != nil {
-		t.Errorf("expected runes/ to exist: %v", err)
-	}
-
-	// Check src dir was created
-	if _, err := os.Stat(filepath.Join(dir, "src")); err != nil {
-		t.Errorf("expected src/ to exist: %v", err)
 	}
 
 	// Check .mcp.json was created
@@ -63,7 +53,7 @@ func TestInitWithProjectName(t *testing.T) {
 	}
 	defer os.RemoveAll(dir)
 
-	out, code := run(t, dir, "init", "--project", "my-cool-app")
+	out, code := run(t, dir, "init", "go", "--project", "my-cool-app")
 	if code != 0 {
 		t.Fatalf("expected exit 0, got %d: %s", code, out)
 	}
@@ -80,13 +70,13 @@ func TestInitFailsIfAlreadyInitialized(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	// First init succeeds
-	_, code := run(t, dir, "init")
+	_, code := run(t, dir, "init", "go")
 	if code != 0 {
 		t.Fatal("first init should succeed")
 	}
 
 	// Second init fails
-	out, code := run(t, dir, "init")
+	out, code := run(t, dir, "init", "go")
 	if code == 0 {
 		t.Error("expected non-zero exit on second init")
 	}

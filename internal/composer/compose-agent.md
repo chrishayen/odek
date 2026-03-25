@@ -12,7 +12,7 @@ No callable may import or reference another callable directly. All calls go thro
 
 ## The dispatch framework
 
-The project already has a dispatch framework at `internal/dispatch/`. Do not build your own dispatcher. Import and use the existing one.
+The project already has a dispatch framework at `src/dispatch/`. Do not build your own dispatcher. Import and use the existing one.
 
 The framework provides:
 

@@ -36,16 +36,6 @@ func testEnv(t *testing.T, extraTOML string) (projectDir string, cleanup func())
 		t.Fatal(err)
 	}
 
-	runesDir := filepath.Join(projectDir, "runes")
-	if err := os.MkdirAll(runesDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	srcDir := filepath.Join(projectDir, "src")
-	if err := os.MkdirAll(srcDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
 	agentTOML := extraTOML
 	if agentTOML == "" {
 		agentTOML = "[agent]\ntype = \"mock\"\n"

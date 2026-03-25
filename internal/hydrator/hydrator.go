@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chrishayen/valkyrie/framework"
 	runepkg "github.com/chrishayen/valkyrie/internal/rune"
 	"github.com/chrishayen/valkyrie/internal/runner"
 )
@@ -67,6 +68,10 @@ func (h *Hydrator) FinalizeHydration(name, output string) (*Result, error) {
 		return nil, err
 	}
 
+	if err := framework.EnsureDispatch(h.store.OutputPath()); err != nil {
+		return nil, fmt.Errorf("ensuring dispatch framework: %w", err)
+	}
+
 	codeDir := h.store.CodeDir(name)
 	if err := os.MkdirAll(codeDir, 0755); err != nil {
 		return nil, fmt.Errorf("creating code dir: %w", err)
@@ -101,6 +106,10 @@ func (h *Hydrator) Hydrate(ctx context.Context, name string, r runner.Runner, lo
 	}
 
 	prompt := buildPrompt(rune, h.language)
+
+	if err := framework.EnsureDispatch(h.store.OutputPath()); err != nil {
+		return nil, fmt.Errorf("ensuring dispatch framework: %w", err)
+	}
 
 	codeDir := h.store.CodeDir(name)
 	if err := os.MkdirAll(codeDir, 0755); err != nil {

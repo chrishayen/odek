@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chrishayen/valkyrie/framework"
 	"github.com/chrishayen/valkyrie/internal/feature"
 	runepkg "github.com/chrishayen/valkyrie/internal/rune"
 	"github.com/chrishayen/valkyrie/internal/runner"
@@ -58,6 +59,11 @@ func (c *Composer) Compose(ctx context.Context, name string, r runner.Runner, lo
 	}
 
 	prompt := buildPrompt(raw, runes, c.language)
+
+	// Ensure dispatch framework exists
+	if err := framework.EnsureDispatch(c.featureStore.OutputPath()); err != nil {
+		return nil, fmt.Errorf("ensuring dispatch framework: %w", err)
+	}
 
 	// Create code directory
 	codeDir := c.featureStore.CodeDir(name)

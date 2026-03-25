@@ -38,6 +38,11 @@ func (s *Store) filePath(name string) string {
 	return filepath.Join(s.dir(), name+".md")
 }
 
+// OutputPath returns the root output directory for generated code.
+func (s *Store) OutputPath() string {
+	return s.outputPath
+}
+
 // CodeDir returns the directory where generated code for a rune is stored.
 func (s *Store) CodeDir(name string) string {
 	return filepath.Join(s.outputPath, name)
@@ -80,25 +85,49 @@ func (s *Store) List() ([]Rune, error) {
 	if _, err := os.Stat(base); os.IsNotExist(err) {
 		return nil, nil
 	}
-	var runes []Rune
-	err := filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
-			return nil
-		}
-		rel, _ := filepath.Rel(base, path)
-		name := strings.TrimSuffix(rel, ".md")
-		r, err := s.Get(name)
-		if err != nil {
-			return nil
-		}
-		runes = append(runes, *r)
-		return nil
-	})
+
+	// Scan only subdirectories of the registry root.
+	// Root-level .md files are shell definitions, not runes.
+	entries, err := os.ReadDir(base)
 	if err != nil {
 		return nil, err
+	}
+
+	var runes []Rune
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		nsDir := filepath.Join(base, entry.Name())
+		if nsDir == s.outputPath {
+			continue
+		}
+
+		err := filepath.WalkDir(nsDir, func(path string, d os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
+				return nil
+			}
+			if d.Name() == "feature.md" {
+				return nil
+			}
+			rel, _ := filepath.Rel(base, path)
+			name := strings.TrimSuffix(rel, ".md")
+			r, err := s.Get(name)
+			if err != nil {
+				return nil
+			}
+			runes = append(runes, *r)
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	return runes, nil
 }
@@ -124,6 +153,9 @@ func (s *Store) Delete(name string) error {
 func validate(r Rune) error {
 	if r.Name == "" {
 		return fmt.Errorf("name is required")
+	}
+	if !strings.Contains(r.Name, "/") {
+		return fmt.Errorf("name must include a namespace (e.g. auth/validate-email)")
 	}
 	if strings.ContainsAny(r.Name, " \\") {
 		return fmt.Errorf("name must be a slug (no spaces or backslashes)")

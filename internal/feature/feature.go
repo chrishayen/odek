@@ -31,6 +31,11 @@ func (s *Store) filePath(name string) string {
 	return filepath.Join(s.registryPath, name, "feature.md")
 }
 
+// OutputPath returns the root output directory for generated code.
+func (s *Store) OutputPath() string {
+	return s.outputPath
+}
+
 func (s *Store) CodeDir(name string) string {
 	return filepath.Join(s.outputPath, name, "_composed")
 }
@@ -96,6 +101,12 @@ func (s *Store) List() ([]Feature, error) {
 	}
 	for _, e := range entries {
 		if !e.IsDir() {
+			continue
+		}
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		if filepath.Join(base, e.Name()) == s.outputPath {
 			continue
 		}
 		fp := filepath.Join(base, e.Name(), "feature.md")
