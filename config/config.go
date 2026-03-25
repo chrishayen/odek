@@ -15,13 +15,19 @@ type Agent struct {
 	Image    string `toml:"image,omitempty"`
 	Token    string `toml:"token,omitempty"`
 	TokenEnv string `toml:"token_env,omitempty"`
+	Sandbox  bool   `toml:"sandbox,omitempty"`
 }
 
 type Config struct {
 	Project      string `toml:"project"`
+	Language     string `toml:"language"`
 	RegistryPath string `toml:"registry_path"`
 	OutputPath   string `toml:"output_path"`
 	Agent        Agent  `toml:"agent"`
+}
+
+var supportedLanguages = map[string]bool{
+	"go": true,
 }
 
 var validTypes = map[string]bool{
@@ -74,6 +80,13 @@ func Load() (*Config, error) {
 
 	if cfg.Project == "" {
 		return nil, fmt.Errorf("project name is required in %s", path)
+	}
+
+	if cfg.Language == "" {
+		cfg.Language = "go"
+	}
+	if !supportedLanguages[cfg.Language] {
+		return nil, fmt.Errorf("unsupported language %q (supported: go)", cfg.Language)
 	}
 
 	if !validTypes[cfg.Agent.Type] {

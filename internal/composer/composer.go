@@ -33,10 +33,11 @@ type Result struct {
 type Composer struct {
 	featureStore *feature.Store
 	runeStore    *runepkg.Store
+	language     string
 }
 
-func New(featureStore *feature.Store, runeStore *runepkg.Store) *Composer {
-	return &Composer{featureStore: featureStore, runeStore: runeStore}
+func New(featureStore *feature.Store, runeStore *runepkg.Store, language string) *Composer {
+	return &Composer{featureStore: featureStore, runeStore: runeStore, language: language}
 }
 
 // Compose generates wiring code for the named feature.
@@ -56,7 +57,7 @@ func (c *Composer) Compose(ctx context.Context, name string, r runner.Runner, lo
 		return nil, fmt.Errorf("listing runes: %w", err)
 	}
 
-	prompt := buildPrompt(raw, runes)
+	prompt := buildPrompt(raw, runes, c.language)
 
 	// Create code directory
 	codeDir := c.featureStore.CodeDir(name)
@@ -76,7 +77,7 @@ func (c *Composer) Compose(ctx context.Context, name string, r runner.Runner, lo
 	}
 
 	// Run tests
-	coverage, testsRan := runTests(codeDir)
+	coverage, testsRan := runTests(codeDir, c.language)
 
 	// Update feature frontmatter
 	feat, err := c.featureStore.Get(name)
@@ -97,11 +98,12 @@ func (c *Composer) Compose(ctx context.Context, name string, r runner.Runner, lo
 	}, nil
 }
 
-func buildPrompt(rawFeature string, runes []runepkg.Rune) string {
+func buildPrompt(rawFeature string, runes []runepkg.Rune, language string) string {
 	var b strings.Builder
 
 	b.WriteString(instructions)
-	b.WriteString("\n\n---\n\n")
+	fmt.Fprintf(&b, "\n\nWrite all code in %s.\n", language)
+	b.WriteString("\n---\n\n")
 
 	// Raw feature spec — the agent reads it as a document
 	b.WriteString("## Feature spec\n\n")
@@ -141,8 +143,8 @@ func extractFiles(dir, output string) error {
 }
 
 // runTests attempts to run tests in the code dir and parse coverage.
-func runTests(dir string) (coverage float64, ran bool) {
-	cmd, args := detectTestCommand(dir)
+func runTests(dir, language string) (coverage float64, ran bool) {
+	cmd, args := testCommand(language)
 	if cmd == "" {
 		return -1, false
 	}
@@ -158,17 +160,13 @@ func runTests(dir string) (coverage float64, ran bool) {
 	return coverage, true
 }
 
-func detectTestCommand(dir string) (string, []string) {
-	if hasFile(dir, "go.mod") || hasGlob(dir, "*.go") {
+func testCommand(language string) (string, []string) {
+	switch language {
+	case "go":
 		return "go", []string{"test", "-cover", "."}
+	default:
+		return "", nil
 	}
-	if hasGlob(dir, "*.py") {
-		return "python", []string{"-m", "pytest", "--tb=short", dir}
-	}
-	if hasFile(dir, "package.json") {
-		return "npm", []string{"test", "--prefix", dir}
-	}
-	return "", nil
 }
 
 var coverageRe = regexp.MustCompile(`coverage:\s+([\d.]+)%`)
@@ -185,12 +183,3 @@ func parseCoverage(output string) float64 {
 	return v
 }
 
-func hasFile(dir, name string) bool {
-	_, err := os.Stat(filepath.Join(dir, name))
-	return err == nil
-}
-
-func hasGlob(dir, pattern string) bool {
-	matches, _ := filepath.Glob(filepath.Join(dir, pattern))
-	return len(matches) > 0
-}

@@ -10,10 +10,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var supportedLanguages = map[string]bool{
+	"go": true,
+}
+
 var initCmd = &cobra.Command{
-	Use:   "init",
+	Use:   "init <language>",
 	Short: "Initialize a new Valkyrie project in the current directory",
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		language := args[0]
+		if !supportedLanguages[language] {
+			return fmt.Errorf("unsupported language %q (supported: go)", language)
+		}
+
 		cwd, err := os.Getwd()
 		if err != nil {
 			return err
@@ -31,13 +41,15 @@ var initCmd = &cobra.Command{
 
 		// valkyrie.toml
 		tomlContent := fmt.Sprintf(`project = %q
+language = %q
 # output_path = "src"
 
 [agent]
 type = "claude-sub"
+# sandbox = false  # set true to run agents inside Docker containers
 # model = "claude-sonnet-4-5"
 # token parses from ~/.claude/.credentials.json by default
-`, project)
+`, project, language)
 
 		if err := os.WriteFile(tomlPath, []byte(tomlContent), 0644); err != nil {
 			return fmt.Errorf("writing valkyrie.toml: %w", err)

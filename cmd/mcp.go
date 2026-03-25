@@ -66,9 +66,20 @@ var mcpCmd = &cobra.Command{
 		), handleRunesCreateBatch)
 
 		s.AddTool(mcp.NewTool("runes_hydrate",
-			mcp.WithDescription("Generate code and tests for a rune via a sandboxed coding agent. The agent reads the rune's English spec and produces implementation files, runs tests, and records coverage. The rune is marked as hydrated on success."),
+			mcp.WithDescription("Generate code and tests for a rune via a sandboxed Docker agent. Requires sandbox = true in config. The agent reads the rune's English spec and produces implementation files, runs tests, and records coverage. The rune is marked as hydrated on success. When sandbox is disabled (default), use runes_hydration_spec + runes_finalize_hydration instead."),
 			mcp.WithString("name", mcp.Description("Full rune name including namespace (e.g. auth/validate-email)"), mcp.Required()),
 		), handleRunesHydrate)
+
+		s.AddTool(mcp.NewTool("runes_hydration_spec",
+			mcp.WithDescription("Get the hydration prompt for a rune. Returns the enriched prompt with behavior, test cases, and isolation instructions. The prompt instructs the sub-agent to output code using === FILE: <filename> === blocks. The calling agent should spawn a sub-agent with this prompt, collect the sub-agent's full text output, and pass that output to runes_finalize_hydration. The sub-agent must NOT write files to disk — it only produces text output. To hydrate multiple runes concurrently, call this for each rune, spawn all sub-agents in a single message, then finalize each."),
+			mcp.WithString("name", mcp.Description("Full rune name including namespace (e.g. auth/validate-email)"), mcp.Required()),
+		), handleRunesHydrationSpec)
+
+		s.AddTool(mcp.NewTool("runes_finalize_hydration",
+			mcp.WithDescription("Submit generated code for a rune, extract files, run tests, and mark it as hydrated. The output parameter must contain the sub-agent's full text response with === FILE: <filename> === / === END FILE === blocks. This tool parses those blocks, writes the files, runs language-appropriate tests, records coverage, and updates the rune record."),
+			mcp.WithString("name", mcp.Description("Full rune name including namespace (e.g. auth/validate-email)"), mcp.Required()),
+			mcp.WithString("output", mcp.Description("The sub-agent's complete text output containing === FILE: <filename> === / === END FILE === blocks with generated source code and test files"), mcp.Required()),
+		), handleRunesFinalizeHydration)
 
 		s.AddTool(mcp.NewTool("features_list",
 			mcp.WithDescription("List all features in the registry. A feature is a namespace that groups related runes — it describes a domain (e.g. auth, payment) and how its runes compose into components. Returns JSON array of all registered features with their components and connections. Check this before creating runes to see which namespaces exist."),
@@ -264,6 +275,10 @@ func handleRunesAnalyze(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 }
 
 func handleRunesHydrate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if !cfg.Agent.Sandbox {
+		return errResult(fmt.Errorf("sandbox is disabled — use runes_hydration_spec + runes_finalize_hydration with sub-agents instead")), nil
+	}
+
 	args := req.GetArguments()
 	name, _ := args["name"].(string)
 
@@ -273,6 +288,29 @@ func handleRunesHydrate(ctx context.Context, req mcp.CallToolRequest) (*mcp.Call
 	}
 
 	result, err := hyd.Hydrate(ctx, name, run, os.Stderr)
+	if err != nil {
+		return errResult(err), nil
+	}
+	return textResult(toJSON(result)), nil
+}
+
+func handleRunesHydrationSpec(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := req.GetArguments()
+	name, _ := args["name"].(string)
+
+	spec, err := hyd.GetHydrationSpec(name)
+	if err != nil {
+		return errResult(err), nil
+	}
+	return textResult(toJSON(spec)), nil
+}
+
+func handleRunesFinalizeHydration(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := req.GetArguments()
+	name, _ := args["name"].(string)
+	output, _ := args["output"].(string)
+
+	result, err := hyd.FinalizeHydration(name, output)
 	if err != nil {
 		return errResult(err), nil
 	}

@@ -38,9 +38,9 @@ var rootCmd = &cobra.Command{
 		}
 		store = runepkg.NewStore(cfg.RegistryPath, cfg.OutputPath)
 		featureStore = feature.NewStore(cfg.RegistryPath, cfg.OutputPath)
-		hyd = hydrator.New(store)
+		hyd = hydrator.New(store, cfg.Language)
 		ana = analyzer.New(store)
-		comp = composer.New(featureStore, store)
+		comp = composer.New(featureStore, store, cfg.Language)
 		return nil
 	},
 }

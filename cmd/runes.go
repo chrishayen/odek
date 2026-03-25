@@ -123,6 +123,9 @@ var runesHydrateCmd = &cobra.Command{
 	Short: "Hydrate a rune (generate code via sandbox agent)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if !cfg.Agent.Sandbox {
+			return fmt.Errorf("sandbox is disabled — use MCP tools (runes_hydration_prompt + runes_finalize_hydration) with Claude sub-agents instead")
+		}
 		run, err := runner.New(cfg.Agent)
 		if err != nil {
 			return err

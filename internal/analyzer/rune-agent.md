@@ -159,3 +159,24 @@ runes create --name <feature/slug> --description <full description> --signature 
 ```
 
 The `--description` flag must contain the complete specification: description, behavior, positive tests, and negative tests. The `--signature` flag must contain the function signature. Together these form the contract that the hydration agent and validation agent will use.
+
+### Step 6 — Hydrate
+
+When the user says "hydrate", run the full pipeline end-to-end:
+
+1. **List un-hydrated runes.** Call `runes_list` and filter to runes where `hydrated` is false.
+
+2. **Get specs.** Call `runes_hydration_spec` for each un-hydrated rune. This returns the enriched prompt with behavior, test cases, and isolation instructions.
+
+3. **Spawn sub-agents in parallel.** Use Claude's Agent tool to launch one sub-agent per rune. **Launch all sub-agents in a single message** for maximum concurrency. Each sub-agent's task:
+   - Read the prompt from the hydration spec
+   - Implement the function described in the prompt
+   - Output all source code and test files using `=== FILE: <filename> ===` / `=== END FILE ===` blocks as instructed in the prompt
+   - Do NOT use Write, Edit, or any filesystem tools — the sub-agent's only job is to produce text output
+   - Each rune must be isolated — do not import or call other runes directly; all inter-rune communication goes through the dispatcher
+
+4. **Finalize each rune.** After each sub-agent completes, call `runes_finalize_hydration` with the rune name AND the sub-agent's full text output. This extracts the file blocks, writes them to disk, runs language-appropriate tests, records coverage, and marks the rune as hydrated.
+
+5. **Compose the feature.** Once all runes in a feature are hydrated, call `features_compose` to generate the dispatcher, wiring code, and integration tests.
+
+This is one seamless operation — the user says "hydrate" and all of the above happens automatically.

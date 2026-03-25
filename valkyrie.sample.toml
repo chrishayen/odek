@@ -2,9 +2,11 @@
 # Run `valkyrie init` to generate this file, or copy and edit manually.
 
 project = "myapp"
+language = "go"
 
 [agent]
 type = "claude-sub"
+# sandbox = false  # set true to run agents inside Docker containers
 # model = "claude-sonnet-4-5"
 # token = "sk-ant-oat01-..."       # explicit token (optional)
 # token_env = "MY_TOKEN_VAR"       # env var name (optional)

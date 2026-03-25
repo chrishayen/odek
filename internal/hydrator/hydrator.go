@@ -24,47 +24,100 @@ type Result struct {
 	TestsRan bool    `json:"tests_ran"`
 }
 
+// HydrationSpec contains everything a sub-agent needs to hydrate a rune.
+type HydrationSpec struct {
+	RuneName string `json:"rune_name"`
+	Prompt   string `json:"prompt"` // enriched prompt with behavior, tests, isolation instructions
+}
+
 // Hydrator runs a sandbox agent to generate code for a rune.
 type Hydrator struct {
-	store *runepkg.Store
+	store    *runepkg.Store
+	language string
 }
 
-func New(store *runepkg.Store) *Hydrator {
-	return &Hydrator{store: store}
+func New(store *runepkg.Store, language string) *Hydrator {
+	return &Hydrator{store: store, language: language}
 }
 
-// Hydrate generates code for the named rune using the given runner, stores it, runs tests.
-// If logOut is non-nil, sandbox output is streamed to it in real time.
+// GetHydrationSpec returns the prompt for a rune.
+// Used in non-sandbox mode: the calling agent spawns a sub-agent with this prompt,
+// collects the FILE-block output, and passes it to FinalizeHydration.
+func (h *Hydrator) GetHydrationSpec(name string) (*HydrationSpec, error) {
+	r, err := h.store.Get(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &HydrationSpec{
+		RuneName: name,
+		Prompt:   buildPrompt(r, h.language),
+	}, nil
+}
+
+// FinalizeHydration extracts files from the sub-agent's output, runs tests,
+// and updates the rune record. The output must contain === FILE: ... === blocks.
+func (h *Hydrator) FinalizeHydration(name, output string) (*Result, error) {
+	if strings.TrimSpace(output) == "" {
+		return nil, fmt.Errorf("output is empty — sub-agent produced no code")
+	}
+
+	r, err := h.store.Get(name)
+	if err != nil {
+		return nil, err
+	}
+
+	codeDir := h.store.CodeDir(name)
+	if err := os.MkdirAll(codeDir, 0755); err != nil {
+		return nil, fmt.Errorf("creating code dir: %w", err)
+	}
+
+	if err := extractFiles(codeDir, output); err != nil {
+		return nil, fmt.Errorf("extracting files: %w", err)
+	}
+
+	coverage, testsRan := runTests(codeDir, h.language)
+
+	r.Hydrated = true
+	r.Coverage = coverage
+	if err := h.store.Update(*r); err != nil {
+		return nil, fmt.Errorf("updating rune: %w", err)
+	}
+
+	return &Result{
+		RuneName: name,
+		Output:   output,
+		Coverage: coverage,
+		TestsRan: testsRan,
+	}, nil
+}
+
+// Hydrate generates code for the named rune using a sandbox runner, stores it, runs tests.
+// Used in sandbox mode only. If logOut is non-nil, sandbox output is streamed to it in real time.
 func (h *Hydrator) Hydrate(ctx context.Context, name string, r runner.Runner, logOut io.Writer) (*Result, error) {
 	rune, err := h.store.Get(name)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build prompt: instruct the agent to generate code + tests
-	prompt := buildPrompt(rune.Name, rune.Description, rune.Signature)
+	prompt := buildPrompt(rune, h.language)
 
-	// Create code directory
 	codeDir := h.store.CodeDir(name)
 	if err := os.MkdirAll(codeDir, 0755); err != nil {
 		return nil, fmt.Errorf("creating code dir: %w", err)
 	}
 
-	// Run the sandbox agent
 	output, err := r.Run(ctx, prompt, logOut)
 	if err != nil {
 		return nil, fmt.Errorf("sandbox run failed: %w", err)
 	}
 
-	// Extract and store code files from agent output
 	if err := extractFiles(codeDir, output); err != nil {
 		return nil, fmt.Errorf("extracting files: %w", err)
 	}
 
-	// Run tests and get coverage
-	coverage, testsRan := runTests(codeDir)
+	coverage, testsRan := runTests(codeDir, h.language)
 
-	// Update rune record
 	rune.Hydrated = true
 	rune.Coverage = coverage
 	if err := h.store.Update(*rune); err != nil {
@@ -79,24 +132,53 @@ func (h *Hydrator) Hydrate(ctx context.Context, name string, r runner.Runner, lo
 	}, nil
 }
 
-func buildPrompt(name, description, signature string) string {
-	return fmt.Sprintf(`You are implementing a software component called "%s".
+func buildPrompt(r *runepkg.Rune, language string) string {
+	var sb strings.Builder
+
+	fmt.Fprintf(&sb, `You are implementing a single, isolated software component called "%s".
+Write all code in %s.
 
 Description: %s
 
 Signature: %s
+`, r.Name, language, r.Description, r.Signature)
 
+	if r.Behavior != "" {
+		fmt.Fprintf(&sb, "\nBehavior:\n%s\n", r.Behavior)
+	}
+
+	if len(r.PositiveTests) > 0 {
+		sb.WriteString("\nExpected passing test cases:\n")
+		for _, t := range r.PositiveTests {
+			fmt.Fprintf(&sb, "- %s\n", t)
+		}
+	}
+
+	if len(r.NegativeTests) > 0 {
+		sb.WriteString("\nExpected failing/error test cases:\n")
+		for _, t := range r.NegativeTests {
+			fmt.Fprintf(&sb, "- %s\n", t)
+		}
+	}
+
+	sb.WriteString(`
 Instructions:
-1. Implement the component as described above.
-2. Write behavior tests that verify the described functionality.
-3. Output each file using this format exactly:
+1. This component must be isolated from other runes.
+   - Do NOT import or call any other runes directly.
+   - All inter-rune communication goes through the dispatcher via serializable types.
+2. Implement the component as described above, covering all specified behavior.
+3. Write tests that verify every positive and negative test case listed above.
+   Each test case should be its own test function with a clear name.
+4. Output each file using this format exactly:
 
 === FILE: <filename> ===
 <file contents>
 === END FILE ===
 
 Keep the implementation minimal and focused on the described behavior.
-Do not include explanations outside of file blocks.`, name, description, signature)
+Do not include explanations outside of file blocks.`)
+
+	return sb.String()
 }
 
 // extractFiles parses agent output for FILE blocks and writes them to disk.
@@ -123,8 +205,8 @@ func extractFiles(dir, output string) error {
 
 // runTests attempts to run tests in the code dir and parse coverage.
 // Returns coverage % and whether tests ran successfully.
-func runTests(dir string) (coverage float64, ran bool) {
-	cmd, args := detectTestCommand(dir)
+func runTests(dir, language string) (coverage float64, ran bool) {
+	cmd, args := testCommand(language)
 	if cmd == "" {
 		return -1, false
 	}
@@ -140,20 +222,13 @@ func runTests(dir string) (coverage float64, ran bool) {
 	return coverage, true
 }
 
-func detectTestCommand(dir string) (string, []string) {
-	// Go
-	if hasFile(dir, "go.mod") || hasGlob(dir, "*.go") {
+func testCommand(language string) (string, []string) {
+	switch language {
+	case "go":
 		return "go", []string{"test", "-cover", "."}
+	default:
+		return "", nil
 	}
-	// Python
-	if hasGlob(dir, "*.py") {
-		return "python", []string{"-m", "pytest", "--tb=short", dir}
-	}
-	// Node/TypeScript
-	if hasFile(dir, "package.json") {
-		return "npm", []string{"test", "--prefix", dir}
-	}
-	return "", nil
 }
 
 var coverageRe = regexp.MustCompile(`coverage:\s+([\d.]+)%`)
@@ -170,12 +245,3 @@ func parseCoverage(output string) float64 {
 	return v
 }
 
-func hasFile(dir, name string) bool {
-	_, err := os.Stat(filepath.Join(dir, name))
-	return err == nil
-}
-
-func hasGlob(dir, pattern string) bool {
-	matches, _ := filepath.Glob(filepath.Join(dir, pattern))
-	return len(matches) > 0
-}
