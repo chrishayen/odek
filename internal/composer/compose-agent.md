@@ -63,6 +63,14 @@ Generate tests from each component's positive and negative test cases. Tests sho
 
 Look at the rune code to determine the language. Generate the wiring code in the same language.
 
+## File layout
+
+All files are written relative to the feature directory (`src/<feature>/`). Do not repeat the feature name in subdirectories — avoid stutter like `src/fileserver/runes/fileserver/`. Place files flat in the feature directory:
+
+- Rune adapters: `<rune_name>.go` (e.g. `parse_cli_args.go`)
+- Component wiring: `<component_name>.go` (e.g. `cli_entry.go`)
+- Tests: `<name>_test.go` alongside the file they test
+
 ## Output format
 
 Output each file using this format exactly:

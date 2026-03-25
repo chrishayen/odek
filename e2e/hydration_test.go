@@ -38,7 +38,7 @@ func TestHydrateGeneratesCodeFiles(t *testing.T) {
 	run(t, dir, "runes", "create", "--name", "test/hello-world-files", "--description", "Returns Hello World", "--signature", "() -> string")
 	run(t, dir, "runes", "hydrate", "test/hello-world-files")
 
-	codeDir := filepath.Join(dir, "src", "test/hello-world-files")
+	codeDir := filepath.Join(dir, "src", "test")
 	entries, err := os.ReadDir(codeDir)
 	if err != nil {
 		t.Fatalf("code dir not created: %v", err)

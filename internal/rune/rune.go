@@ -44,7 +44,11 @@ func (s *Store) OutputPath() string {
 }
 
 // CodeDir returns the directory where generated code for a rune is stored.
+// Runes share a folder per feature (the first segment of the name).
 func (s *Store) CodeDir(name string) string {
+	if i := strings.Index(name, "/"); i != -1 {
+		return filepath.Join(s.outputPath, name[:i])
+	}
 	return filepath.Join(s.outputPath, name)
 }
 

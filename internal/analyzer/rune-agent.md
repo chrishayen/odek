@@ -59,7 +59,14 @@ Query the registry with `features_list` and `runes_list`. Read every existing fe
 
 Break the input into the smallest possible functional parts. Each part becomes a rune.
 
-**Generic vs. feature-specific**: For each rune, decide whether it is specific to this feature or a general-purpose utility. A rune like `validate-email` or `format-date` is generic — it could be used by any feature. A rune like `create-session-token` is specific to auth. Generic runes go in the `generic` namespace (e.g. `generic/validate-email`). Feature-specific runes go in the feature namespace (e.g. `auth/create-session-token`). When composing components, the wiring should reference the correct namespace — `call generic/validate-email(...)` or `call auth/create-session-token(...)`.
+**Functional core vs. imperative shell**: The generated project follows a functional core / imperative shell architecture. For each rune, decide whether it is a pure computation (functional core) or performs side effects like I/O, database access, network calls, or system interaction (imperative shell).
+
+- **Functional core runes** are pure — same input always produces same output, no side effects. These go in their feature namespace (e.g. `auth/validate-email`, `payment/calculate-total`).
+- **Imperative shell runes** perform side effects — reading/writing databases, making HTTP calls, accessing the filesystem, getting the current time, generating UUIDs. These belong at the root of the project, not nested inside feature namespaces.
+
+This separation must be clear in your decomposition. When a requirement mixes pure logic with side effects, split it: extract the pure computation into a functional core rune and keep the side-effecting wrapper as an imperative shell rune.
+
+**Generic vs. feature-specific**: For each rune, also decide whether it is specific to this feature or a general-purpose utility. A rune like `validate-email` or `format-date` is generic — it could be used by any feature. A rune like `create-session-token` is specific to auth. Generic runes go in the `generic` namespace (e.g. `generic/validate-email`). Feature-specific runes go in the feature namespace (e.g. `auth/create-session-token`). When composing components, the wiring should reference the correct namespace — `call generic/validate-email(...)` or `call auth/create-session-token(...)`.
 
 For each rune, produce:
 

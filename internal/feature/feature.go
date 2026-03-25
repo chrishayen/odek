@@ -37,7 +37,7 @@ func (s *Store) OutputPath() string {
 }
 
 func (s *Store) CodeDir(name string) string {
-	return filepath.Join(s.outputPath, name, "_composed")
+	return filepath.Join(s.outputPath, name)
 }
 
 // ReadRaw returns the raw file content for passing to agents.
