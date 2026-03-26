@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,30 +8,15 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-type Agent struct {
-	Type     string `toml:"type"`
-	Model    string `toml:"model,omitempty"`
-	Image    string `toml:"image,omitempty"`
+type Server struct {
+	URL      string `toml:"url"`
 	Token    string `toml:"token,omitempty"`
 	TokenEnv string `toml:"token_env,omitempty"`
-	Sandbox  bool   `toml:"sandbox,omitempty"`
 }
 
 type Config struct {
-	Project      string `toml:"project"`
-	Language     string `toml:"language"`
-	RegistryPath string `toml:"registry_path"`
-	OutputPath   string `toml:"output_path"`
-	Agent        Agent  `toml:"agent"`
-}
-
-var supportedLanguages = map[string]bool{
-	"go": true,
-}
-
-var validTypes = map[string]bool{
-	"claude-sub": true,
-	"mock":       true, // for testing only
+	Project string `toml:"project"`
+	Server  Server `toml:"server"`
 }
 
 // FindRoot walks up from cwd (or VALKYRIE_PROJECT_DIR) looking for valkyrie.toml.
@@ -68,10 +52,9 @@ func Load() (*Config, error) {
 
 	path := filepath.Join(root, "valkyrie.toml")
 	cfg := &Config{
-		RegistryPath: root,
-		OutputPath:   filepath.Join(root, "src"),
-		Agent: Agent{
-			Type: "claude-sub",
+		Server: Server{
+			URL:      "http://localhost:7777",
+			TokenEnv: "VALKYRIE_TOKEN",
 		},
 	}
 	if _, err := toml.DecodeFile(path, cfg); err != nil {
@@ -82,38 +65,20 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("project name is required in %s", path)
 	}
 
-	if cfg.Language == "" {
-		cfg.Language = "go"
-	}
-	if !supportedLanguages[cfg.Language] {
-		return nil, fmt.Errorf("unsupported language %q (supported: go)", cfg.Language)
-	}
-
-	if !validTypes[cfg.Agent.Type] {
-		return nil, fmt.Errorf("agent: unknown type %q (valid: claude-sub)", cfg.Agent.Type)
+	if cfg.Server.URL == "" {
+		return nil, fmt.Errorf("server.url is required in %s", path)
 	}
 
 	return cfg, nil
 }
 
-// ClaudeToken reads the OAuth access token from ~/.claude/.credentials.json.
-// Returns empty string if the file doesn't exist or can't be parsed.
-func ClaudeToken() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+// ResolveToken returns the server token from config or environment.
+func (c *Config) ResolveToken() string {
+	if c.Server.Token != "" {
+		return c.Server.Token
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
-	if err != nil {
-		return ""
+	if c.Server.TokenEnv != "" {
+		return os.Getenv(c.Server.TokenEnv)
 	}
-	var creds struct {
-		ClaudeAiOauth struct {
-			AccessToken string `json:"accessToken"`
-		} `json:"claudeAiOauth"`
-	}
-	if json.Unmarshal(data, &creds) != nil {
-		return ""
-	}
-	return creds.ClaudeAiOauth.AccessToken
+	return ""
 }

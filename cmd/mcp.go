@@ -4,12 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 
-	"github.com/chrishayen/valkyrie/internal/analyzer"
-	"github.com/chrishayen/valkyrie/internal/feature"
-	runepkg "github.com/chrishayen/valkyrie/internal/rune"
-	"github.com/chrishayen/valkyrie/internal/runner"
+	"github.com/chrishayen/valkyrie/internal/server/store"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
@@ -26,92 +22,41 @@ var mcpCmd = &cobra.Command{
 		)
 
 		s.AddTool(mcp.NewTool("runes_list",
-			mcp.WithDescription("List all runes in the registry. A rune is the atomic unit of functionality — one function described in English. Each rune has a name, description, signature, behavior spec, and test cases. Returns JSON array of all registered runes."),
+			mcp.WithDescription("List runes on the rune server. Filterable by project or namespace prefix. Returns JSON array of rune specs with FQN, description, signature, status."),
+			mcp.WithString("project", mcp.Description("Filter by project name")),
+			mcp.WithString("namespace", mcp.Description("Filter by namespace prefix (e.g. 'net.http' or 'myapp.auth')")),
 		), handleRunesList)
 
-		s.AddTool(mcp.NewTool("runes_create",
-			mcp.WithDescription("Create a new rune in the registry. A rune describes exactly one function. The name should follow verb-noun pattern and be prefixed with its feature namespace (e.g. auth/validate-email). The description, signature, and behavior together form the contract that the hydration agent uses to generate code. Before creating runes, check features_list to see if the feature namespace exists — if not, create the feature first with features_create."),
-			mcp.WithString("name", mcp.Description("Rune name as a slug, prefixed with feature namespace (e.g. auth/validate-email, payment/calculate-total)"), mcp.Required()),
-			mcp.WithString("description", mcp.Description("One or two sentences stating what the function does, what it accepts, and what it returns"), mcp.Required()),
-			mcp.WithString("signature", mcp.Description("Function signature using precise types, e.g. (email: string) -> bool, (prices: list[f64], tax_rate: f64) -> result[f64, string]"), mcp.Required()),
-			mcp.WithString("behavior", mcp.Description("Precise description of inputs, outputs, edge cases, and constraints. Each point on its own line starting with '- '")),
-		), handleRunesCreate)
-
 		s.AddTool(mcp.NewTool("runes_get",
-			mcp.WithDescription("Retrieve a single rune by name. Returns the full rune record including description, signature, behavior, tests, version, hydration status, and coverage."),
-			mcp.WithString("name", mcp.Description("Full rune name including namespace (e.g. auth/validate-email)"), mcp.Required()),
+			mcp.WithDescription("Get a single rune by its fully-qualified name (dot notation). Returns the full spec including description, signature, behavior, tests, version, and status."),
+			mcp.WithString("fqn", mcp.Description("Fully-qualified rune name in dot notation (e.g. net.http.parse_url, myapp.auth.validate_token)"), mcp.Required()),
 		), handleRunesGet)
 
-		s.AddTool(mcp.NewTool("runes_update",
-			mcp.WithDescription("Update an existing rune's description, signature, or version. At least one field must be provided. The rune must already exist in the registry."),
-			mcp.WithString("name", mcp.Description("Full rune name including namespace (e.g. auth/validate-email)"), mcp.Required()),
-			mcp.WithString("description", mcp.Description("New description for the rune")),
-			mcp.WithString("signature", mcp.Description("New function signature with precise types")),
-			mcp.WithString("version", mcp.Description("New semantic version (e.g. 0.2.0)")),
-		), handleRunesUpdate)
+		s.AddTool(mcp.NewTool("runes_search",
+			mcp.WithDescription("Search runes by keyword. Matches against FQN, description, and signature. Use this to find existing runes before creating new ones."),
+			mcp.WithString("query", mcp.Description("Search query string"), mcp.Required()),
+		), handleRunesSearch)
 
-		s.AddTool(mcp.NewTool("runes_delete",
-			mcp.WithDescription("Delete a rune from the registry. Removes the rune spec file. Does not remove generated code if the rune was hydrated."),
-			mcp.WithString("name", mcp.Description("Full rune name including namespace (e.g. auth/validate-email)"), mcp.Required()),
-		), handleRunesDelete)
+		s.AddTool(mcp.NewTool("runes_approve",
+			mcp.WithDescription("Approve a rune spec, changing its status from draft to approved. Use this after the user confirms they're satisfied with the spec."),
+			mcp.WithString("fqn", mcp.Description("Fully-qualified rune name to approve"), mcp.Required()),
+		), handleRunesApprove)
 
-		s.AddTool(mcp.NewTool("runes_analyze",
-			mcp.WithDescription("Decompose plain-text requirements into runes via a sandboxed agent. The agent reads existing runes to avoid duplication, then proposes new runes with names, descriptions, signatures, behavior specs, and test cases. Proposed runes are auto-created in the registry. Returns both new and existing runes that cover the requirements."),
-			mcp.WithString("requirements", mcp.Description("Plain-text English description of what you need built. Be specific about inputs, outputs, and expected behavior."), mcp.Required()),
-		), handleRunesAnalyze)
+		s.AddTool(mcp.NewTool("runes_reject",
+			mcp.WithDescription("Reject a rune spec with feedback. The feedback is used to guide redesign of the spec."),
+			mcp.WithString("fqn", mcp.Description("Fully-qualified rune name to reject"), mcp.Required()),
+			mcp.WithString("feedback", mcp.Description("Explanation of what needs to change"), mcp.Required()),
+		), handleRunesReject)
 
-		s.AddTool(mcp.NewTool("runes_create_batch",
-			mcp.WithDescription("Create multiple runes at once from a JSON array. Each rune object must have name, description, and signature. Useful after manually decomposing requirements into multiple runes."),
-			mcp.WithString("runes", mcp.Description("JSON array of rune objects, each with: name (string, required), description (string, required), signature (string, required), behavior (string), positive_tests (string[]), negative_tests (string[])"), mcp.Required()),
-		), handleRunesCreateBatch)
+		s.AddTool(mcp.NewTool("requirements_submit",
+			mcp.WithDescription("Submit refined requirements to the rune server for decomposition. The server breaks requirements into runes, classifies them, searches for existing matches, and designs new specs. Returns a job ID to poll with requirements_status."),
+			mcp.WithString("requirements", mcp.Description("The refined requirements text"), mcp.Required()),
+		), handleRequirementsSubmit)
 
-		s.AddTool(mcp.NewTool("runes_hydrate",
-			mcp.WithDescription("Generate code and tests for a rune via a sandboxed Docker agent. Requires sandbox = true in config. The agent reads the rune's English spec and produces implementation files, runs tests, and records coverage. The rune is marked as hydrated on success. When sandbox is disabled (default), use runes_hydration_spec + runes_finalize_hydration instead."),
-			mcp.WithString("name", mcp.Description("Full rune name including namespace (e.g. auth/validate-email)"), mcp.Required()),
-		), handleRunesHydrate)
-
-		s.AddTool(mcp.NewTool("runes_hydration_spec",
-			mcp.WithDescription("Get the hydration prompt for a rune. Returns the enriched prompt with behavior, test cases, and isolation instructions. The prompt instructs the sub-agent to output code using === FILE: <filename> === blocks. The calling agent should spawn a sub-agent with this prompt, collect the sub-agent's full text output, and pass that output to runes_finalize_hydration. The sub-agent must NOT write files to disk — it only produces text output. To hydrate multiple runes concurrently, call this for each rune, spawn all sub-agents in a single message, then finalize each."),
-			mcp.WithString("name", mcp.Description("Full rune name including namespace (e.g. auth/validate-email)"), mcp.Required()),
-		), handleRunesHydrationSpec)
-
-		s.AddTool(mcp.NewTool("runes_finalize_hydration",
-			mcp.WithDescription("Submit generated code for a rune, extract files, run tests, and mark it as hydrated. The output parameter must contain the sub-agent's full text response with === FILE: <filename> === / === END FILE === blocks. This tool parses those blocks, writes the files, runs language-appropriate tests, records coverage, and updates the rune record."),
-			mcp.WithString("name", mcp.Description("Full rune name including namespace (e.g. auth/validate-email)"), mcp.Required()),
-			mcp.WithString("output", mcp.Description("The sub-agent's complete text output containing === FILE: <filename> === / === END FILE === blocks with generated source code and test files"), mcp.Required()),
-		), handleRunesFinalizeHydration)
-
-		s.AddTool(mcp.NewTool("features_list",
-			mcp.WithDescription("List all features in the registry. A feature is a namespace that groups related runes — it describes a domain (e.g. auth, payment) and how its runes compose into components. Returns JSON array of all registered features with their components and connections. Check this before creating runes to see which namespaces exist."),
-		), handleFeaturesList)
-
-		s.AddTool(mcp.NewTool("features_create",
-			mcp.WithDescription("Create a new feature in the registry. A feature defines a namespace for related runes. The feature name becomes the rune namespace prefix (e.g. feature 'auth' means runes are named auth/validate-email, auth/hash-password, etc.). Pass the complete feature content in the body parameter — description, signature, components with wiring and tests, connections — everything in one call. Do not create a skeleton and edit later. IMPORTANT: Always propose the feature to the user and wait for approval before calling this tool."),
-			mcp.WithString("name", mcp.Description("Feature name as a single slug with no slashes (e.g. auth, payment, notifications). This becomes the namespace for its runes."), mcp.Required()),
-			mcp.WithString("body", mcp.Description("The full feature content in markdown. Include: description, ## Signature, ## Components (with ### component names, #### Signature, #### Composes, #### Wiring with fenced code blocks, #### Positive tests, #### Negative tests), and ## Connections. This becomes the body of the feature.md file below the # heading."), mcp.Required()),
-		), handleFeaturesCreate)
-
-		s.AddTool(mcp.NewTool("features_get",
-			mcp.WithDescription("Retrieve a single feature by name. Returns the full feature record including description, components (with their composed runes), connections, version, and status."),
-			mcp.WithString("name", mcp.Description("Feature name (e.g. auth, payment)"), mcp.Required()),
-		), handleFeaturesGet)
-
-		s.AddTool(mcp.NewTool("features_update",
-			mcp.WithDescription("Update a feature's version or status. At least one field must be provided. Use this to promote a feature through the draft → reviewed → stable lifecycle. To modify the feature content (description, components, wiring), edit the feature.md file directly."),
-			mcp.WithString("name", mcp.Description("Feature name (e.g. auth, payment)"), mcp.Required()),
-			mcp.WithString("version", mcp.Description("New semantic version (e.g. 0.2.0)")),
-			mcp.WithString("status", mcp.Description("New status: draft (initial), reviewed (approved), or stable (production-ready)")),
-		), handleFeaturesUpdate)
-
-		s.AddTool(mcp.NewTool("features_delete",
-			mcp.WithDescription("Delete a feature from the registry. Removes only the feature.md file — runes in the namespace are preserved. Use this to remove a feature definition while keeping its runes intact."),
-			mcp.WithString("name", mcp.Description("Feature name (e.g. auth, payment)"), mcp.Required()),
-		), handleFeaturesDelete)
-
-		s.AddTool(mcp.NewTool("features_compose",
-			mcp.WithDescription("Generate dispatcher and wiring code for a feature by composing its hydrated runes. All runes listed in the feature's components must be hydrated first. The agent reads the feature's wiring pseudocode and rune signatures to generate: (1) an immutable dispatcher with all callables hardcoded, (2) wiring functions that implement the pseudocode, and (3) integration tests. Generated code is stored in src/<feature>/_composed/ (or the configured output_path)."),
-			mcp.WithString("name", mcp.Description("Feature name (e.g. auth, payment)"), mcp.Required()),
-		), handleFeaturesCompose)
+		s.AddTool(mcp.NewTool("requirements_status",
+			mcp.WithDescription("Check the status of a requirements decomposition job. Returns the current status and, when complete, the list of proposed rune specs and existing matches."),
+			mcp.WithString("id", mcp.Description("Job ID returned by requirements_submit"), mcp.Required()),
+		), handleRequirementsStatus)
 
 		return server.ServeStdio(s)
 	},
@@ -139,296 +84,92 @@ func errResult(err error) *mcp.CallToolResult {
 	}
 }
 
-func handleRunesList(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	runes, err := store.List()
+func handleRunesList(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := req.GetArguments()
+	project, _ := args["project"].(string)
+	namespace, _ := args["namespace"].(string)
+
+	runes, err := apiClient.RunesList(project, namespace)
 	if err != nil {
 		return errResult(err), nil
 	}
 	if runes == nil {
-		runes = []runepkg.Rune{}
+		runes = []store.Rune{}
 	}
 	return textResult(toJSON(runes)), nil
 }
 
-func handleRunesCreate(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := req.GetArguments()
-	name, _ := args["name"].(string)
-	description, _ := args["description"].(string)
-
-	signature, _ := args["signature"].(string)
-	r := runepkg.Rune{Name: name, Description: description, Signature: signature}
-	if beh, ok := args["behavior"].(string); ok {
-		r.Behavior = beh
-	}
-	if pt, ok := args["positive_tests"].([]any); ok {
-		for _, v := range pt {
-			if s, ok := v.(string); ok {
-				r.PositiveTests = append(r.PositiveTests, s)
-			}
-		}
-	}
-	if nt, ok := args["negative_tests"].([]any); ok {
-		for _, v := range nt {
-			if s, ok := v.(string); ok {
-				r.NegativeTests = append(r.NegativeTests, s)
-			}
-		}
-	}
-	if err := store.Create(r); err != nil {
-		return errResult(err), nil
-	}
-	created, err := store.Get(name)
-	if err != nil {
-		return errResult(err), nil
-	}
-	return textResult(toJSON(created)), nil
-}
-
 func handleRunesGet(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := req.GetArguments()
-	name, _ := args["name"].(string)
+	fqn, _ := args["fqn"].(string)
 
-	r, err := store.Get(name)
+	r, err := apiClient.RunesGet(fqn)
 	if err != nil {
 		return errResult(err), nil
 	}
 	return textResult(toJSON(r)), nil
 }
 
-func handleRunesUpdate(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func handleRunesSearch(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := req.GetArguments()
-	name, _ := args["name"].(string)
+	query, _ := args["query"].(string)
 
-	r, err := store.Get(name)
+	runes, err := apiClient.RunesSearch(query)
 	if err != nil {
 		return errResult(err), nil
 	}
+	if runes == nil {
+		runes = []store.Rune{}
+	}
+	return textResult(toJSON(runes)), nil
+}
 
-	changed := false
-	if desc, ok := args["description"].(string); ok && desc != "" {
-		r.Description = desc
-		changed = true
-	}
-	if sig, ok := args["signature"].(string); ok && sig != "" {
-		r.Signature = sig
-		changed = true
-	}
-	if ver, ok := args["version"].(string); ok && ver != "" {
-		r.Version = ver
-		changed = true
-	}
-	if !changed {
-		return errResult(fmt.Errorf("at least one of description, signature, or version is required")), nil
-	}
+func handleRunesApprove(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := req.GetArguments()
+	fqn, _ := args["fqn"].(string)
 
-	if err := store.Update(*r); err != nil {
-		return errResult(err), nil
-	}
-	updated, err := store.Get(name)
+	r, err := apiClient.RunesApprove(fqn)
 	if err != nil {
 		return errResult(err), nil
 	}
-	return textResult(toJSON(updated)), nil
+	return textResult(toJSON(r)), nil
 }
 
-func handleRunesDelete(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func handleRunesReject(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := req.GetArguments()
-	name, _ := args["name"].(string)
+	fqn, _ := args["fqn"].(string)
+	feedback, _ := args["feedback"].(string)
 
-	if err := store.Delete(name); err != nil {
+	// Update the rune status back to draft with feedback in behavior
+	patch := map[string]any{
+		"status":   "draft",
+		"behavior": fmt.Sprintf("[FEEDBACK] %s", feedback),
+	}
+	r, err := apiClient.RunesUpdate(fqn, patch)
+	if err != nil {
 		return errResult(err), nil
 	}
-	return textResult(fmt.Sprintf("rune %q deleted", name)), nil
+	return textResult(toJSON(r)), nil
 }
 
-func handleRunesAnalyze(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func handleRequirementsSubmit(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := req.GetArguments()
 	requirements, _ := args["requirements"].(string)
 
-	run, err := runner.New(cfg.Agent)
-	if err != nil {
-		return errResult(err), nil
-	}
-
-	result, err := ana.Analyze(ctx, requirements, run, os.Stderr)
-	if err != nil {
-		return errResult(err), nil
-	}
-
-	// Auto-create the proposed runes
-	var created []string
-	for _, p := range result.NewRunes {
-		r := p.ToRune()
-		if err := store.Create(r); err != nil {
-			created = append(created, fmt.Sprintf("FAILED %s: %v", p.Name, err))
-			continue
-		}
-		created = append(created, fmt.Sprintf("created %s", p.Name))
-	}
-
-	type analyzeOutput struct {
-		*analyzer.Result
-		Created []string `json:"created"`
-	}
-
-	return textResult(toJSON(analyzeOutput{Result: result, Created: created})), nil
-}
-
-func handleRunesHydrate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if !cfg.Agent.Sandbox {
-		return errResult(fmt.Errorf("sandbox is disabled — use runes_hydration_spec + runes_finalize_hydration with sub-agents instead")), nil
-	}
-
-	args := req.GetArguments()
-	name, _ := args["name"].(string)
-
-	run, err := runner.New(cfg.Agent)
-	if err != nil {
-		return errResult(err), nil
-	}
-
-	result, err := hyd.Hydrate(ctx, name, run, os.Stderr)
+	result, err := apiClient.RequirementsSubmit(cfg.Project, requirements)
 	if err != nil {
 		return errResult(err), nil
 	}
 	return textResult(toJSON(result)), nil
 }
 
-func handleRunesHydrationSpec(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func handleRequirementsStatus(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := req.GetArguments()
-	name, _ := args["name"].(string)
+	id, _ := args["id"].(string)
 
-	spec, err := hyd.GetHydrationSpec(name)
-	if err != nil {
-		return errResult(err), nil
-	}
-	return textResult(toJSON(spec)), nil
-}
-
-func handleRunesFinalizeHydration(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := req.GetArguments()
-	name, _ := args["name"].(string)
-	output, _ := args["output"].(string)
-
-	result, err := hyd.FinalizeHydration(name, output)
+	result, err := apiClient.RequirementsStatus(id)
 	if err != nil {
 		return errResult(err), nil
 	}
 	return textResult(toJSON(result)), nil
-}
-
-func handleFeaturesList(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	features, err := featureStore.List()
-	if err != nil {
-		return errResult(err), nil
-	}
-	if features == nil {
-		features = []feature.Feature{}
-	}
-	return textResult(toJSON(features)), nil
-}
-
-func handleFeaturesCreate(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := req.GetArguments()
-	name, _ := args["name"].(string)
-	body, _ := args["body"].(string)
-
-	if err := featureStore.Create(name, body); err != nil {
-		return errResult(err), nil
-	}
-	created, err := featureStore.Get(name)
-	if err != nil {
-		return errResult(err), nil
-	}
-	return textResult(toJSON(created)), nil
-}
-
-func handleFeaturesGet(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := req.GetArguments()
-	name, _ := args["name"].(string)
-
-	f, err := featureStore.Get(name)
-	if err != nil {
-		return errResult(err), nil
-	}
-	return textResult(toJSON(f)), nil
-}
-
-func handleFeaturesUpdate(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := req.GetArguments()
-	name, _ := args["name"].(string)
-
-	f, err := featureStore.Get(name)
-	if err != nil {
-		return errResult(err), nil
-	}
-
-	changed := false
-	if ver, ok := args["version"].(string); ok && ver != "" {
-		f.Version = ver
-		changed = true
-	}
-	if status, ok := args["status"].(string); ok && status != "" {
-		f.Status = status
-		changed = true
-	}
-	if !changed {
-		return errResult(fmt.Errorf("at least one of version or status is required")), nil
-	}
-
-	if err := featureStore.Update(*f); err != nil {
-		return errResult(err), nil
-	}
-	updated, err := featureStore.Get(name)
-	if err != nil {
-		return errResult(err), nil
-	}
-	return textResult(toJSON(updated)), nil
-}
-
-func handleFeaturesDelete(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := req.GetArguments()
-	name, _ := args["name"].(string)
-
-	if err := featureStore.Delete(name); err != nil {
-		return errResult(err), nil
-	}
-	return textResult(fmt.Sprintf("feature %q deleted", name)), nil
-}
-
-func handleFeaturesCompose(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := req.GetArguments()
-	name, _ := args["name"].(string)
-
-	run, err := runner.New(cfg.Agent)
-	if err != nil {
-		return errResult(err), nil
-	}
-
-	result, err := comp.Compose(ctx, name, run, os.Stderr)
-	if err != nil {
-		return errResult(err), nil
-	}
-	return textResult(toJSON(result)), nil
-}
-
-func handleRunesCreateBatch(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := req.GetArguments()
-	runesJSON, _ := args["runes"].(string)
-
-	var batch []runepkg.Rune
-	if err := json.Unmarshal([]byte(runesJSON), &batch); err != nil {
-		return errResult(fmt.Errorf("invalid runes JSON: %w", err)), nil
-	}
-
-	var results []string
-	for _, r := range batch {
-		if err := store.Create(r); err != nil {
-			results = append(results, fmt.Sprintf("FAILED %s: %v", r.Name, err))
-			continue
-		}
-		results = append(results, fmt.Sprintf("created %s", r.Name))
-	}
-
-	return textResult(toJSON(results)), nil
 }

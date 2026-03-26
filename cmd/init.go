@@ -5,24 +5,14 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/chrishayen/valkyrie/internal/analyzer"
 	"github.com/spf13/cobra"
 )
 
-var supportedLanguages = map[string]bool{
-	"go": true,
-}
-
 var initCmd = &cobra.Command{
-	Use:   "init <language>",
+	Use:   "init",
 	Short: "Initialize a new Valkyrie project in the current directory",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		language := args[0]
-		if !supportedLanguages[language] {
-			return fmt.Errorf("unsupported language %q (supported: go)", language)
-		}
-
 		cwd, err := os.Getwd()
 		if err != nil {
 			return err
@@ -38,17 +28,15 @@ var initCmd = &cobra.Command{
 			project = filepath.Base(cwd)
 		}
 
+		serverURL, _ := cmd.Flags().GetString("server")
+
 		// valkyrie.toml
 		tomlContent := fmt.Sprintf(`project = %q
-language = %q
-# output_path = "src"
 
-[agent]
-type = "claude-sub"
-# sandbox = false  # set true to run agents inside Docker containers
-# model = "claude-sonnet-4-5"
-# token parses from ~/.claude/.credentials.json by default
-`, project, language)
+[server]
+url = %q
+token_env = "VALKYRIE_TOKEN"
+`, project, serverURL)
 
 		if err := os.WriteFile(tomlPath, []byte(tomlContent), 0644); err != nil {
 			return fmt.Errorf("writing valkyrie.toml: %w", err)
@@ -69,9 +57,9 @@ type = "claude-sub"
 			return fmt.Errorf("writing .mcp.json: %w", err)
 		}
 
-		// CLAUDE.md — rune-agent instructions, auto-loaded by Claude Code
+		// CLAUDE.md — agent instructions
 		claudePath := filepath.Join(cwd, "CLAUDE.md")
-		if err := os.WriteFile(claudePath, []byte(analyzer.Instructions), 0644); err != nil {
+		if err := os.WriteFile(claudePath, []byte(agentInstructions), 0644); err != nil {
 			return fmt.Errorf("writing CLAUDE.md: %w", err)
 		}
 
@@ -100,4 +88,47 @@ type = "claude-sub"
 
 func init() {
 	initCmd.Flags().String("project", "", "Project name (defaults to directory name)")
+	initCmd.Flags().String("server", "http://localhost:7777", "Rune server URL")
 }
+
+const agentInstructions = `# Valkyrie Rune Agent
+
+You are working in a Valkyrie project. Valkyrie manages function specifications called "runes" on a remote rune server.
+
+## Workflow
+
+1. The user describes what they want to build
+2. You refine the requirements with the user until they're ready
+3. Use ` + "`requirements_submit`" + ` to push requirements to the rune server
+4. The server decomposes requirements into runes, classifies them, and designs specs
+5. Use ` + "`requirements_status`" + ` to check progress
+6. Present the results to the user for approval
+7. Use ` + "`runes_approve`" + ` to commit approved rune specs
+8. Use ` + "`runes_reject`" + ` to send feedback on specs that need changes
+9. Iterate until the user is satisfied
+
+## Rune Classification
+
+Runes use dot-notation like a standard library:
+- Generic (reusable): ` + "`net.http.parse_url`" + `, ` + "`crypto.hash.sha256`" + `, ` + "`text.validate.email`" + `
+- Project-specific: ` + "`projectname.auth.validate_token`" + `, ` + "`projectname.payment.calculate_total`" + `
+
+## Available MCP Tools
+
+- ` + "`requirements_submit`" + ` — Push refined requirements to the server
+- ` + "`requirements_status`" + ` — Check status of a requirements job
+- ` + "`runes_list`" + ` — List runes (by project, namespace, or all)
+- ` + "`runes_get`" + ` — Get a rune by fully-qualified name
+- ` + "`runes_search`" + ` — Search across the registry
+- ` + "`runes_approve`" + ` — Approve/commit a rune spec
+- ` + "`runes_reject`" + ` — Reject with feedback (triggers re-design)
+
+## Rune Spec Format
+
+Each rune is a pure function specification:
+- **FQN**: Dot-notation name (e.g. ` + "`text.validate.email`" + `)
+- **Description**: 1-2 sentences
+- **Signature**: Typed function signature using precise types
+- **Behavior**: Inputs, outputs, edge cases, constraints
+- **Tests**: Positive and negative test cases
+`

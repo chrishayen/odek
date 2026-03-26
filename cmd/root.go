@@ -5,29 +5,22 @@ import (
 	"os"
 
 	"github.com/chrishayen/valkyrie/config"
-	"github.com/chrishayen/valkyrie/internal/analyzer"
-	"github.com/chrishayen/valkyrie/internal/composer"
-	"github.com/chrishayen/valkyrie/internal/feature"
-	"github.com/chrishayen/valkyrie/internal/hydrator"
-	runepkg "github.com/chrishayen/valkyrie/internal/rune"
+	"github.com/chrishayen/valkyrie/internal/client"
 	"github.com/spf13/cobra"
 )
 
 var (
-	cfg          *config.Config
-	store        *runepkg.Store
-	featureStore *feature.Store
-	hyd          *hydrator.Hydrator
-	ana          *analyzer.Analyzer
-	comp         *composer.Composer
+	cfg       *config.Config
+	apiClient *client.Client
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "valkyrie",
 	Short: "Valkyrie — agentic code orchestration",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Skip config loading for init — config doesn't exist yet
-		if cmd.Name() == "init" {
+		// Skip config loading for commands that don't need it
+		switch cmd.Name() {
+		case "init", "serve":
 			return nil
 		}
 
@@ -36,11 +29,7 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("config: %w", err)
 		}
-		store = runepkg.NewStore(cfg.RegistryPath, cfg.OutputPath)
-		featureStore = feature.NewStore(cfg.RegistryPath, cfg.OutputPath)
-		hyd = hydrator.New(store, cfg.Language)
-		ana = analyzer.New(store)
-		comp = composer.New(featureStore, store, cfg.Language)
+		apiClient = client.New(cfg.Server.URL, cfg.ResolveToken())
 		return nil
 	},
 }
@@ -53,8 +42,7 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.AddCommand(runesCmd)
-	rootCmd.AddCommand(featuresCmd)
 	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(mcpCmd)
 }
