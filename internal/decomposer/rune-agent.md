@@ -185,7 +185,7 @@ http_serve
     └── std.process.wait_for_signal
 ```
 
-If the request is non-trivial, end your proposal by asking: **"Refine, or save runes?"**
+If the request is non-trivial, end your proposal by asking: **"Refine, or commit runes?"**
 
 **If the user wants to refine:** Enter a Q&A loop. Review your proposal and identify every assumption you made. Ask targeted questions, one or two at a time. After each answer, update your mental model. Keep going until confident or the user says to proceed.
 
@@ -193,7 +193,7 @@ Wait for user approval before proceeding. Do not call `runes_create` or `runes_c
 
 ### Step 5 — Create approved runes
 
-After the user approves, create each rune using `runes_create` or `runes_create_batch`.
+After the user approves, call `runes_create_batch` with the composition tree. Pass the same indented tree format used in Step 4 (dot-path names, `@` signatures, `+`/`-` tests).
 
 ### Step 6 — Hydrate
 

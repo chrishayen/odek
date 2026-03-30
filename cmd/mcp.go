@@ -55,8 +55,8 @@ var mcpCmd = &cobra.Command{
 		), handleRunesDecompose)
 
 		s.AddTool(mcp.NewTool("runes_create_batch",
-			mcp.WithDescription("Create multiple runes at once from a JSON array."),
-			mcp.WithString("runes", mcp.Description("JSON array of rune objects, each with: name, description, signature, behavior, positive_tests (string[]), negative_tests (string[])"), mcp.Required()),
+			mcp.WithDescription("Create multiple runes from a composition tree. Uses the same indented tree format as decompose output."),
+			mcp.WithString("tree", mcp.Description("Composition tree text with dot-path names, @ signatures, + positive tests, - negative tests"), mcp.Required()),
 		), handleRunesCreateBatch)
 
 		s.AddTool(mcp.NewTool("runes_hydrate",
@@ -378,13 +378,24 @@ func handleFeaturesCompose(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 }
 
 func handleRunesCreateBatch(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	runesJSON, _ := req.GetArguments()["runes"].(string)
-	var batch []runepkg.Rune
-	if err := json.Unmarshal([]byte(runesJSON), &batch); err != nil {
-		return errResult(fmt.Errorf("invalid runes JSON: %w", err)), nil
-	}
+	tree, _ := req.GetArguments()["tree"].(string)
+	nodes := runepkg.ParseTree(tree)
 	var results []string
-	for _, r := range batch {
+	for _, n := range nodes {
+		// Skip reference-only nodes (-> refs with no own signature/tests)
+		if len(n.Refs) > 0 && n.Signature == "" && len(n.Pos) == 0 && len(n.Neg) == 0 {
+			continue
+		}
+		r := runepkg.Rune{
+			Name:          n.Path,
+			Signature:     n.Signature,
+			PositiveTests: n.Pos,
+			NegativeTests: n.Neg,
+			Dependencies:  n.Refs,
+		}
+		if len(n.Pos) > 0 {
+			r.Description = n.Pos[0]
+		}
 		if err := store.Create(r); err != nil {
 			results = append(results, fmt.Sprintf("FAILED %s: %v", r.Name, err))
 			continue
