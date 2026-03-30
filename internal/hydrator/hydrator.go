@@ -8,56 +8,62 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chrishayen/valkyrie/framework"
+	"github.com/chrishayen/valkyrie/internal/claude"
 	runepkg "github.com/chrishayen/valkyrie/internal/rune"
-	"github.com/chrishayen/valkyrie/internal/runner"
 )
 
 // Result holds the outcome of hydrating a rune.
 type Result struct {
 	RuneName string  `json:"rune_name"`
-	Output   string  `json:"output"`    // raw agent output
-	Coverage float64 `json:"coverage"`  // test coverage %, -1 if unavailable
+	Output   string  `json:"output"`
+	Coverage float64 `json:"coverage"`
 	TestsRan bool    `json:"tests_ran"`
 }
 
 // HydrationSpec contains everything a sub-agent needs to hydrate a rune.
 type HydrationSpec struct {
 	RuneName string `json:"rune_name"`
-	Prompt   string `json:"prompt"` // enriched prompt with behavior, tests, isolation instructions
+	Prompt   string `json:"prompt"`
 }
 
-// Hydrator runs a sandbox agent to generate code for a rune.
+// HydrateAllResult holds the outcome of batch hydration.
+type HydrateAllResult struct {
+	Hydrated int `json:"hydrated"`
+	Verified int `json:"verified"`
+	Failed   int `json:"failed"`
+}
+
+// Hydrator runs agents to generate code for runes.
 type Hydrator struct {
 	store    *runepkg.Store
+	client   *claude.Client
 	language string
 }
 
-func New(store *runepkg.Store, language string) *Hydrator {
-	return &Hydrator{store: store, language: language}
+func New(store *runepkg.Store, client *claude.Client, language string) *Hydrator {
+	return &Hydrator{store: store, client: client, language: language}
 }
 
 // GetHydrationSpec returns the prompt for a rune.
-// Used in non-sandbox mode: the calling agent spawns a sub-agent with this prompt,
-// collects the FILE-block output, and passes it to FinalizeHydration.
 func (h *Hydrator) GetHydrationSpec(name string) (*HydrationSpec, error) {
 	r, err := h.store.Get(name)
 	if err != nil {
 		return nil, err
 	}
-
 	return &HydrationSpec{
 		RuneName: name,
 		Prompt:   buildPrompt(r, h.language),
 	}, nil
 }
 
-// FinalizeHydration extracts files from the sub-agent's output, runs tests,
-// and updates the rune record. The output must contain === FILE: ... === blocks.
+// FinalizeHydration extracts files from agent output, runs tests, and updates the rune.
 func (h *Hydrator) FinalizeHydration(name, output string) (*Result, error) {
 	if strings.TrimSpace(output) == "" {
 		return nil, fmt.Errorf("output is empty — sub-agent produced no code")
@@ -97,15 +103,14 @@ func (h *Hydrator) FinalizeHydration(name, output string) (*Result, error) {
 	}, nil
 }
 
-// Hydrate generates code for the named rune using a sandbox runner, stores it, runs tests.
-// Used in sandbox mode only. If logOut is non-nil, sandbox output is streamed to it in real time.
-func (h *Hydrator) Hydrate(ctx context.Context, name string, r runner.Runner, logOut io.Writer) (*Result, error) {
-	rune, err := h.store.Get(name)
+// Hydrate generates code for a single rune.
+func (h *Hydrator) Hydrate(_ context.Context, name string) (*Result, error) {
+	rn, err := h.store.Get(name)
 	if err != nil {
 		return nil, err
 	}
 
-	prompt := buildPrompt(rune, h.language)
+	prompt := buildPrompt(rn, h.language)
 
 	if err := framework.EnsureDispatch(h.store.OutputPath()); err != nil {
 		return nil, fmt.Errorf("ensuring dispatch framework: %w", err)
@@ -116,9 +121,9 @@ func (h *Hydrator) Hydrate(ctx context.Context, name string, r runner.Runner, lo
 		return nil, fmt.Errorf("creating code dir: %w", err)
 	}
 
-	output, err := r.Run(ctx, prompt, logOut)
+	output, err := h.client.Call("", prompt)
 	if err != nil {
-		return nil, fmt.Errorf("sandbox run failed: %w", err)
+		return nil, fmt.Errorf("claude call failed: %w", err)
 	}
 
 	if err := extractFiles(codeDir, output); err != nil {
@@ -127,9 +132,9 @@ func (h *Hydrator) Hydrate(ctx context.Context, name string, r runner.Runner, lo
 
 	coverage, testsRan := runTests(codeDir, h.language)
 
-	rune.Hydrated = true
-	rune.Coverage = coverage
-	if err := h.store.Update(*rune); err != nil {
+	rn.Hydrated = true
+	rn.Coverage = coverage
+	if err := h.store.Update(*rn); err != nil {
 		return nil, fmt.Errorf("updating rune: %w", err)
 	}
 
@@ -139,6 +144,138 @@ func (h *Hydrator) Hydrate(ctx context.Context, name string, r runner.Runner, lo
 		Coverage: coverage,
 		TestsRan: testsRan,
 	}, nil
+}
+
+// HydrateAll orchestrates parallel hydration of all un-hydrated runes.
+func (h *Hydrator) HydrateAll(ctx context.Context, concurrency int, verify bool, logOut io.Writer) (*HydrateAllResult, error) {
+	runes, err := h.store.List()
+	if err != nil {
+		return nil, fmt.Errorf("listing runes: %w", err)
+	}
+
+	var targets []runepkg.Rune
+	for _, rn := range runes {
+		if !rn.Hydrated {
+			targets = append(targets, rn)
+		}
+	}
+
+	if len(targets) == 0 {
+		return &HydrateAllResult{}, nil
+	}
+
+	// Build children map for topological sort.
+	pathSet := make(map[string]bool)
+	for _, rn := range runes {
+		pathSet[rn.Name] = true
+	}
+	children := runepkg.BuildChildrenMap(keys(pathSet))
+
+	depths := make(map[string]int)
+	var computeDepth func(string) int
+	computeDepth = func(p string) int {
+		if d, ok := depths[p]; ok {
+			return d
+		}
+		maxChild := -1
+		for _, c := range children[p] {
+			cd := computeDepth(c)
+			if cd > maxChild {
+				maxChild = cd
+			}
+		}
+		depths[p] = maxChild + 1
+		return depths[p]
+	}
+	for p := range pathSet {
+		computeDepth(p)
+	}
+
+	type levelTarget struct {
+		depth int
+		rune  runepkg.Rune
+	}
+	var lts []levelTarget
+	for _, t := range targets {
+		lts = append(lts, levelTarget{depth: depths[t.Name], rune: t})
+	}
+	sort.Slice(lts, func(i, j int) bool {
+		if lts[i].depth != lts[j].depth {
+			return lts[i].depth < lts[j].depth
+		}
+		return lts[i].rune.Name < lts[j].rune.Name
+	})
+
+	type specLevel struct {
+		depth int
+		runes []runepkg.Rune
+	}
+	var levels []specLevel
+	for _, lt := range lts {
+		if len(levels) == 0 || levels[len(levels)-1].depth != lt.depth {
+			levels = append(levels, specLevel{depth: lt.depth})
+		}
+		levels[len(levels)-1].runes = append(levels[len(levels)-1].runes, lt.rune)
+	}
+
+	result := &HydrateAllResult{}
+
+	for _, level := range levels {
+		if logOut != nil {
+			fmt.Fprintf(logOut, "Level %d: hydrating %d runes\n", level.depth, len(level.runes))
+		}
+
+		results := h.parallelHydrate(ctx, level.runes, concurrency, logOut)
+		for _, hr := range results {
+			if hr.err != nil {
+				if logOut != nil {
+					fmt.Fprintf(logOut, "  FAIL %s: %v\n", hr.name, hr.err)
+				}
+				result.Failed++
+			} else {
+				if logOut != nil {
+					fmt.Fprintf(logOut, "  OK   %s\n", hr.name)
+				}
+				result.Hydrated++
+			}
+		}
+	}
+
+	return result, nil
+}
+
+type hydrateResult struct {
+	name string
+	err  error
+}
+
+func (h *Hydrator) parallelHydrate(ctx context.Context, runes []runepkg.Rune, concurrency int, logOut io.Writer) []hydrateResult {
+	results := make([]hydrateResult, len(runes))
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+
+	for i, rn := range runes {
+		wg.Add(1)
+		go func(idx int, name string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			_, err := h.Hydrate(ctx, name)
+			results[idx] = hydrateResult{name: name, err: err}
+		}(i, rn.Name)
+	}
+
+	wg.Wait()
+	return results
+}
+
+func keys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 func buildPrompt(r *runepkg.Rune, language string) string {
@@ -190,12 +327,10 @@ Do not include explanations outside of file blocks.`)
 	return sb.String()
 }
 
-// extractFiles parses agent output for FILE blocks and writes them to disk.
 func extractFiles(dir, output string) error {
 	re := regexp.MustCompile(`(?s)=== FILE: (.+?) ===\n(.+?)=== END FILE ===`)
 	matches := re.FindAllStringSubmatch(output, -1)
 	if len(matches) == 0 {
-		// fallback: write raw output as main.go
 		return os.WriteFile(filepath.Join(dir, "main.go"), []byte(output), 0644)
 	}
 	for _, m := range matches {
@@ -212,8 +347,6 @@ func extractFiles(dir, output string) error {
 	return nil
 }
 
-// runTests attempts to run tests in the code dir and parse coverage.
-// Returns coverage % and whether tests ran successfully.
 func runTests(dir, language string) (coverage float64, ran bool) {
 	cmd, args := testCommand(language)
 	if cmd == "" {
@@ -235,6 +368,10 @@ func testCommand(language string) (string, []string) {
 	switch language {
 	case "go":
 		return "go", []string{"test", "-cover", "."}
+	case "ts":
+		return "node", []string{"--test"}
+	case "py":
+		return "python", []string{"-m", "pytest", "-q"}
 	default:
 		return "", nil
 	}
@@ -253,4 +390,3 @@ func parseCoverage(output string) float64 {
 	}
 	return v
 }
-

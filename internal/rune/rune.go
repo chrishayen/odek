@@ -1,7 +1,9 @@
 package rune
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,18 +11,219 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Semver represents a major.minor.patch version.
+type Semver struct {
+	Major, Minor, Patch int
+}
+
+func (v Semver) String() string {
+	return fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
+}
+
+func (v Semver) IsZero() bool {
+	return v.Major == 0 && v.Minor == 0 && v.Patch == 0
+}
+
+func ParseSemver(s string) Semver {
+	var v Semver
+	fmt.Sscanf(s, "%d.%d.%d", &v.Major, &v.Minor, &v.Patch)
+	return v
+}
+
+func (v Semver) BumpMajor() Semver { return Semver{v.Major + 1, 0, 0} }
+func (v Semver) BumpMinor() Semver { return Semver{v.Major, v.Minor + 1, 0} }
+func (v Semver) BumpPatch() Semver { return Semver{v.Major, v.Minor, v.Patch + 1} }
+
+func (v Semver) Less(other Semver) bool {
+	if v.Major != other.Major {
+		return v.Major < other.Major
+	}
+	if v.Minor != other.Minor {
+		return v.Minor < other.Minor
+	}
+	return v.Patch < other.Patch
+}
+
+func (v Semver) MarshalJSON() ([]byte, error)    { return json.Marshal(v.String()) }
+func (v Semver) MarshalYAML() (interface{}, error) { return v.String(), nil }
+
+func (v *Semver) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	*v = ParseSemver(s)
+	return nil
+}
+
+func (v *Semver) UnmarshalYAML(value *yaml.Node) error {
+	*v = ParseSemver(value.Value)
+	return nil
+}
+
+// IsSemverFilename checks if a filename is a semver-named file (e.g. "1.0.0.md").
+func IsSemverFilename(name string) (Semver, bool) {
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	var v Semver
+	n, _ := fmt.Sscanf(base, "%d.%d.%d", &v.Major, &v.Minor, &v.Patch)
+	if n != 3 {
+		return Semver{}, false
+	}
+	if base != v.String() {
+		return Semver{}, false
+	}
+	return v, true
+}
+
+// LatestVersion scans a directory and returns the highest semver among .md files.
+func LatestVersion(dir string) (Semver, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return Semver{}, false
+	}
+	found := false
+	var best Semver
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		if v, ok := IsSemverFilename(e.Name()); ok {
+			if !found || best.Less(v) {
+				best = v
+				found = true
+			}
+		}
+	}
+	return best, found
+}
+
+// LatestVersionForMajor returns the highest version matching a given major.
+func LatestVersionForMajor(dir string, major int) (Semver, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return Semver{}, false
+	}
+	found := false
+	var best Semver
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		if v, ok := IsSemverFilename(e.Name()); ok {
+			if v.Major == major && (!found || best.Less(v)) {
+				best = v
+				found = true
+			}
+		}
+	}
+	return best, found
+}
+
+// Node represents a parsed item from a composition tree output.
+type Node struct {
+	Path      string   // dot path, e.g. "std.cli.parse_flags"
+	Signature string   // e.g. "(argv: list[string]) -> result[ParseFlagsResult, string]"
+	Pos       []string // positive test cases
+	Neg       []string // negative test cases
+	Refs      []string // -> references
+	Extend    bool     // true if this is a ~> extension
+}
+
+// IsDotPath checks if a string looks like a dot-notation path (e.g. "std.cli.parse_flags").
+func IsDotPath(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c != '.' && c != '_' && !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') {
+			return false
+		}
+	}
+	return !strings.HasPrefix(s, ".") && !strings.HasSuffix(s, ".")
+}
+
+// ParseTree parses the indented composition tree output into nodes.
+func ParseTree(output string) []Node {
+	var nodes []Node
+	var current *Node
+
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "@ ") {
+			if current != nil {
+				current.Signature = strings.TrimPrefix(trimmed, "@ ")
+			}
+		} else if strings.HasPrefix(trimmed, "+ ") {
+			if current != nil {
+				current.Pos = append(current.Pos, strings.TrimPrefix(trimmed, "+ "))
+			}
+		} else if strings.HasPrefix(trimmed, "- ") {
+			if current != nil {
+				current.Neg = append(current.Neg, strings.TrimPrefix(trimmed, "- "))
+			}
+		} else if strings.HasPrefix(trimmed, "-> ") {
+			if current != nil {
+				current.Refs = append(current.Refs, strings.TrimPrefix(trimmed, "-> "))
+			}
+		} else if strings.HasPrefix(trimmed, "~> ") {
+			extPath := strings.TrimPrefix(trimmed, "~> ")
+			if IsDotPath(extPath) {
+				nodes = append(nodes, Node{Path: extPath, Extend: true})
+				current = &nodes[len(nodes)-1]
+			}
+		} else if IsDotPath(trimmed) {
+			nodes = append(nodes, Node{Path: trimmed})
+			current = &nodes[len(nodes)-1]
+		}
+	}
+
+	return nodes
+}
+
+// BuildChildrenMap returns parent -> []child dot path mappings.
+func BuildChildrenMap(dotPaths []string) map[string][]string {
+	children := make(map[string][]string)
+	for _, p := range dotPaths {
+		parts := strings.Split(p, ".")
+		if len(parts) > 1 {
+			parent := strings.Join(parts[:len(parts)-1], ".")
+			children[parent] = append(children[parent], p)
+		}
+	}
+	return children
+}
+
+// ParseRef extracts path and pinned major from "std.cli.parse_flags@1".
+func ParseRef(ref string) (string, int) {
+	parts := strings.SplitN(ref, "@", 2)
+	if len(parts) != 2 {
+		return "", 0
+	}
+	var major int
+	fmt.Sscanf(parts[1], "%d", &major)
+	return parts[0], major
+}
+
+// Rune is the atomic unit of functionality.
 type Rune struct {
-	Name          string   `json:"name"                    yaml:"-"`
-	Description   string   `json:"description"             yaml:"-"`
-	Signature     string   `json:"signature"               yaml:"-"`
+	Name          string   `json:"name"                     yaml:"-"`
+	Description   string   `json:"description"              yaml:"-"`
+	Signature     string   `json:"signature"                yaml:"signature"`
 	Behavior      string   `json:"behavior,omitempty"       yaml:"-"`
 	PositiveTests []string `json:"positive_tests,omitempty" yaml:"-"`
 	NegativeTests []string `json:"negative_tests,omitempty" yaml:"-"`
-	Version       string   `json:"version"                 yaml:"version"`
-	Hydrated      bool     `json:"hydrated"                yaml:"hydrated"`
-	Coverage      float64  `json:"coverage"                yaml:"coverage"`
+	Version       Semver   `json:"version"                  yaml:"version"`
+	Hydrated      bool     `json:"hydrated"                 yaml:"hydrated"`
+	Coverage      float64  `json:"coverage"                 yaml:"coverage"`
+	Dependencies  []string `json:"dependencies,omitempty"   yaml:"dependencies"`
 }
 
+// Store manages rune specs on disk using dot-path directories with semver-named files.
 type Store struct {
 	registryPath string
 	outputPath   string
@@ -30,108 +233,71 @@ func NewStore(registryPath, outputPath string) *Store {
 	return &Store{registryPath: registryPath, outputPath: outputPath}
 }
 
-func (s *Store) dir() string {
-	return s.registryPath
-}
-
-func (s *Store) filePath(name string) string {
-	return filepath.Join(s.dir(), name+".md")
-}
-
 // OutputPath returns the root output directory for generated code.
-func (s *Store) OutputPath() string {
-	return s.outputPath
+func (s *Store) OutputPath() string { return s.outputPath }
+
+// runeDir returns the directory for a dot-path rune name.
+func (s *Store) runeDir(name string) string {
+	return filepath.Join(s.registryPath, strings.ReplaceAll(name, ".", string(filepath.Separator)))
 }
 
 // CodeDir returns the directory where generated code for a rune is stored.
-// Runes share a folder per feature (the first segment of the name).
 func (s *Store) CodeDir(name string) string {
-	if i := strings.Index(name, "/"); i != -1 {
-		return filepath.Join(s.outputPath, name[:i])
-	}
-	return filepath.Join(s.outputPath, name)
+	return filepath.Join(s.outputPath, strings.ReplaceAll(name, ".", string(filepath.Separator)))
 }
 
 func (s *Store) Create(r Rune) error {
 	if err := validate(r); err != nil {
 		return err
 	}
-	p := s.filePath(r.Name)
-	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
-		return fmt.Errorf("creating runes dir: %w", err)
+	dir := s.runeDir(r.Name)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("creating rune dir: %w", err)
 	}
-	if _, err := os.Stat(p); err == nil {
+	if _, found := LatestVersion(dir); found {
 		return fmt.Errorf("rune %q already exists", r.Name)
 	}
-	if r.Version == "" {
-		r.Version = "0.1.0"
+	if r.Version.IsZero() {
+		r.Version = Semver{1, 0, 0}
 	}
-	return write(p, r)
+	return write(filepath.Join(dir, r.Version.String()+".md"), r)
 }
 
 func (s *Store) Get(name string) (*Rune, error) {
-	data, err := os.ReadFile(s.filePath(name))
+	dir := s.runeDir(name)
+	ver, found := LatestVersion(dir)
+	if !found {
+		return nil, fmt.Errorf("rune %q not found", name)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ver.String()+".md"))
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("rune %q not found", name)
-		}
 		return nil, err
 	}
 	r, err := parse(string(data))
 	if err != nil {
 		return nil, fmt.Errorf("parsing rune %q: %w", name, err)
 	}
+	if r.Name == "" {
+		r.Name = name
+	}
 	return r, nil
 }
 
 func (s *Store) List() ([]Rune, error) {
-	base := s.dir()
-	if _, err := os.Stat(base); os.IsNotExist(err) {
-		return nil, nil
-	}
-
-	// Scan only subdirectories of the registry root.
-	// Root-level .md files are shell definitions, not runes.
-	entries, err := os.ReadDir(base)
+	all, err := s.ScanAll()
 	if err != nil {
 		return nil, err
 	}
-
+	latest := make(map[string]*Rune)
+	for i := range all {
+		r := &all[i]
+		if cur, ok := latest[r.Name]; !ok || cur.Version.Less(r.Version) {
+			latest[r.Name] = r
+		}
+	}
 	var runes []Rune
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		if strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		nsDir := filepath.Join(base, entry.Name())
-		if nsDir == s.outputPath {
-			continue
-		}
-
-		err := filepath.WalkDir(nsDir, func(path string, d os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
-				return nil
-			}
-			if d.Name() == "feature.md" {
-				return nil
-			}
-			rel, _ := filepath.Rel(base, path)
-			name := strings.TrimSuffix(rel, ".md")
-			r, err := s.Get(name)
-			if err != nil {
-				return nil
-			}
-			runes = append(runes, *r)
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
+	for _, r := range latest {
+		runes = append(runes, *r)
 	}
 	return runes, nil
 }
@@ -140,34 +306,213 @@ func (s *Store) Update(r Rune) error {
 	if err := validate(r); err != nil {
 		return err
 	}
-	if _, err := os.Stat(s.filePath(r.Name)); os.IsNotExist(err) {
+	dir := s.runeDir(r.Name)
+	if _, found := LatestVersion(dir); !found {
 		return fmt.Errorf("rune %q not found", r.Name)
 	}
-	return write(s.filePath(r.Name), r)
+	return write(filepath.Join(dir, r.Version.String()+".md"), r)
 }
 
 func (s *Store) Delete(name string) error {
-	p := s.filePath(name)
-	if _, err := os.Stat(p); os.IsNotExist(err) {
+	dir := s.runeDir(name)
+	if _, found := LatestVersion(dir); !found {
 		return fmt.Errorf("rune %q not found", name)
 	}
-	return os.Remove(p)
+	return os.RemoveAll(dir)
 }
+
+// ScanAll walks the registry and returns ALL rune versions found.
+func (s *Store) ScanAll() ([]Rune, error) {
+	base := s.registryPath
+	if _, err := os.Stat(base); os.IsNotExist(err) {
+		return nil, nil
+	}
+	var runes []Rune
+	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if name != "." && strings.HasPrefix(name, ".") {
+				return filepath.SkipDir
+			}
+			if path == s.outputPath {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), ".md") {
+			return nil
+		}
+		if d.Name() == "feature.md" {
+			return nil
+		}
+		if _, ok := IsSemverFilename(d.Name()); !ok {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		r, err := parse(string(data))
+		if err != nil {
+			return nil
+		}
+		if r.Name == "" {
+			rel, _ := filepath.Rel(base, filepath.Dir(path))
+			r.Name = strings.ReplaceAll(rel, string(filepath.Separator), ".")
+		}
+		runes = append(runes, *r)
+		return nil
+	})
+	return runes, err
+}
+
+// WriteFromTree creates versioned spec files from parsed tree nodes.
+// Returns counts of new and updated specs.
+func (s *Store) WriteFromTree(nodes []Node, projectName string) (int, int, error) {
+	newCount := 0
+	updatedCount := 0
+	changedSpecs := make(map[string]Semver)
+
+	// Build version index from existing runes + new nodes.
+	specVersions := make(map[string]Semver)
+	existing, _ := s.ScanAll()
+	for _, r := range existing {
+		if cur, ok := specVersions[r.Name]; !ok || cur.Less(r.Version) {
+			specVersions[r.Name] = r.Version
+		}
+	}
+	for _, n := range nodes {
+		if _, exists := specVersions[n.Path]; !exists {
+			specVersions[n.Path] = Semver{1, 0, 0}
+		}
+	}
+
+	for _, n := range nodes {
+		// Pin unversioned refs.
+		for i, ref := range n.Refs {
+			if !strings.Contains(ref, "@") {
+				if v, ok := specVersions[ref]; ok {
+					n.Refs[i] = fmt.Sprintf("%s@%d", ref, v.Major)
+				} else {
+					n.Refs[i] = ref + "@1"
+				}
+			}
+		}
+
+		dir := s.runeDir(n.Path)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return 0, 0, fmt.Errorf("mkdir %s: %w", dir, err)
+		}
+
+		if n.Extend {
+			curVer, found := LatestVersion(dir)
+			if !found {
+				continue
+			}
+			curData, err := os.ReadFile(filepath.Join(dir, curVer.String()+".md"))
+			if err != nil {
+				continue
+			}
+			newVer, merged := mergeSpec(string(curData), n, projectName)
+			if err := os.WriteFile(filepath.Join(dir, newVer.String()+".md"), []byte(merged), 0644); err != nil {
+				return 0, 0, fmt.Errorf("write: %w", err)
+			}
+			changedSpecs[n.Path] = newVer
+			updatedCount++
+		} else {
+			if _, found := LatestVersion(dir); found {
+				continue
+			}
+			ver := Semver{1, 0, 0}
+			content := renderSpec(n.Path, n, ver, projectName)
+			if err := os.WriteFile(filepath.Join(dir, ver.String()+".md"), []byte(content), 0644); err != nil {
+				return 0, 0, fmt.Errorf("write: %w", err)
+			}
+			changedSpecs[n.Path] = ver
+			newCount++
+		}
+	}
+
+	if err := propagateVersions(s.registryPath, changedSpecs, projectName); err != nil {
+		return 0, 0, fmt.Errorf("propagate: %w", err)
+	}
+
+	return newCount, updatedCount, nil
+}
+
+// CheckStaleRefs scans runes for references whose pinned major is behind the current major.
+func (s *Store) CheckStaleRefs() (stale, ok int, err error) {
+	runes, err := s.ScanAll()
+	if err != nil {
+		return 0, 0, err
+	}
+	versions := make(map[string]Semver)
+	for _, r := range runes {
+		if cur, exists := versions[r.Name]; !exists || cur.Less(r.Version) {
+			versions[r.Name] = r.Version
+		}
+	}
+	for _, r := range runes {
+		for _, ref := range r.Dependencies {
+			refPath, pinnedMajor := ParseRef(ref)
+			if refPath == "" {
+				continue
+			}
+			if cur, exists := versions[refPath]; exists {
+				if cur.Major > pinnedMajor {
+					stale++
+				} else {
+					ok++
+				}
+			}
+		}
+	}
+	return stale, ok, nil
+}
+
+// FormatExistingContext builds a prompt context string from existing runes.
+func (s *Store) FormatExistingContext() (string, error) {
+	runes, err := s.List()
+	if err != nil {
+		return "", err
+	}
+	if len(runes) == 0 {
+		return "", nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString("The following units already exist in the registry. Reference existing ones with -> path@MAJOR instead of recreating them. If a new requirement needs to EXTEND an existing unit with additional capabilities, emit it as ~> path.to.unit and include only the NEW test cases to add.\n\n")
+
+	for _, r := range runes {
+		sb.WriteString(fmt.Sprintf("%s @%d (v%s)\n", r.Name, r.Version.Major, r.Version))
+		if r.Signature != "" {
+			sb.WriteString("  @ " + r.Signature + "\n")
+		}
+		for _, t := range r.PositiveTests {
+			sb.WriteString("  + " + t + "\n")
+		}
+		for _, t := range r.NegativeTests {
+			sb.WriteString("  - " + t + "\n")
+		}
+	}
+
+	return sb.String(), nil
+}
+
+// --- internal ---
 
 func validate(r Rune) error {
 	if r.Name == "" {
 		return fmt.Errorf("name is required")
 	}
-	if !strings.Contains(r.Name, "/") {
-		return fmt.Errorf("name must include a namespace (e.g. auth/validate-email)")
+	if !IsDotPath(r.Name) {
+		return fmt.Errorf("name must be a dot-separated path (e.g. auth.validate_email)")
 	}
-	if strings.ContainsAny(r.Name, " \\") {
-		return fmt.Errorf("name must be a slug (no spaces or backslashes)")
-	}
-	for _, seg := range strings.Split(r.Name, "/") {
-		if seg == "" {
-			return fmt.Errorf("name contains empty segment")
-		}
+	if !strings.Contains(r.Name, ".") {
+		return fmt.Errorf("name must include a namespace (e.g. auth.validate_email)")
 	}
 	if r.Description == "" {
 		return fmt.Errorf("description is required")
@@ -178,7 +523,6 @@ func validate(r Rune) error {
 	return nil
 }
 
-// write renders a rune as markdown with YAML frontmatter.
 func write(path string, r Rune) error {
 	f, err := os.Create(path)
 	if err != nil {
@@ -186,61 +530,60 @@ func write(path string, r Rune) error {
 	}
 	defer f.Close()
 
-	// YAML frontmatter
 	fmt.Fprintln(f, "---")
 	fmt.Fprintf(f, "version: %s\n", r.Version)
 	fmt.Fprintf(f, "hydrated: %v\n", r.Hydrated)
 	fmt.Fprintf(f, "coverage: %v\n", r.Coverage)
+	if r.Signature != "" {
+		fmt.Fprintf(f, "signature: '%s'\n", r.Signature)
+	}
+	if len(r.Dependencies) > 0 {
+		fmt.Fprintln(f, "dependencies:")
+		for _, d := range r.Dependencies {
+			fmt.Fprintf(f, "  - %s\n", d)
+		}
+	}
 	fmt.Fprintln(f, "---")
 
-	// Title and description
 	fmt.Fprintf(f, "\n# %s\n\n%s\n", r.Name, r.Description)
 
-	// Signature
 	if r.Signature != "" {
 		fmt.Fprintf(f, "\n## Signature\n\n%s\n", r.Signature)
 	}
 
-	// Behavior
 	if r.Behavior != "" {
 		fmt.Fprintf(f, "\n## Behavior\n\n%s\n", r.Behavior)
 	}
 
-	// Tests
-	writeList(f, "Positive tests", r.PositiveTests)
-	writeList(f, "Negative tests", r.NegativeTests)
+	if len(r.PositiveTests) > 0 || len(r.NegativeTests) > 0 {
+		fmt.Fprintln(f, "\n## Tests")
+		fmt.Fprintln(f)
+		for _, t := range r.PositiveTests {
+			fmt.Fprintf(f, "+ %s\n", t)
+		}
+		for _, t := range r.NegativeTests {
+			fmt.Fprintf(f, "- %s\n", t)
+		}
+	}
 
 	return nil
 }
 
-func writeList(f *os.File, heading string, items []string) {
-	if len(items) == 0 {
-		return
-	}
-	fmt.Fprintf(f, "\n## %s\n\n", heading)
-	for _, item := range items {
-		fmt.Fprintf(f, "- %s\n", item)
-	}
-}
-
-// parse reads a markdown rune file with YAML frontmatter.
 func parse(content string) (*Rune, error) {
 	var r Rune
 
-	// Split frontmatter from body
 	body := content
 	if strings.HasPrefix(content, "---\n") {
 		end := strings.Index(content[4:], "\n---")
 		if end != -1 {
 			fm := content[4 : 4+end]
-			body = content[4+end+4:] // skip past closing ---\n
+			body = content[4+end+4:]
 			if err := yaml.Unmarshal([]byte(fm), &r); err != nil {
 				return nil, fmt.Errorf("invalid frontmatter: %w", err)
 			}
 		}
 	}
 
-	// Parse markdown sections
 	lines := strings.Split(body, "\n")
 	var section string
 	var sectionLines []string
@@ -249,14 +592,24 @@ func parse(content string) (*Rune, error) {
 		text := strings.TrimSpace(strings.Join(sectionLines, "\n"))
 		switch section {
 		case "":
-			// Description is the first non-empty paragraph after the title
 			if text != "" && r.Description == "" {
 				r.Description = text
 			}
 		case "signature":
-			r.Signature = text
+			if r.Signature == "" {
+				r.Signature = text
+			}
 		case "behavior":
 			r.Behavior = text
+		case "tests":
+			for _, line := range sectionLines {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "+ ") {
+					r.PositiveTests = append(r.PositiveTests, strings.TrimPrefix(trimmed, "+ "))
+				} else if strings.HasPrefix(trimmed, "- ") {
+					r.NegativeTests = append(r.NegativeTests, strings.TrimPrefix(trimmed, "- "))
+				}
+			}
 		case "positive tests":
 			r.PositiveTests = parseList(sectionLines)
 		case "negative tests":
@@ -293,4 +646,223 @@ func parseList(lines []string) []string {
 		}
 	}
 	return items
+}
+
+func renderSpec(path string, n Node, ver Semver, projectName string) string {
+	desc := path
+	if len(n.Pos) > 0 {
+		desc = n.Pos[0]
+	}
+
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.WriteString("version: " + ver.String() + "\n")
+	sb.WriteString("hydrated: false\n")
+	sb.WriteString("coverage: -1\n")
+	if n.Signature != "" {
+		sb.WriteString("signature: '" + n.Signature + "'\n")
+	}
+	if len(n.Refs) > 0 {
+		sb.WriteString("dependencies:\n")
+		for _, r := range n.Refs {
+			sb.WriteString("  - " + r + "\n")
+		}
+	}
+	sb.WriteString("---\n")
+
+	sb.WriteString(fmt.Sprintf("\n# %s\n\n%s\n", path, desc))
+
+	if n.Signature != "" {
+		sb.WriteString(fmt.Sprintf("\n## Signature\n\n%s\n", n.Signature))
+	}
+
+	sb.WriteString(fmt.Sprintf("\n## Changelog\n\n[%s] created by %s\n", ver, projectName))
+
+	if len(n.Pos) > 0 || len(n.Neg) > 0 {
+		sb.WriteString("\n## Tests\n\n")
+		for _, t := range n.Pos {
+			sb.WriteString("+ " + t + "\n")
+		}
+		for _, t := range n.Neg {
+			sb.WriteString("- " + t + "\n")
+		}
+	}
+
+	return sb.String()
+}
+
+func mergeSpec(existing string, n Node, projectName string) (Semver, string) {
+	r, _ := parse(existing)
+	if r == nil {
+		return Semver{1, 0, 0}, existing
+	}
+
+	curVer := r.Version
+	if n.Signature != "" {
+		r.Signature = n.Signature
+	}
+
+	// Collect existing tests to avoid duplicates.
+	existingTests := make(map[string]bool)
+	for _, t := range r.PositiveTests {
+		existingTests["+ "+t] = true
+	}
+	for _, t := range r.NegativeTests {
+		existingTests["- "+t] = true
+	}
+
+	var newTests []string
+	for _, t := range n.Pos {
+		if !existingTests["+ "+t] {
+			newTests = append(newTests, "+ "+t)
+		}
+	}
+	for _, t := range n.Neg {
+		if !existingTests["- "+t] {
+			newTests = append(newTests, "- "+t)
+		}
+	}
+
+	if len(newTests) == 0 {
+		return curVer, existing
+	}
+
+	newVer := curVer.BumpMinor()
+
+	// Rebuild with new version and changelog entry.
+	changelogEntry := fmt.Sprintf("[%s] extended by %s", newVer, projectName)
+	bodyLines := strings.Split(existing, "\n")
+
+	var sb strings.Builder
+	inFrontmatter := false
+	wroteVersion := false
+	insertedChangelog := false
+
+	for i, line := range bodyLines {
+		trimmed := strings.TrimSpace(line)
+		if i == 0 && trimmed == "---" {
+			inFrontmatter = true
+			sb.WriteString(line + "\n")
+			continue
+		}
+		if inFrontmatter {
+			if trimmed == "---" {
+				inFrontmatter = false
+				if !wroteVersion {
+					sb.WriteString("version: " + newVer.String() + "\n")
+				}
+				sb.WriteString(line + "\n")
+				continue
+			}
+			if strings.HasPrefix(trimmed, "version:") {
+				sb.WriteString("version: " + newVer.String() + "\n")
+				wroteVersion = true
+				continue
+			}
+			sb.WriteString(line + "\n")
+			continue
+		}
+		sb.WriteString(line + "\n")
+		if !insertedChangelog && trimmed == "## Changelog" {
+			sb.WriteString("\n" + changelogEntry + "\n")
+			insertedChangelog = true
+			if i+1 < len(bodyLines) && strings.TrimSpace(bodyLines[i+1]) == "" {
+				continue
+			}
+		}
+	}
+
+	result := strings.TrimRight(sb.String(), "\n") + "\n"
+	for _, t := range newTests {
+		result += t + "\n"
+	}
+
+	return newVer, result
+}
+
+func propagateVersions(base string, changed map[string]Semver, projectName string) error {
+	parentBumps := make(map[string]string)
+	for dotPath, childVer := range changed {
+		current := dotPath
+		for {
+			parts := strings.Split(current, ".")
+			if len(parts) <= 1 {
+				break
+			}
+			parent := strings.Join(parts[:len(parts)-1], ".")
+			desc := fmt.Sprintf("child %s bumped to %s", current, childVer)
+			if _, exists := parentBumps[parent]; !exists {
+				parentBumps[parent] = desc
+			}
+			current = parent
+		}
+	}
+
+	for parentPath, desc := range parentBumps {
+		parentDir := filepath.Join(base, strings.ReplaceAll(parentPath, ".", string(filepath.Separator)))
+		curVer, found := LatestVersion(parentDir)
+		if !found {
+			continue
+		}
+		curFile := filepath.Join(parentDir, curVer.String()+".md")
+		data, err := os.ReadFile(curFile)
+		if err != nil {
+			continue
+		}
+
+		r, err := parse(string(data))
+		if err != nil || r == nil {
+			continue
+		}
+
+		newVer := curVer.BumpPatch()
+		r.Version = newVer
+
+		changelogEntry := fmt.Sprintf("[%s] %s", newVer, desc)
+
+		// Rebuild with new version, inserting changelog.
+		lines := strings.Split(string(data), "\n")
+		var sb strings.Builder
+		inFM := false
+		wroteVer := false
+		insertedCL := false
+
+		for i, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if i == 0 && trimmed == "---" {
+				inFM = true
+				sb.WriteString(line + "\n")
+				continue
+			}
+			if inFM {
+				if trimmed == "---" {
+					inFM = false
+					if !wroteVer {
+						sb.WriteString("version: " + newVer.String() + "\n")
+					}
+					sb.WriteString(line + "\n")
+					continue
+				}
+				if strings.HasPrefix(trimmed, "version:") {
+					sb.WriteString("version: " + newVer.String() + "\n")
+					wroteVer = true
+					continue
+				}
+				sb.WriteString(line + "\n")
+				continue
+			}
+			sb.WriteString(line + "\n")
+			if !insertedCL && trimmed == "## Changelog" {
+				sb.WriteString("\n" + changelogEntry + "\n")
+				insertedCL = true
+			}
+		}
+
+		newFile := filepath.Join(parentDir, newVer.String()+".md")
+		if err := os.WriteFile(newFile, []byte(sb.String()), 0644); err != nil {
+			return fmt.Errorf("write %s: %w", newFile, err)
+		}
+	}
+
+	return nil
 }

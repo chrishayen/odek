@@ -66,21 +66,3 @@ func TestInvalidTOML(t *testing.T) {
 	}
 }
 
-func TestUnknownAgentType(t *testing.T) {
-	tmp, err := os.MkdirTemp("", "valkyrie-badagent-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmp)
-
-	cfg := "project = \"test\"\n\n[agent]\ntype = \"not-a-real-type\"\n"
-	os.WriteFile(tmp+"/valkyrie.toml", []byte(cfg), 0644)
-
-	out, code := run(t, tmp, "runes", "list")
-	if code == 0 {
-		t.Fatalf("expected non-zero exit for unknown agent type\noutput: %s", out)
-	}
-	if !strings.Contains(out, "unknown type") {
-		t.Errorf("expected 'unknown type' in error, got: %s", out)
-	}
-}

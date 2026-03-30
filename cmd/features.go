@@ -3,10 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/chrishayen/valkyrie/internal/feature"
-	"github.com/chrishayen/valkyrie/internal/runner"
 	"github.com/spf13/cobra"
 )
 
@@ -114,11 +112,7 @@ var featuresComposeCmd = &cobra.Command{
 	Short: "Generate dispatcher and wiring code for a feature",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		run, err := runner.New(cfg.Agent)
-		if err != nil {
-			return err
-		}
-		result, err := comp.Compose(context.Background(), args[0], run, os.Stderr)
+		result, err := comp.Compose(context.Background(), args[0])
 		if err != nil {
 			return err
 		}

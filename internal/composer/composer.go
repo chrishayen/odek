@@ -4,7 +4,6 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,9 +13,9 @@ import (
 	"time"
 
 	"github.com/chrishayen/valkyrie/framework"
+	"github.com/chrishayen/valkyrie/internal/claude"
 	"github.com/chrishayen/valkyrie/internal/feature"
 	runepkg "github.com/chrishayen/valkyrie/internal/rune"
-	"github.com/chrishayen/valkyrie/internal/runner"
 )
 
 //go:embed compose-agent.md
@@ -34,25 +33,21 @@ type Result struct {
 type Composer struct {
 	featureStore *feature.Store
 	runeStore    *runepkg.Store
+	client       *claude.Client
 	language     string
 }
 
-func New(featureStore *feature.Store, runeStore *runepkg.Store, language string) *Composer {
-	return &Composer{featureStore: featureStore, runeStore: runeStore, language: language}
+func New(featureStore *feature.Store, runeStore *runepkg.Store, client *claude.Client, language string) *Composer {
+	return &Composer{featureStore: featureStore, runeStore: runeStore, client: client, language: language}
 }
 
 // Compose generates wiring code for the named feature.
-// Reads the raw feature.md and passes it to the sandbox agent
-// along with all rune signatures. The agent uses the prebuilt
-// dispatch framework to wire runes together.
-func (c *Composer) Compose(ctx context.Context, name string, r runner.Runner, logOut io.Writer) (*Result, error) {
-	// Read raw feature file — the agent reads this as a document
+func (c *Composer) Compose(_ context.Context, name string) (*Result, error) {
 	raw, err := c.featureStore.ReadRaw(name)
 	if err != nil {
 		return nil, err
 	}
 
-	// List all runes for context
 	runes, err := c.runeStore.List()
 	if err != nil {
 		return nil, fmt.Errorf("listing runes: %w", err)
@@ -60,32 +55,26 @@ func (c *Composer) Compose(ctx context.Context, name string, r runner.Runner, lo
 
 	prompt := buildPrompt(raw, runes, c.language)
 
-	// Ensure dispatch framework exists
 	if err := framework.EnsureDispatch(c.featureStore.OutputPath()); err != nil {
 		return nil, fmt.Errorf("ensuring dispatch framework: %w", err)
 	}
 
-	// Create code directory
 	codeDir := c.featureStore.CodeDir(name)
 	if err := os.MkdirAll(codeDir, 0755); err != nil {
 		return nil, fmt.Errorf("creating code dir: %w", err)
 	}
 
-	// Run the sandbox agent
-	output, err := r.Run(ctx, prompt, logOut)
+	output, err := c.client.Call(instructions, prompt)
 	if err != nil {
-		return nil, fmt.Errorf("sandbox run failed: %w", err)
+		return nil, fmt.Errorf("claude call failed: %w", err)
 	}
 
-	// Extract generated files
 	if err := extractFiles(codeDir, output); err != nil {
 		return nil, fmt.Errorf("extracting files: %w", err)
 	}
 
-	// Run tests
 	coverage, testsRan := runTests(codeDir, c.language)
 
-	// Update feature frontmatter
 	feat, err := c.featureStore.Get(name)
 	if err != nil {
 		return nil, fmt.Errorf("reading feature for update: %w", err)
@@ -107,16 +96,13 @@ func (c *Composer) Compose(ctx context.Context, name string, r runner.Runner, lo
 func buildPrompt(rawFeature string, runes []runepkg.Rune, language string) string {
 	var b strings.Builder
 
-	b.WriteString(instructions)
-	fmt.Fprintf(&b, "\n\nWrite all code in %s.\n", language)
+	fmt.Fprintf(&b, "Write all code in %s.\n", language)
 	b.WriteString("\n---\n\n")
 
-	// Raw feature spec — the agent reads it as a document
 	b.WriteString("## Feature spec\n\n")
 	b.WriteString(rawFeature)
 	b.WriteString("\n\n---\n\n")
 
-	// All rune signatures for context
 	if len(runes) > 0 {
 		b.WriteString("## Available runes\n\n")
 		for _, r := range runes {
@@ -127,7 +113,6 @@ func buildPrompt(rawFeature string, runes []runepkg.Rune, language string) strin
 	return b.String()
 }
 
-// extractFiles parses agent output for FILE blocks and writes them to disk.
 func extractFiles(dir, output string) error {
 	re := regexp.MustCompile(`(?s)=== FILE: (.+?) ===\n(.+?)=== END FILE ===`)
 	matches := re.FindAllStringSubmatch(output, -1)
@@ -148,20 +133,16 @@ func extractFiles(dir, output string) error {
 	return nil
 }
 
-// runTests attempts to run tests in the code dir and parse coverage.
 func runTests(dir, language string) (coverage float64, ran bool) {
 	cmd, args := testCommand(language)
 	if cmd == "" {
 		return -1, false
 	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
 	c := exec.CommandContext(ctx, cmd, args...)
 	c.Dir = dir
 	out, _ := c.CombinedOutput()
-
 	coverage = parseCoverage(string(out))
 	return coverage, true
 }
@@ -170,6 +151,10 @@ func testCommand(language string) (string, []string) {
 	switch language {
 	case "go":
 		return "go", []string{"test", "-cover", "."}
+	case "ts":
+		return "node", []string{"--test"}
+	case "py":
+		return "python", []string{"-m", "pytest", "-q"}
 	default:
 		return "", nil
 	}
@@ -188,4 +173,3 @@ func parseCoverage(output string) float64 {
 	}
 	return v
 }
-

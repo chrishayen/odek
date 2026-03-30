@@ -6,7 +6,7 @@ You are composing runes into a working feature. Runes are atomic functions that 
 
 ## The callable model
 
-Everything in Valkyrie is a callable — a named function with a typed signature. Runes are callables. Components wire runes together, making them callables too. Features wire components together. The pattern is the same at every level.
+Everything in Valkyrie is a callable — a named function with a typed signature. Runes are callables identified by dot-separated paths (e.g. `auth.validate_email`, `std.cli.parse_flags`). Components wire runes together, making them callables too. Features wire components together. The pattern is the same at every level.
 
 No callable may import or reference another callable directly. All calls go through the **dispatcher** — a registry that maps names to functions. This isolation is absolute.
 
@@ -65,11 +65,13 @@ Look at the rune code to determine the language. Generate the wiring code in the
 
 ## File layout
 
-All files are written relative to the feature directory (`src/<feature>/`). Do not repeat the feature name in subdirectories — avoid stutter like `src/fileserver/runes/fileserver/`. Place files flat in the feature directory:
+All files are written relative to the feature directory (`src/<feature>/`). Do not repeat the feature name in subdirectories. Place files flat in the feature directory:
 
 - Rune adapters: `<rune_name>.go` (e.g. `parse_cli_args.go`)
 - Component wiring: `<component_name>.go` (e.g. `cli_entry.go`)
 - Tests: `<name>_test.go` alongside the file they test
+
+Rune names use dot-separated paths (e.g. `auth.validate_email`). When referencing runes in dispatcher calls, use the full dot path as the callable name.
 
 ## Output format
 

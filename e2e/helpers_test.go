@@ -38,7 +38,7 @@ func testEnv(t *testing.T, extraTOML string) (projectDir string, cleanup func())
 
 	agentTOML := extraTOML
 	if agentTOML == "" {
-		agentTOML = "[agent]\ntype = \"mock\"\n"
+		agentTOML = "[agent]\nmock = true\n"
 	}
 	toml := "project = \"test-project\"\n\n" + agentTOML
 	if err := os.WriteFile(filepath.Join(projectDir, "valkyrie.toml"), []byte(toml), 0644); err != nil {

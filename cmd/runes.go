@@ -7,9 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/chrishayen/valkyrie/internal/analyzer"
+	"github.com/chrishayen/valkyrie/internal/decomposer"
 	runepkg "github.com/chrishayen/valkyrie/internal/rune"
-	"github.com/chrishayen/valkyrie/internal/runner"
 	"github.com/spf13/cobra"
 )
 
@@ -87,7 +86,8 @@ var runesUpdateCmd = &cobra.Command{
 			r.Signature, _ = cmd.Flags().GetString("signature")
 		}
 		if cmd.Flags().Changed("version") {
-			r.Version, _ = cmd.Flags().GetString("version")
+			v, _ := cmd.Flags().GetString("version")
+			r.Version = runepkg.ParseSemver(v)
 		}
 
 		if !cmd.Flags().Changed("description") && !cmd.Flags().Changed("signature") && !cmd.Flags().Changed("version") {
@@ -120,18 +120,10 @@ var runesDeleteCmd = &cobra.Command{
 
 var runesHydrateCmd = &cobra.Command{
 	Use:   "hydrate [name]",
-	Short: "Hydrate a rune (generate code via sandbox agent)",
+	Short: "Hydrate a rune (generate code)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if !cfg.Agent.Sandbox {
-			return fmt.Errorf("sandbox is disabled — use MCP tools (runes_hydration_prompt + runes_finalize_hydration) with Claude sub-agents instead")
-		}
-		run, err := runner.New(cfg.Agent)
-		if err != nil {
-			return err
-		}
-
-		result, err := hyd.Hydrate(cmd.Context(), args[0], run, os.Stderr)
+		result, err := hyd.Hydrate(cmd.Context(), args[0])
 		if err != nil {
 			return err
 		}
@@ -139,24 +131,38 @@ var runesHydrateCmd = &cobra.Command{
 	},
 }
 
-var runesAnalyzeCmd = &cobra.Command{
-	Use:   "analyze",
-	Short: "Decompose requirements into runes via sandbox agent",
+var runesHydrateAllCmd = &cobra.Command{
+	Use:   "hydrate-all",
+	Short: "Hydrate all un-hydrated runes in parallel",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		requirements, _ := cmd.Flags().GetString("requirements")
+		concurrency, _ := cmd.Flags().GetInt("concurrency")
+		if concurrency == 0 {
+			concurrency = cfg.Concurrency
+		}
+		verify, _ := cmd.Flags().GetBool("verify")
+
+		result, err := hyd.HydrateAll(cmd.Context(), concurrency, verify, os.Stderr)
+		if err != nil {
+			return err
+		}
+		return printJSON(result)
+	},
+}
+
+var runesDecomposeCmd = &cobra.Command{
+	Use:   "decompose [requirement...]",
+	Short: "Decompose requirements into runes",
+	Args:  cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		requirements := strings.Join(args, " ")
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		run, err := runner.New(cfg.Agent)
+		result, err := dec.Decompose(cmd.Context(), requirements)
 		if err != nil {
 			return err
 		}
 
-		result, err := ana.Analyze(cmd.Context(), requirements, run, os.Stderr)
-		if err != nil {
-			return err
-		}
-
-		printAnalysis(result)
+		printDecomposition(result)
 
 		if len(result.NewRunes) == 0 {
 			fmt.Println("\nNo new runes to create.")
@@ -187,14 +193,50 @@ var runesAnalyzeCmd = &cobra.Command{
 	},
 }
 
-func printAnalysis(r *analyzer.Result) {
+var runesCheckCmd = &cobra.Command{
+	Use:   "check",
+	Short: "Check for stale references in rune dependencies",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		stale, ok, err := store.CheckStaleRefs()
+		if err != nil {
+			return err
+		}
+		if stale == 0 {
+			fmt.Printf("All %d references up to date.\n", ok)
+		} else {
+			fmt.Printf("%d stale, %d ok\n", stale, ok)
+		}
+		return nil
+	},
+}
+
+var runesVerifyCmd = &cobra.Command{
+	Use:   "verify",
+	Short: "Verify hydrated runes against their specs",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		concurrency, _ := cmd.Flags().GetInt("concurrency")
+		if concurrency == 0 {
+			concurrency = cfg.Concurrency
+		}
+		result, err := hyd.VerifyAll(cmd.Context(), concurrency, nil)
+		if err != nil {
+			return err
+		}
+		return printJSON(result)
+	},
+}
+
+func printDecomposition(r *decomposer.Result) {
 	if len(r.NewRunes) > 0 {
 		fmt.Println("=== New runes ===")
 		for _, p := range r.NewRunes {
 			fmt.Printf("\n  %s\n", p.Name)
-			fmt.Printf("    %s\n", p.Description)
-			fmt.Printf("    Signature: %s\n", p.Signature)
-			fmt.Printf("    Behavior: %s\n", p.Behavior)
+			if p.Description != "" {
+				fmt.Printf("    %s\n", p.Description)
+			}
+			if p.Signature != "" {
+				fmt.Printf("    Signature: %s\n", p.Signature)
+			}
 			for _, t := range p.PositiveTests {
 				fmt.Printf("    + %s\n", t)
 			}
@@ -222,9 +264,12 @@ func init() {
 	runesCmd.AddCommand(runesUpdateCmd)
 	runesCmd.AddCommand(runesDeleteCmd)
 	runesCmd.AddCommand(runesHydrateCmd)
-	runesCmd.AddCommand(runesAnalyzeCmd)
+	runesCmd.AddCommand(runesHydrateAllCmd)
+	runesCmd.AddCommand(runesDecomposeCmd)
+	runesCmd.AddCommand(runesCheckCmd)
+	runesCmd.AddCommand(runesVerifyCmd)
 
-	runesCreateCmd.Flags().String("name", "", "Rune name (slug)")
+	runesCreateCmd.Flags().String("name", "", "Rune name (dot path, e.g. auth.validate_email)")
 	runesCreateCmd.Flags().String("description", "", "Rune description")
 	runesCreateCmd.Flags().String("signature", "", "Function signature, e.g. (email: string) -> bool")
 	_ = runesCreateCmd.MarkFlagRequired("name")
@@ -235,9 +280,12 @@ func init() {
 	runesUpdateCmd.Flags().String("signature", "", "New function signature")
 	runesUpdateCmd.Flags().String("version", "", "New version")
 
-	runesAnalyzeCmd.Flags().String("requirements", "", "Plain-text requirements to decompose")
-	runesAnalyzeCmd.Flags().Bool("yes", false, "Auto-approve rune creation without prompting")
-	_ = runesAnalyzeCmd.MarkFlagRequired("requirements")
+	runesDecomposeCmd.Flags().Bool("yes", false, "Auto-approve rune creation without prompting")
+
+	runesHydrateAllCmd.Flags().Int("concurrency", 0, "Max concurrent hydration tasks (default from config)")
+	runesHydrateAllCmd.Flags().Bool("verify", false, "Verify implementations after hydration")
+
+	runesVerifyCmd.Flags().Int("concurrency", 0, "Max concurrent verification tasks (default from config)")
 }
 
 func printJSON(v any) error {

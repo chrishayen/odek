@@ -5,12 +5,14 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/chrishayen/valkyrie/internal/analyzer"
+	"github.com/chrishayen/valkyrie/internal/decomposer"
 	"github.com/spf13/cobra"
 )
 
-var supportedLanguages = map[string]bool{
+var supportedInitLanguages = map[string]bool{
 	"go": true,
+	"ts": true,
+	"py": true,
 }
 
 var initCmd = &cobra.Command{
@@ -19,8 +21,8 @@ var initCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		language := args[0]
-		if !supportedLanguages[language] {
-			return fmt.Errorf("unsupported language %q (supported: go)", language)
+		if !supportedInitLanguages[language] {
+			return fmt.Errorf("unsupported language %q (supported: go, ts, py)", language)
 		}
 
 		cwd, err := os.Getwd()
@@ -42,12 +44,14 @@ var initCmd = &cobra.Command{
 		tomlContent := fmt.Sprintf(`project = %q
 language = %q
 # output_path = "src"
+# concurrency = 50
 
 [agent]
-type = "claude-sub"
-# sandbox = false  # set true to run agents inside Docker containers
-# model = "claude-sonnet-4-5"
+# model = "claude-sonnet-4-6"
 # token parses from ~/.claude/.credentials.json by default
+
+[server]
+# port = 8319
 `, project, language)
 
 		if err := os.WriteFile(tomlPath, []byte(tomlContent), 0644); err != nil {
@@ -71,7 +75,7 @@ type = "claude-sub"
 
 		// CLAUDE.md — rune-agent instructions, auto-loaded by Claude Code
 		claudePath := filepath.Join(cwd, "CLAUDE.md")
-		if err := os.WriteFile(claudePath, []byte(analyzer.Instructions), 0644); err != nil {
+		if err := os.WriteFile(claudePath, []byte(decomposer.Instructions), 0644); err != nil {
 			return fmt.Errorf("writing CLAUDE.md: %w", err)
 		}
 

@@ -5,8 +5,9 @@ import (
 	"os"
 
 	"github.com/chrishayen/valkyrie/config"
-	"github.com/chrishayen/valkyrie/internal/analyzer"
+	"github.com/chrishayen/valkyrie/internal/claude"
 	"github.com/chrishayen/valkyrie/internal/composer"
+	"github.com/chrishayen/valkyrie/internal/decomposer"
 	"github.com/chrishayen/valkyrie/internal/feature"
 	"github.com/chrishayen/valkyrie/internal/hydrator"
 	runepkg "github.com/chrishayen/valkyrie/internal/rune"
@@ -17,8 +18,9 @@ var (
 	cfg          *config.Config
 	store        *runepkg.Store
 	featureStore *feature.Store
+	client       *claude.Client
 	hyd          *hydrator.Hydrator
-	ana          *analyzer.Analyzer
+	dec          *decomposer.Decomposer
 	comp         *composer.Composer
 )
 
@@ -26,7 +28,6 @@ var rootCmd = &cobra.Command{
 	Use:   "valkyrie",
 	Short: "Valkyrie — agentic code orchestration",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Skip config loading for init — config doesn't exist yet
 		if cmd.Name() == "init" {
 			return nil
 		}
@@ -38,9 +39,10 @@ var rootCmd = &cobra.Command{
 		}
 		store = runepkg.NewStore(cfg.RegistryPath, cfg.OutputPath)
 		featureStore = feature.NewStore(cfg.RegistryPath, cfg.OutputPath)
-		hyd = hydrator.New(store, cfg.Language)
-		ana = analyzer.New(store)
-		comp = composer.New(featureStore, store, cfg.Language)
+		client = claude.New(cfg.Agent.Model, cfg.Agent.ResolveToken(), cfg.Agent.Mock)
+		hyd = hydrator.New(store, client, cfg.Language)
+		dec = decomposer.New(store, client)
+		comp = composer.New(featureStore, store, client, cfg.Language)
 		return nil
 	},
 }
@@ -57,4 +59,5 @@ func init() {
 	rootCmd.AddCommand(featuresCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(mcpCmd)
+	rootCmd.AddCommand(serveCmd)
 }

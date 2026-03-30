@@ -10,12 +10,14 @@ import (
 )
 
 type Agent struct {
-	Type     string `toml:"type"`
 	Model    string `toml:"model,omitempty"`
-	Image    string `toml:"image,omitempty"`
 	Token    string `toml:"token,omitempty"`
 	TokenEnv string `toml:"token_env,omitempty"`
-	Sandbox  bool   `toml:"sandbox,omitempty"`
+	Mock     bool   `toml:"mock,omitempty"`
+}
+
+type Server struct {
+	Port int `toml:"port,omitempty"`
 }
 
 type Config struct {
@@ -23,16 +25,35 @@ type Config struct {
 	Language     string `toml:"language"`
 	RegistryPath string `toml:"registry_path"`
 	OutputPath   string `toml:"output_path"`
+	Concurrency  int    `toml:"concurrency,omitempty"`
 	Agent        Agent  `toml:"agent"`
+	Server       Server `toml:"server"`
 }
 
 var supportedLanguages = map[string]bool{
 	"go": true,
+	"ts": true,
+	"py": true,
 }
 
-var validTypes = map[string]bool{
-	"claude-sub": true,
-	"mock":       true, // for testing only
+// ResolveToken returns the OAuth token using this precedence:
+// 1. token field in config (literal value)
+// 2. token_env field in config (named env var)
+// 3. CLAUDE_CODE_OAUTH_TOKEN env var
+// 4. Parse from ~/.claude/.credentials.json
+func (a Agent) ResolveToken() string {
+	if a.Token != "" {
+		return a.Token
+	}
+	if a.TokenEnv != "" {
+		if v := os.Getenv(a.TokenEnv); v != "" {
+			return v
+		}
+	}
+	if v := os.Getenv("CLAUDE_CODE_OAUTH_TOKEN"); v != "" {
+		return v
+	}
+	return ClaudeToken()
 }
 
 // FindRoot walks up from cwd (or VALKYRIE_PROJECT_DIR) looking for valkyrie.toml.
@@ -70,8 +91,9 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		RegistryPath: root,
 		OutputPath:   filepath.Join(root, "src"),
-		Agent: Agent{
-			Type: "claude-sub",
+		Concurrency:  50,
+		Server: Server{
+			Port: 8319,
 		},
 	}
 	if _, err := toml.DecodeFile(path, cfg); err != nil {
@@ -86,18 +108,13 @@ func Load() (*Config, error) {
 		cfg.Language = "go"
 	}
 	if !supportedLanguages[cfg.Language] {
-		return nil, fmt.Errorf("unsupported language %q (supported: go)", cfg.Language)
-	}
-
-	if !validTypes[cfg.Agent.Type] {
-		return nil, fmt.Errorf("agent: unknown type %q (valid: claude-sub)", cfg.Agent.Type)
+		return nil, fmt.Errorf("unsupported language %q (supported: go, ts, py)", cfg.Language)
 	}
 
 	return cfg, nil
 }
 
 // ClaudeToken reads the OAuth access token from ~/.claude/.credentials.json.
-// Returns empty string if the file doesn't exist or can't be parsed.
 func ClaudeToken() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -116,4 +133,28 @@ func ClaudeToken() string {
 		return ""
 	}
 	return creds.ClaudeAiOauth.AccessToken
+}
+
+// LangExtension returns the file extension for a language identifier.
+func LangExtension(lang string) string {
+	switch lang {
+	case "go":
+		return ".go"
+	case "py":
+		return ".py"
+	default:
+		return ".ts"
+	}
+}
+
+// LangName returns the human-readable name for a language identifier.
+func LangName(lang string) string {
+	switch lang {
+	case "go":
+		return "Go"
+	case "py":
+		return "Python"
+	default:
+		return "TypeScript (Node.js with node:* built-ins)"
+	}
 }

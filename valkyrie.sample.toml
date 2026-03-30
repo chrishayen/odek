@@ -2,13 +2,15 @@
 # Run `valkyrie init` to generate this file, or copy and edit manually.
 
 project = "myapp"
-language = "go"
+language = "go"  # go, ts, py
+# output_path = "src"
+# concurrency = 50
 
 [agent]
-type = "claude-sub"
-# sandbox = false  # set true to run agents inside Docker containers
-# model = "claude-sonnet-4-5"
+# model = "claude-sonnet-4-6"
 # token = "sk-ant-oat01-..."       # explicit token (optional)
 # token_env = "MY_TOKEN_VAR"       # env var name (optional)
-# image = "ghcr.io/chrishayen/valkyrie-claude:latest"  # default
 # By default, token is parsed from ~/.claude/.credentials.json
+
+[server]
+# port = 8319

@@ -4,10 +4,9 @@ import (
 	"testing"
 )
 
-func TestClaudeSubAgentConfigLoads(t *testing.T) {
+func TestAgentConfigWithToken(t *testing.T) {
 	dir, cleanup := testEnv(t, `
 [agent]
-type = "claude-sub"
 model = "claude-sonnet-4-5"
 token = "sk-ant-oat01-fake"
 `)
@@ -15,14 +14,14 @@ token = "sk-ant-oat01-fake"
 
 	_, code := run(t, dir, "runes", "list")
 	if code != 0 {
-		t.Error("config with claude-sub agent should load successfully")
+		t.Error("config with token should load successfully")
 	}
 }
 
 func TestMockAgentConfigLoads(t *testing.T) {
 	dir, cleanup := testEnv(t, `
 [agent]
-type = "mock"
+mock = true
 `)
 	defer cleanup()
 
@@ -32,8 +31,7 @@ type = "mock"
 	}
 }
 
-func TestDefaultAgentType(t *testing.T) {
-	// No [agent] section — should default to claude-sub
+func TestDefaultAgentConfig(t *testing.T) {
 	dir, cleanup := testEnv(t, `
 [agent]
 token = "sk-ant-oat01-fake"
@@ -42,6 +40,6 @@ token = "sk-ant-oat01-fake"
 
 	_, code := run(t, dir, "runes", "list")
 	if code != 0 {
-		t.Error("config without explicit agent type should default to claude-sub")
+		t.Error("config with default agent settings should load successfully")
 	}
 }
