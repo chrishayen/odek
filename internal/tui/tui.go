@@ -6,7 +6,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/chrishayen/valkyrie/internal/feature"
 	"github.com/lucasb-eyer/go-colorful"
 )
 
@@ -182,17 +181,17 @@ func renderGradient(text string, stops []colorful.Color) string {
 }
 
 type Model struct {
-	width        int
-	height       int
-	screen       screen
-	featureStore *feature.Store
-	createForm   createFeatureModel
+	width      int
+	height     int
+	screen     screen
+	port       int
+	createForm createFeatureModel
 }
 
-func New(featureStore *feature.Store) Model {
+func New(port int) Model {
 	return Model{
-		screen:       screenSplash,
-		featureStore: featureStore,
+		screen: screenSplash,
+		port:   port,
 	}
 }
 
@@ -222,7 +221,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			if m.screen == screenSplash {
-				m.createForm = newCreateFeatureModel(m.featureStore, m.width, m.height)
+				m.createForm = newCreateFeatureModel(m.port, m.width, m.height)
 				m.screen = screenCreateFeature
 				return m, m.createForm.descInput.Focus()
 			}
@@ -279,17 +278,39 @@ func (m Model) viewCreateFeature() string {
 	// Header: gradient logo on full-width dark bar
 	header := renderGradientOnBg(" "+logoSmall, gradStops, "#1A1A1A", m.width)
 
-	// Help bar pinned to bottom
-	help := helpBarStyle.Render(
-		fmt.Sprintf("%s %s    %s %s    %s %s",
+	// Help bar pinned to bottom — context-sensitive
+	var helpText string
+	switch m.createForm.state {
+	case stateDone:
+		helpText = fmt.Sprintf("%s %s    %s %s",
+			helpKeyStyle.Render("enter"),
+			helpTextStyle.Render("new feature"),
+			helpKeyStyle.Render("esc"),
+			helpTextStyle.Render("back"),
+		)
+	case stateDecomposing:
+		helpText = fmt.Sprintf("%s %s",
+			helpKeyStyle.Render("esc"),
+			helpTextStyle.Render("back"),
+		)
+	case stateAuthError:
+		helpText = fmt.Sprintf("%s %s    %s %s",
+			helpKeyStyle.Render("l"),
+			helpTextStyle.Render("login"),
+			helpKeyStyle.Render("esc"),
+			helpTextStyle.Render("back"),
+		)
+	default:
+		helpText = fmt.Sprintf("%s %s    %s %s    %s %s",
 			helpKeyStyle.Render("enter"),
 			helpTextStyle.Render("create"),
 			helpKeyStyle.Render("alt+enter"),
 			helpTextStyle.Render("new line"),
 			helpKeyStyle.Render("esc"),
 			helpTextStyle.Render("back"),
-		),
-	)
+		)
+	}
+	help := helpBarStyle.Render(helpText)
 
 	// Form in the middle
 	form := m.createForm.view(m.width)

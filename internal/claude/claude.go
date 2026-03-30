@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -25,14 +24,10 @@ func New(model, token string, mock bool) *Client {
 	if model == "" {
 		model = "claude-sonnet-4-6"
 	}
-	baseURL := os.Getenv("ANTHROPIC_BASE_URL")
-	if baseURL == "" {
-		baseURL = "https://api.anthropic.com"
-	}
 	return &Client{
 		Model:   model,
-		Token:   token,
-		BaseURL: baseURL,
+		Token:   "sk-local-proxy",
+		BaseURL: "http://127.0.0.1:8317",
 		Mock:    mock,
 		http: &http.Client{
 			Timeout: 120 * time.Second,
@@ -84,9 +79,22 @@ func (c *Client) Call(systemPrompt, userPrompt string) (string, error) {
 	}
 
 	if resp.StatusCode != 200 {
+		bodyStr := strings.ToLower(string(respBody))
+		if resp.StatusCode == 401 || resp.StatusCode == 403 ||
+			strings.Contains(bodyStr, "expired") ||
+			strings.Contains(bodyStr, "unauthorized") ||
+			strings.Contains(bodyStr, "authentication") ||
+			strings.Contains(bodyStr, "invalid_api_key") ||
+			(resp.StatusCode == 502 && strings.Contains(bodyStr, "unknown provider")) {
+			snippet := string(respBody)
+			if len(snippet) > 300 {
+				snippet = snippet[:300]
+			}
+			return "", fmt.Errorf("auth error: token expired — run 'valkyrie login'")
+		}
 		snippet := string(respBody)
-		if len(snippet) > 300 {
-			snippet = snippet[:300]
+		if len(snippet) > 200 {
+			snippet = snippet[:200]
 		}
 		return "", fmt.Errorf("api error %d: %s", resp.StatusCode, snippet)
 	}

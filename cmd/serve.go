@@ -12,6 +12,12 @@ var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the HTTP API server",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		cancelProxy, err := startProxy(false)
+		if err != nil {
+			return fmt.Errorf("proxy: %w", err)
+		}
+		defer cancelProxy()
+
 		port, _ := cmd.Flags().GetInt("port")
 		if port == 0 {
 			port = cfg.Server.Port
