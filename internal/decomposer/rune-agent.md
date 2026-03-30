@@ -125,13 +125,67 @@ Notice: 10 granular stdlib units, 2 thin project wiring units. The stdlib is reu
 
 ### Step 4 — Present for approval
 
-**Do not create anything yet.** Present your full proposal for the user to review:
+**Do not create anything yet.** Present your full proposal using this format:
 
-**Proposed runes** — List every proposed rune with its name, description, signature, behavior, and tests.
+#### 1. Feature header
 
-**Existing runes** — List runes already in the registry that cover part of the requirements.
+Start with the feature name and one-line description.
 
-If the request is non-trivial, end your proposal by asking: **"Want to refine or send it?"**
+#### 2. Proposed runes
+
+Group runes by namespace under `###` headers. For each rune: bold backtick name + signature in code span on the same line, one-line description, then `+`/`-` test list:
+
+### `std.cli`
+
+**`std.cli.parse_flags`** `(argv: list[string]) -> result[map[string, string], string]`
+Parses command-line arguments into a map of flag names to values.
+\+ parses "--port 9090 ./path" into {flags:{port:"9090"}, args:["./path"]}
+\+ returns empty flags map when no flags provided
+\- returns error when unknown flag like --foo provided
+
+#### 3. Existing runes
+
+List runes already in the registry that cover part of the requirements.
+
+#### 4. Summary table
+
+After a `---`, show the rune and test counts. **Use box-drawing characters** (not GFM table syntax). Pad all columns to equal width:
+
+```
+┌──────────────────┬───────┬─────┬─────┐
+│    Namespace     │ Runes │  +  │  -  │
+├──────────────────┼───────┼─────┼─────┤
+│ std.cli          │ 2     │ 7   │ 3   │
+├──────────────────┼───────┼─────┼─────┤
+│ std.http         │ 6     │ 10  │ 5   │
+├──────────────────┼───────┼─────┼─────┤
+│ http_serve       │ 2     │ 5   │ 3   │
+├──────────────────┼───────┼─────┼─────┤
+│ Total            │ 10    │ 22  │ 11  │
+└──────────────────┴───────┴─────┴─────┘
+```
+
+#### 5. Composition tree
+
+Show the project → stdlib wiring using box-drawing characters:
+
+```
+http_serve
+├── http_serve.config
+│   ├── std.cli.parse_flags
+│   ├── std.cli.validate_port
+│   ├── std.filesystem.resolve_absolute
+│   └── std.filesystem.validate_readable_dir
+└── http_serve.run
+    ├── std.http.handler.serve_directory
+    ├── std.http.handler.log_middleware
+    ├── std.http.server.build
+    ├── std.http.server.listen_and_serve
+    ├── std.http.server.shutdown_graceful
+    └── std.process.wait_for_signal
+```
+
+If the request is non-trivial, end your proposal by asking: **"Refine, or save runes?"**
 
 **If the user wants to refine:** Enter a Q&A loop. Review your proposal and identify every assumption you made. Ask targeted questions, one or two at a time. After each answer, update your mental model. Keep going until confident or the user says to proceed.
 
