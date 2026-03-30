@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/chrishayen/valkyrie/config"
+	"github.com/chrishayen/valkyrie/internal/app"
 	"github.com/chrishayen/valkyrie/internal/claude"
 	"github.com/chrishayen/valkyrie/internal/composer"
 	"github.com/chrishayen/valkyrie/internal/decomposer"
@@ -18,6 +19,7 @@ var (
 	cfg          *config.Config
 	store        *runepkg.Store
 	featureStore *feature.Store
+	appStore     *app.Store
 	client       *claude.Client
 	hyd          *hydrator.Hydrator
 	dec          *decomposer.Decomposer
@@ -39,6 +41,7 @@ var rootCmd = &cobra.Command{
 		}
 		store = runepkg.NewStore(cfg.RegistryPath, cfg.OutputPath)
 		featureStore = feature.NewStore(cfg.RegistryPath, cfg.OutputPath)
+		appStore = app.NewStore(cfg.RegistryPath, cfg.OutputPath)
 		client = claude.New(cfg.Agent.Model, cfg.Agent.ResolveToken(), cfg.Agent.Mock)
 		hyd = hydrator.New(store, client, cfg.Language)
 		dec = decomposer.New(store, client)
@@ -57,6 +60,7 @@ func Execute() {
 func init() {
 	rootCmd.AddCommand(runesCmd)
 	rootCmd.AddCommand(featuresCmd)
+	rootCmd.AddCommand(appsCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(serveCmd)

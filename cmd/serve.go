@@ -17,7 +17,7 @@ var serveCmd = &cobra.Command{
 			port = cfg.Server.Port
 		}
 
-		s := server.New(cfg, store, featureStore, dec, hyd)
+		s := server.New(cfg, store, featureStore, appStore, dec, hyd)
 		addr := fmt.Sprintf(":%d", port)
 		fmt.Printf("valkyrie api server listening on %s\n", addr)
 		return http.ListenAndServe(addr, s)

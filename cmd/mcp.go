@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/chrishayen/valkyrie/internal/app"
 	"github.com/chrishayen/valkyrie/internal/decomposer"
 	"github.com/chrishayen/valkyrie/internal/feature"
 	runepkg "github.com/chrishayen/valkyrie/internal/rune"
@@ -114,6 +115,34 @@ var mcpCmd = &cobra.Command{
 			mcp.WithDescription("Generate dispatcher and wiring code for a feature."),
 			mcp.WithString("name", mcp.Description("Feature name"), mcp.Required()),
 		), handleFeaturesCompose)
+
+		s.AddTool(mcp.NewTool("apps_list",
+			mcp.WithDescription("List all apps in the registry."),
+		), handleAppsList)
+
+		s.AddTool(mcp.NewTool("apps_create",
+			mcp.WithDescription("Create a new app in the registry."),
+			mcp.WithString("name", mcp.Description("App name as a single slug"), mcp.Required()),
+			mcp.WithString("body", mcp.Description("The full app content in markdown"), mcp.Required()),
+		), handleAppsCreate)
+
+		s.AddTool(mcp.NewTool("apps_get",
+			mcp.WithDescription("Retrieve a single app by name."),
+			mcp.WithString("name", mcp.Description("App name"), mcp.Required()),
+		), handleAppsGet)
+
+		s.AddTool(mcp.NewTool("apps_update",
+			mcp.WithDescription("Update an app's version, status, or entry point."),
+			mcp.WithString("name", mcp.Description("App name"), mcp.Required()),
+			mcp.WithString("version", mcp.Description("New semantic version")),
+			mcp.WithString("status", mcp.Description("New status: draft, reviewed, or stable")),
+			mcp.WithString("entry_point", mcp.Description("Entry point feature name")),
+		), handleAppsUpdate)
+
+		s.AddTool(mcp.NewTool("apps_delete",
+			mcp.WithDescription("Delete an app from the registry."),
+			mcp.WithString("name", mcp.Description("App name"), mcp.Required()),
+		), handleAppsDelete)
 
 		return server.ServeStdio(s)
 	},
@@ -375,6 +404,81 @@ func handleFeaturesCompose(ctx context.Context, req mcp.CallToolRequest) (*mcp.C
 		return errResult(err), nil
 	}
 	return textResult(toJSON(result)), nil
+}
+
+func handleAppsList(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	apps, err := appStore.List()
+	if err != nil {
+		return errResult(err), nil
+	}
+	if apps == nil {
+		apps = []app.App{}
+	}
+	return textResult(toJSON(apps)), nil
+}
+
+func handleAppsCreate(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := req.GetArguments()
+	name, _ := args["name"].(string)
+	body, _ := args["body"].(string)
+	if err := appStore.Create(name, body); err != nil {
+		return errResult(err), nil
+	}
+	created, err := appStore.Get(name)
+	if err != nil {
+		return errResult(err), nil
+	}
+	return textResult(toJSON(created)), nil
+}
+
+func handleAppsGet(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	name, _ := req.GetArguments()["name"].(string)
+	a, err := appStore.Get(name)
+	if err != nil {
+		return errResult(err), nil
+	}
+	return textResult(toJSON(a)), nil
+}
+
+func handleAppsUpdate(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := req.GetArguments()
+	name, _ := args["name"].(string)
+	a, err := appStore.Get(name)
+	if err != nil {
+		return errResult(err), nil
+	}
+	changed := false
+	if ver, ok := args["version"].(string); ok && ver != "" {
+		a.Version = ver
+		changed = true
+	}
+	if status, ok := args["status"].(string); ok && status != "" {
+		a.Status = status
+		changed = true
+	}
+	if ep, ok := args["entry_point"].(string); ok && ep != "" {
+		a.EntryPoint = ep
+		changed = true
+	}
+	if !changed {
+		return errResult(fmt.Errorf("at least one of version, status, or entry_point is required")), nil
+	}
+	if err := appStore.Update(*a); err != nil {
+		return errResult(err), nil
+	}
+	updated, err := appStore.Get(name)
+	if err != nil {
+		return errResult(err), nil
+	}
+	return textResult(toJSON(updated)), nil
+}
+
+func handleAppsDelete(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	name, _ := req.GetArguments()["name"].(string)
+	if err := appStore.Delete(name); err != nil {
+		return errResult(err), nil
+	}
+	return textResult(fmt.Sprintf("app %q deleted", name)), nil
 }
 
 func handleRunesCreateBatch(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {

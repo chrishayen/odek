@@ -3,7 +3,7 @@ CONFIG     ?= valkyrie.toml
 DEV_DIR    := .dev
 PORT       := 8319
 
-.PHONY: build install run decompose hydrate generate serve test test-e2e dev clean help
+.PHONY: build install run tui decompose hydrate generate serve test test-e2e dev clean help
 
 ## build: compile the binary
 build:
@@ -12,6 +12,10 @@ build:
 ## install: compile and install to GOBIN
 install:
 	go install .
+
+## tui: install and launch the TUI
+tui: install
+	@valkyrie tui
 
 ## run: build and run with ARGS
 run: build
