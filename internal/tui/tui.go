@@ -24,7 +24,7 @@ var logoBig = `
  ╚██████╔╝██████╔╝███████╗██║  ██╗
   ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝`
 
-var logoSmall = "O D E K"
+var logoSmall = "ODEK"
 
 var (
 	border  = lipgloss.Color("#666666")
@@ -282,11 +282,33 @@ func (m Model) viewCreateFeature() string {
 	var helpText string
 	switch m.createForm.state {
 	case stateDone:
-		helpText = fmt.Sprintf("%s %s    %s %s",
+		var viewLabel string
+		switch m.createForm.rightPane {
+		case paneDetail:
+			viewLabel = "tree"
+		case paneTree:
+			viewLabel = "flow"
+		case paneFlow:
+			viewLabel = "detail"
+		}
+		helpText = fmt.Sprintf("%s %s    %s %s    %s %s    %s %s    %s %s",
+			helpKeyStyle.Render("j/k"),
+			helpTextStyle.Render("navigate"),
+			helpKeyStyle.Render("t"),
+			helpTextStyle.Render(viewLabel),
+			helpKeyStyle.Render("r"),
+			helpTextStyle.Render("refine"),
 			helpKeyStyle.Render("enter"),
 			helpTextStyle.Render("new feature"),
 			helpKeyStyle.Render("esc"),
 			helpTextStyle.Render("back"),
+		)
+	case stateRefining:
+		helpText = fmt.Sprintf("%s %s    %s %s",
+			helpKeyStyle.Render("enter"),
+			helpTextStyle.Render("submit"),
+			helpKeyStyle.Render("esc"),
+			helpTextStyle.Render("cancel"),
 		)
 	case stateDecomposing:
 		helpText = fmt.Sprintf("%s %s",

@@ -127,6 +127,12 @@ func StripCodeFences(s string) string {
 
 // mockResponse returns deterministic responses for e2e tests.
 func mockResponse(systemPrompt, userPrompt string) string {
+	if strings.Contains(systemPrompt, "You name features") {
+		return `{"name":"auth","summary":"Authentication system with email validation and password hashing."}`
+	}
+	if strings.Contains(systemPrompt, "flow diagram") {
+		return mockFlowDiagram()
+	}
 	if strings.Contains(systemPrompt, "decompose") || strings.Contains(systemPrompt, "composition tree") {
 		return mockDecomposeResponse()
 	}
@@ -169,6 +175,36 @@ test_project
       @ (user_id: string, hashed_password: string) -> result[bool, string]
       + Given valid user ID and hash, returns success
       - Given empty user ID, returns an error`
+}
+
+func mockFlowDiagram() string {
+	return `┌─────────────────┐
+│   User Input     │
+│  email, password │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│ validate_email   │
+│ (email) -> bool  │
+└────────┬────────┘
+         │ valid
+         ▼
+┌─────────────────┐
+│ hash_password    │
+│ (pwd) -> hash    │
+└────────┬────────┘
+         │ hashed
+         ▼
+┌──────────────────┐
+│store_credentials  │
+│(id, hash) -> bool │
+└────────┬─────────┘
+         │ stored
+         ▼
+┌─────────────────┐
+│  Session Token   │
+└─────────────────┘`
 }
 
 func mockHydrateResponse(prompt string) string {

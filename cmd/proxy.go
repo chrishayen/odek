@@ -52,14 +52,18 @@ func startProxy(quiet bool) (func(), error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	errCh := make(chan error, 1)
 	go func() {
 		if err := svc.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			fmt.Fprintf(os.Stderr, "proxy error: %v\n", err)
+			errCh <- err
 		}
 	}()
 
 	select {
 	case <-ready:
+	case err := <-errCh:
+		cancel()
+		return nil, fmt.Errorf("proxy: %w", err)
 	case <-time.After(15 * time.Second):
 		cancel()
 		return nil, fmt.Errorf("proxy failed to start within 15s")

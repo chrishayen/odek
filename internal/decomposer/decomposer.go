@@ -3,6 +3,7 @@ package decomposer
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -37,6 +38,9 @@ type ExistingMatch struct {
 
 // Result is the structured output of a decomposition.
 type Result struct {
+	FeatureName   string          `json:"feature_name,omitempty"`
+	Summary       string          `json:"summary,omitempty"`
+	FlowDiagram   string          `json:"flow_diagram,omitempty"`
 	NewRunes      []ProposedRune  `json:"new_runes"`
 	ExistingRunes []ExistingMatch `json:"existing_runes"`
 	TreeOutput    string          `json:"tree_output,omitempty"`
@@ -55,6 +59,12 @@ func New(store *runepkg.Store, client *claude.Client) *Decomposer {
 	return &Decomposer{store: store, client: client}
 }
 
+const metaSystemPrompt = `You name features. Given a requirement, respond with exactly this JSON and nothing else:
+{"name":"snake_case_slug","summary":"One sentence summary."}
+The name is a short slug (e.g. auth, payment, http_serve). The summary describes what the feature does.`
+
+const flowSystemPrompt = `You draw flow diagrams for software features using box-drawing characters. Given a requirement, show how the components connect to deliver the feature's functionality. Use arrows (──>, <──) to show data/control flow between boxes drawn with ┌─┐│└─┘ characters. Label arrows with what flows between components. Keep it compact — fit within 80 columns. Show the happy path top-to-bottom. No prose, just the diagram.`
+
 // Decompose sends requirements to Claude and returns the decomposition.
 func (d *Decomposer) Decompose(_ context.Context, requirements string) (*Result, error) {
 	userPrompt, err := d.buildPrompt(requirements)
@@ -62,12 +72,74 @@ func (d *Decomposer) Decompose(_ context.Context, requirements string) (*Result,
 		return nil, err
 	}
 
-	output, err := d.client.Call(systemPrompt, userPrompt)
-	if err != nil {
-		return nil, fmt.Errorf("claude call failed: %w", err)
+	type treeOut struct {
+		output string
+		err    error
+	}
+	type metaOut struct {
+		name    string
+		summary string
+		err     error
+	}
+	type flowOut struct {
+		diagram string
+		err     error
 	}
 
-	return d.parseResult(output)
+	treeCh := make(chan treeOut, 1)
+	metaCh := make(chan metaOut, 1)
+	flowCh := make(chan flowOut, 1)
+
+	go func() {
+		output, err := d.client.Call(systemPrompt, userPrompt)
+		treeCh <- treeOut{output, err}
+	}()
+	go func() {
+		name, summary, err := d.generateMeta(requirements)
+		metaCh <- metaOut{name, summary, err}
+	}()
+	go func() {
+		diagram, err := d.client.Call(flowSystemPrompt, requirements)
+		flowCh <- flowOut{strings.TrimSpace(diagram), err}
+	}()
+
+	tr := <-treeCh
+	if tr.err != nil {
+		return nil, fmt.Errorf("claude call failed: %w", tr.err)
+	}
+
+	result, err := d.parseResult(tr.output)
+	if err != nil {
+		return nil, err
+	}
+
+	mr := <-metaCh
+	if mr.err == nil {
+		result.FeatureName = mr.name
+		result.Summary = mr.summary
+	}
+
+	fr := <-flowCh
+	if fr.err == nil {
+		result.FlowDiagram = fr.diagram
+	}
+
+	return result, nil
+}
+
+func (d *Decomposer) generateMeta(requirements string) (string, string, error) {
+	output, err := d.client.Call(metaSystemPrompt, requirements)
+	if err != nil {
+		return "", "", err
+	}
+	var meta struct {
+		Name    string `json:"name"`
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(claude.StripCodeFences(output)), &meta); err != nil {
+		return "", "", fmt.Errorf("meta parse: %w", err)
+	}
+	return meta.Name, meta.Summary, nil
 }
 
 // ToRune converts a ProposedRune to a Rune for storage.
