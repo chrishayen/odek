@@ -39,19 +39,34 @@ func New(model, token string, mock bool) *Client {
 	}
 }
 
+// ChatMessage is a single turn for multi-turn conversations.
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // Call sends a system+user prompt to the Anthropic API and returns the text response.
 func (c *Client) Call(systemPrompt, userPrompt string) (string, error) {
+	return c.CallMessages(systemPrompt, []ChatMessage{{Role: "user", Content: userPrompt}})
+}
+
+// CallMessages sends a multi-turn conversation to the Anthropic API.
+func (c *Client) CallMessages(systemPrompt string, messages []ChatMessage) (string, error) {
 	if c.Mock {
-		return mockResponse(systemPrompt, userPrompt), nil
+		last := ""
+		for _, m := range messages {
+			if m.Role == "user" {
+				last = m.Content
+			}
+		}
+		return mockResponse(systemPrompt, last), nil
 	}
 
 	body := map[string]any{
 		"model":      c.Model,
 		"max_tokens": 16384,
 		"system":     systemPrompt,
-		"messages": []map[string]string{
-			{"role": "user", "content": userPrompt},
-		},
+		"messages":   messages,
 	}
 
 	jsonBody, err := json.Marshal(body)

@@ -12,14 +12,14 @@ import (
 )
 
 type Draft struct {
-	ID           string           `json:"id"`
-	FeatureName  string           `json:"feature_name"`
-	Summary      string           `json:"summary"`
-	Requirement  string           `json:"requirement"`
-	Result       *decomposeResult `json:"result,omitempty"`
-	Conversation []qaPair         `json:"conversation,omitempty"`
-	CreatedAt    time.Time        `json:"created_at"`
-	UpdatedAt    time.Time        `json:"updated_at"`
+	ID            string           `json:"id"`
+	FeatureName   string           `json:"feature_name"`
+	Summary       string           `json:"summary"`
+	Requirement   string           `json:"requirement"`
+	Result        *decomposeResult `json:"result,omitempty"`
+	ChatSessionID string           `json:"chat_session_id,omitempty"`
+	CreatedAt     time.Time        `json:"created_at"`
+	UpdatedAt     time.Time        `json:"updated_at"`
 }
 
 type DraftStore struct {

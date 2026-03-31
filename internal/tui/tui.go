@@ -7,6 +7,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lucasb-eyer/go-colorful"
+
+	"github.com/chrishayen/odek/internal/chat"
 )
 
 type screen int
@@ -188,16 +190,18 @@ type Model struct {
 	port         int
 	registryPath string
 	draftStore   *DraftStore
+	chatStore    *chat.Store
 	createForm   createFeatureModel
 	featureList  featureListModel
 }
 
-func New(port int, registryPath string) Model {
+func New(port int, registryPath string, chatStore *chat.Store) Model {
 	return Model{
 		screen:       screenSplash,
 		port:         port,
 		registryPath: registryPath,
 		draftStore:   NewDraftStore(registryPath),
+		chatStore:    chatStore,
 	}
 }
 
@@ -231,7 +235,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case draftSelectedMsg:
-		m.createForm = newCreateFeatureModelFromDraft(m.port, m.width, m.height, m.draftStore, msg.draft)
+		m.createForm = newCreateFeatureModelFromDraft(m.port, m.width, m.height, m.draftStore, m.chatStore, msg.draft)
 		m.screen = screenCreateFeature
 		if m.createForm.state == stateDone {
 			return m, nil
@@ -239,7 +243,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.createForm.descInput.Focus()
 
 	case newFeatureMsg:
-		m.createForm = newCreateFeatureModel(m.port, m.width, m.height, m.draftStore)
+		m.createForm = newCreateFeatureModel(m.port, m.width, m.height, m.draftStore, m.chatStore)
 		m.screen = screenCreateFeature
 		return m, m.createForm.descInput.Focus()
 
@@ -259,7 +263,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			if m.screen == screenSplash {
-				m.createForm = newCreateFeatureModel(m.port, m.width, m.height, m.draftStore)
+				m.createForm = newCreateFeatureModel(m.port, m.width, m.height, m.draftStore, m.chatStore)
 				m.screen = screenCreateFeature
 				return m, m.createForm.descInput.Focus()
 			}
@@ -337,8 +341,8 @@ func (m Model) viewCreateFeature() string {
 				helpTextStyle.Render("navigate"),
 				helpKeyStyle.Render("r"),
 				helpTextStyle.Render("refine"),
-				helpKeyStyle.Render("q"),
-				helpTextStyle.Render("ask"),
+				helpKeyStyle.Render("c"),
+				helpTextStyle.Render("chat"),
 				helpKeyStyle.Render("tab"),
 				helpTextStyle.Render("next"),
 				helpKeyStyle.Render("enter"),
@@ -351,8 +355,8 @@ func (m Model) viewCreateFeature() string {
 				featureNameStyle.Render("rune"),
 				helpKeyStyle.Render("r"),
 				helpTextStyle.Render("refine"),
-				helpKeyStyle.Render("q"),
-				helpTextStyle.Render("ask"),
+				helpKeyStyle.Render("c"),
+				helpTextStyle.Render("chat"),
 				helpKeyStyle.Render("tab"),
 				helpTextStyle.Render("next"),
 				helpKeyStyle.Render("enter"),
@@ -361,8 +365,10 @@ func (m Model) viewCreateFeature() string {
 				helpTextStyle.Render("back"),
 			)
 		case focusRight:
-			helpText = fmt.Sprintf("%s    %s %s    %s %s    %s %s",
-				featureNameStyle.Render("conversation"),
+			helpText = fmt.Sprintf("%s    %s %s    %s %s    %s %s    %s %s",
+				featureNameStyle.Render("chat"),
+				helpKeyStyle.Render("c"),
+				helpTextStyle.Render("resume"),
 				helpKeyStyle.Render("tab"),
 				helpTextStyle.Render("next"),
 				helpKeyStyle.Render("enter"),
@@ -371,10 +377,10 @@ func (m Model) viewCreateFeature() string {
 				helpTextStyle.Render("back"),
 			)
 		}
-	case stateAsking:
+	case stateChat:
 		helpText = fmt.Sprintf("%s %s    %s %s",
-			helpKeyStyle.Render("tab"),
-			helpTextStyle.Render("next"),
+			helpKeyStyle.Render("enter"),
+			helpTextStyle.Render("send"),
 			helpKeyStyle.Render("bksp"),
 			helpTextStyle.Render("back"),
 		)
