@@ -177,8 +177,8 @@ const (
 )
 
 type qaPair struct {
-	question string
-	answer   string
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
 }
 
 // Messages for ask flow
@@ -186,6 +186,8 @@ type askStartedMsg struct{ jobID string }
 type askDoneMsg struct{ answer string }
 type askErrorMsg struct{ err error }
 type askPollTickMsg struct{}
+
+type goBackMsg struct{}
 
 type createFeatureModel struct {
 	descInput       textarea.Model
@@ -207,9 +209,11 @@ type createFeatureModel struct {
 	conversation    []qaPair
 	pendingQuestion string
 	askJobID        string
+	draftID         string
+	draftStore      *DraftStore
 }
 
-func newCreateFeatureModel(port, width, height int) createFeatureModel {
+func newCreateFeatureModel(port, width, height int, draftStore *DraftStore) createFeatureModel {
 	ta := textarea.New()
 	ta.Placeholder = "Describe the feature..."
 	ta.ShowLineNumbers = false
@@ -243,12 +247,49 @@ func newCreateFeatureModel(port, width, height int) createFeatureModel {
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623"))
 
 	return createFeatureModel{
-		descInput: ta,
-		state:     stateIdle,
-		port:      port,
-		width:     width,
-		height:    height,
-		spinner:   s,
+		descInput:  ta,
+		state:      stateIdle,
+		port:       port,
+		width:      width,
+		height:     height,
+		spinner:    s,
+		draftStore: draftStore,
+	}
+}
+
+func newCreateFeatureModelFromDraft(port, width, height int, draftStore *DraftStore, draft Draft) createFeatureModel {
+	m := newCreateFeatureModel(port, width, height, draftStore)
+	m.draftID = draft.ID
+	m.requirement = draft.Requirement
+	m.result = draft.Result
+	m.conversation = draft.Conversation
+
+	if m.result != nil {
+		m.state = stateDone
+		m.descInput.Blur()
+	} else if m.requirement != "" {
+		m.descInput.SetValue(m.requirement)
+	}
+	return m
+}
+
+func (m *createFeatureModel) toDraft() *Draft {
+	if m.requirement == "" && m.result == nil {
+		return nil
+	}
+	name := ""
+	summary := ""
+	if m.result != nil {
+		name = m.result.FeatureName
+		summary = m.result.Summary
+	}
+	return &Draft{
+		ID:           m.draftID,
+		FeatureName:  name,
+		Summary:      summary,
+		Requirement:  m.requirement,
+		Result:       m.result,
+		Conversation: m.conversation,
 	}
 }
 
@@ -505,7 +546,11 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 				if m.state == stateAsking {
 					return nil
 				}
+				if draft := m.toDraft(); draft != nil && m.draftStore != nil {
+					_ = m.draftStore.Save(*draft)
+				}
 				m.state = stateIdle
+				m.draftID = ""
 				m.result = nil
 				m.requirement = ""
 				m.runeCursor = 0
@@ -515,6 +560,8 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 				m.descInput.Reset()
 				m.descInput.Focus()
 				return nil
+			case "backspace":
+				return func() tea.Msg { return goBackMsg{} }
 			}
 
 			if m.state == stateAsking {
@@ -551,7 +598,15 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 				}
 			}
 		}
+		if m.state == stateDecomposing {
+			if msg.String() == "backspace" {
+				return func() tea.Msg { return goBackMsg{} }
+			}
+		}
 		if m.state == stateAuthError {
+			if msg.String() == "backspace" {
+				return func() tea.Msg { return goBackMsg{} }
+			}
 			if msg.String() == "l" {
 				exe, _ := os.Executable()
 				c := exec.Command(exe, "login")
@@ -582,8 +637,8 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 
 	case askDoneMsg:
 		m.conversation = append(m.conversation, qaPair{
-			question: m.pendingQuestion,
-			answer:   msg.answer,
+			Question: m.pendingQuestion,
+			Answer:   msg.answer,
 		})
 		m.pendingQuestion = ""
 		m.state = stateDone
@@ -592,8 +647,8 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 
 	case askErrorMsg:
 		m.conversation = append(m.conversation, qaPair{
-			question: m.pendingQuestion,
-			answer:   "Error: " + msg.err.Error(),
+			Question: m.pendingQuestion,
+			Answer:   "Error: " + msg.err.Error(),
 		})
 		m.pendingQuestion = ""
 		m.state = stateDone
@@ -1020,8 +1075,8 @@ func (m *createFeatureModel) viewResult(width int) string {
 		chat.WriteString(renderPaneHeader("conversation", chatWidth, m.focus == focusRight) + "\n")
 
 		for i, qa := range m.conversation {
-			chat.WriteString(qaQuestionStyle.Render("Q: ") + lipgloss.NewStyle().Width(chatWidth-4).Render(qa.question) + "\n")
-			chat.WriteString(qaAnswerStyle.Render(qa.answer) + "\n")
+			chat.WriteString(qaQuestionStyle.Render("Q: ") + lipgloss.NewStyle().Width(chatWidth-4).Render(qa.Question) + "\n")
+			chat.WriteString(qaAnswerStyle.Render(qa.Answer) + "\n")
 			if i < len(m.conversation)-1 {
 				chat.WriteString("\n")
 			}
