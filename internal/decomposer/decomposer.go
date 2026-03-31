@@ -66,8 +66,9 @@ The name is a short slug (e.g. auth, payment, http_serve). The summary describes
 const flowSystemPrompt = `You draw flow diagrams for software features using box-drawing characters. Given a requirement, show how the components connect to deliver the feature's functionality. Use arrows (──>, <──) to show data/control flow between boxes drawn with ┌─┐│└─┘ characters. Label arrows with what flows between components. Keep it compact — fit within 80 columns. Show the happy path top-to-bottom. No prose, just the diagram.`
 
 // Decompose sends requirements to Claude and returns the decomposition.
-func (d *Decomposer) Decompose(_ context.Context, requirements string) (*Result, error) {
-	userPrompt, err := d.buildPrompt(requirements)
+// If prevDecomposition is non-empty, it is included as context so the LLM can iterate.
+func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecomposition string) (*Result, error) {
+	userPrompt, err := d.buildPrompt(requirements, prevDecomposition)
 	if err != nil {
 		return nil, err
 	}
@@ -127,6 +128,13 @@ func (d *Decomposer) Decompose(_ context.Context, requirements string) (*Result,
 	return result, nil
 }
 
+const askSystemPrompt = `You answer questions about software decompositions concisely and directly. No markdown headers.`
+
+// Ask answers a question about a decomposition given context.
+func (d *Decomposer) Ask(_ context.Context, question, decompContext string) (string, error) {
+	return d.client.Call(askSystemPrompt, decompContext+"\n\nQuestion: "+question)
+}
+
 func (d *Decomposer) generateMeta(requirements string) (string, string, error) {
 	output, err := d.client.Call(metaSystemPrompt, requirements)
 	if err != nil {
@@ -155,7 +163,7 @@ func (p ProposedRune) ToRune() runepkg.Rune {
 	}
 }
 
-func (d *Decomposer) buildPrompt(requirements string) (string, error) {
+func (d *Decomposer) buildPrompt(requirements, prevDecomposition string) (string, error) {
 	var b strings.Builder
 
 	existingCtx, err := d.store.FormatExistingContext()
@@ -165,6 +173,12 @@ func (d *Decomposer) buildPrompt(requirements string) (string, error) {
 	if existingCtx != "" {
 		b.WriteString(existingCtx)
 		b.WriteString("\n")
+	}
+
+	if prevDecomposition != "" {
+		b.WriteString("Your previous output (to be refined — output the COMPLETE updated trees including all std and project units, not just changes):\n")
+		b.WriteString(prevDecomposition)
+		b.WriteString("\n\nThe user wants to refine the above. Apply this change and re-output both complete trees:\n")
 	}
 
 	b.WriteString(requirements)

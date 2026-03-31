@@ -127,6 +127,9 @@ func StripCodeFences(s string) string {
 
 // mockResponse returns deterministic responses for e2e tests.
 func mockResponse(systemPrompt, userPrompt string) string {
+	if strings.Contains(systemPrompt, "answer questions") {
+		return "The implementation validates input according to the specification, handling edge cases by returning descriptive errors. Each rune is isolated and communicates only through the dispatcher."
+	}
 	if strings.Contains(systemPrompt, "You name features") {
 		return `{"name":"auth","summary":"Authentication system with email validation and password hashing."}`
 	}

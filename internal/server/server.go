@@ -52,6 +52,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/decompose/{id}", s.handleJobStatus)
 	s.mux.HandleFunc("POST /api/hydrate", s.handleHydrate)
 	s.mux.HandleFunc("GET /api/hydrate/{id}", s.handleJobStatus)
+	s.mux.HandleFunc("POST /api/ask", s.handleAsk)
+	s.mux.HandleFunc("GET /api/ask/{id}", s.handleJobStatus)
 	s.mux.HandleFunc("POST /api/check", s.handleCheck)
 	s.mux.HandleFunc("POST /api/verify", s.handleVerify)
 	s.mux.HandleFunc("GET /api/verify/{id}", s.handleJobStatus)
@@ -101,7 +103,8 @@ func (s *Server) handleRunesGet(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDecompose(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Requirement string `json:"requirement"`
+		Requirement  string `json:"requirement"`
+		Decomposition string `json:"decomposition,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -115,12 +118,41 @@ func (s *Server) handleDecompose(w http.ResponseWriter, r *http.Request) {
 	j := s.jobs.Create()
 	go func() {
 		s.jobs.SetRunning(j.ID)
-		result, err := s.dec.Decompose(context.Background(), req.Requirement)
+		result, err := s.dec.Decompose(context.Background(), req.Requirement, req.Decomposition)
 		if err != nil {
 			s.jobs.SetFailed(j.ID, err)
 			return
 		}
 		data, _ := json.Marshal(result)
+		s.jobs.SetCompleted(j.ID, data)
+	}()
+
+	jsonResponse(w, http.StatusAccepted, map[string]string{"job_id": j.ID})
+}
+
+func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Question string `json:"question"`
+		Context  string `json:"context"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if req.Question == "" {
+		jsonError(w, http.StatusBadRequest, "question is required")
+		return
+	}
+
+	j := s.jobs.Create()
+	go func() {
+		s.jobs.SetRunning(j.ID)
+		answer, err := s.dec.Ask(context.Background(), req.Question, req.Context)
+		if err != nil {
+			s.jobs.SetFailed(j.ID, err)
+			return
+		}
+		data, _ := json.Marshal(answer)
 		s.jobs.SetCompleted(j.ID, data)
 	}()
 

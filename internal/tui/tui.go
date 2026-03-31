@@ -282,24 +282,52 @@ func (m Model) viewCreateFeature() string {
 	var helpText string
 	switch m.createForm.state {
 	case stateDone:
-		var viewLabel string
-		switch m.createForm.rightPane {
-		case paneDetail:
-			viewLabel = "tree"
-		case paneTree:
-			viewLabel = "flow"
-		case paneFlow:
-			viewLabel = "detail"
+		switch m.createForm.focus {
+		case focusLeft:
+			helpText = fmt.Sprintf("%s    %s %s    %s %s    %s %s    %s %s    %s %s    %s %s",
+				featureNameStyle.Render("feature"),
+				helpKeyStyle.Render("j/k"),
+				helpTextStyle.Render("navigate"),
+				helpKeyStyle.Render("r"),
+				helpTextStyle.Render("refine"),
+				helpKeyStyle.Render("q"),
+				helpTextStyle.Render("ask"),
+				helpKeyStyle.Render("tab"),
+				helpTextStyle.Render("next"),
+				helpKeyStyle.Render("enter"),
+				helpTextStyle.Render("new"),
+				helpKeyStyle.Render("esc"),
+				helpTextStyle.Render("back"),
+			)
+		case focusMiddle:
+			helpText = fmt.Sprintf("%s    %s %s    %s %s    %s %s    %s %s    %s %s",
+				featureNameStyle.Render("rune"),
+				helpKeyStyle.Render("r"),
+				helpTextStyle.Render("refine"),
+				helpKeyStyle.Render("q"),
+				helpTextStyle.Render("ask"),
+				helpKeyStyle.Render("tab"),
+				helpTextStyle.Render("next"),
+				helpKeyStyle.Render("enter"),
+				helpTextStyle.Render("new"),
+				helpKeyStyle.Render("esc"),
+				helpTextStyle.Render("back"),
+			)
+		case focusRight:
+			helpText = fmt.Sprintf("%s    %s %s    %s %s    %s %s",
+				featureNameStyle.Render("conversation"),
+				helpKeyStyle.Render("tab"),
+				helpTextStyle.Render("next"),
+				helpKeyStyle.Render("enter"),
+				helpTextStyle.Render("new"),
+				helpKeyStyle.Render("esc"),
+				helpTextStyle.Render("back"),
+			)
 		}
-		helpText = fmt.Sprintf("%s %s    %s %s    %s %s    %s %s    %s %s",
-			helpKeyStyle.Render("j/k"),
-			helpTextStyle.Render("navigate"),
-			helpKeyStyle.Render("t"),
-			helpTextStyle.Render(viewLabel),
-			helpKeyStyle.Render("r"),
-			helpTextStyle.Render("refine"),
-			helpKeyStyle.Render("enter"),
-			helpTextStyle.Render("new feature"),
+	case stateAsking:
+		helpText = fmt.Sprintf("%s %s    %s %s",
+			helpKeyStyle.Render("tab"),
+			helpTextStyle.Render("next"),
 			helpKeyStyle.Render("esc"),
 			helpTextStyle.Render("back"),
 		)

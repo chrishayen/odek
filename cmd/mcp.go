@@ -258,7 +258,7 @@ func handleRunesDelete(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 
 func handleRunesDecompose(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	requirements, _ := req.GetArguments()["requirements"].(string)
-	result, err := dec.Decompose(ctx, requirements)
+	result, err := dec.Decompose(ctx, requirements, "")
 	if err != nil {
 		return errResult(err), nil
 	}

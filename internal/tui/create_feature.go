@@ -31,6 +31,7 @@ const (
 	stateError
 	stateAuthError
 	stateRefining
+	stateAsking
 )
 
 var (
@@ -71,7 +72,36 @@ var (
 
 	testFailStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#CC6666"))
+
+	paneHeaderActive = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#F5A623")).
+				Bold(true)
+
+	paneHeaderInactive = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#555555"))
+
+	qaQuestionStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6A9FD9")).
+			Bold(true)
+
+	qaAnswerStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#CCCCCC"))
 )
+
+func renderPaneHeader(label string, width int, active bool) string {
+	style := paneHeaderInactive
+	if active {
+		style = paneHeaderActive
+	}
+	prefix := "── "
+	suffix := " "
+	inner := prefix + label + suffix
+	remaining := width - len(inner)
+	if remaining < 0 {
+		remaining = 0
+	}
+	return style.Render(inner + strings.Repeat("─", remaining))
+}
 
 // API response types
 
@@ -129,30 +159,54 @@ type loginDoneMsg struct {
 	err error
 }
 
-type rightPane int
+type focusPane int
 
 const (
-	paneDetail rightPane = iota
-	paneTree
-	paneFlow
+	focusLeft focusPane = iota
+	focusMiddle
+	focusRight
 )
 
+type inputMode int
+
+const (
+	inputRefineFeature inputMode = iota
+	inputRefineRune
+	inputAskFeature
+	inputAskRune
+)
+
+type qaPair struct {
+	question string
+	answer   string
+}
+
+// Messages for ask flow
+type askStartedMsg struct{ jobID string }
+type askDoneMsg struct{ answer string }
+type askErrorMsg struct{ err error }
+type askPollTickMsg struct{}
+
 type createFeatureModel struct {
-	descInput   textarea.Model
-	refineInput textinput.Model
-	state       formState
-	port        int
-	width       int
-	jobID       string
-	spinner     spinner.Model
-	result      *decomposeResult
-	errMsg      string
-	authURL     string
-	runeCursor  int
-	height      int
-	rightPane   rightPane
-	leftScroll  int
-	requirement string // accumulated requirements text
+	descInput       textarea.Model
+	refineInput     textinput.Model
+	state           formState
+	port            int
+	width           int
+	jobID           string
+	spinner         spinner.Model
+	result          *decomposeResult
+	errMsg          string
+	authURL         string
+	runeCursor      int
+	height          int
+	leftScroll      int
+	requirement     string
+	focus           focusPane
+	inputMode       inputMode
+	conversation    []qaPair
+	pendingQuestion string
+	askJobID        string
 }
 
 func newCreateFeatureModel(port, width, height int) createFeatureModel {
@@ -226,11 +280,32 @@ func (m *createFeatureModel) submit() tea.Cmd {
 	return m.decompose(desc)
 }
 
+func (m *createFeatureModel) selectedRuneName() string {
+	if m.result != nil && m.runeCursor < len(m.result.NewRunes) {
+		return m.result.NewRunes[m.runeCursor].Name
+	}
+	return "rune"
+}
+
+func (m *createFeatureModel) openInput(mode inputMode, placeholder string) tea.Cmd {
+	m.state = stateRefining
+	m.inputMode = mode
+	m.refineInput = textinput.New()
+	m.refineInput.Placeholder = placeholder
+	m.refineInput.Width = m.width - 4
+	m.refineInput.Focus()
+	return m.refineInput.Cursor.BlinkCmd()
+}
+
 func (m *createFeatureModel) decompose(req string) tea.Cmd {
 	m.state = stateDecomposing
 	port := m.port
+	prevDecomp := ""
+	if m.result != nil {
+		prevDecomp = m.result.TreeOutput
+	}
 	return func() tea.Msg {
-		body, _ := json.Marshal(map[string]string{"requirement": req})
+		body, _ := json.Marshal(map[string]string{"requirement": req, "decomposition": prevDecomp})
 		resp, err := http.Post(
 			fmt.Sprintf("http://localhost:%d/api/decompose", port),
 			"application/json",
@@ -284,6 +359,93 @@ func (m *createFeatureModel) checkJob() tea.Cmd {
 	}
 }
 
+func (m *createFeatureModel) buildAskContext() string {
+	if m.result == nil {
+		return m.requirement
+	}
+	var b strings.Builder
+	b.WriteString("Feature: " + m.featureName() + "\n")
+	if m.result.Summary != "" {
+		b.WriteString("Summary: " + m.result.Summary + "\n")
+	}
+	if m.inputMode == inputAskRune && m.runeCursor < len(m.result.NewRunes) {
+		r := m.result.NewRunes[m.runeCursor]
+		b.WriteString("\nRune: " + r.Name + "\n")
+		if r.Signature != "" {
+			b.WriteString("Signature: " + r.Signature + "\n")
+		}
+		if r.Description != "" {
+			b.WriteString("Description: " + r.Description + "\n")
+		}
+	} else {
+		b.WriteString("\nRunes:\n")
+		for _, r := range m.result.NewRunes {
+			b.WriteString("  " + r.Name)
+			if r.Signature != "" {
+				b.WriteString(" " + r.Signature)
+			}
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+func (m *createFeatureModel) submitQuestion() tea.Cmd {
+	question := m.pendingQuestion
+	ctx := m.buildAskContext()
+	port := m.port
+	return func() tea.Msg {
+		body, _ := json.Marshal(map[string]string{"question": question, "context": ctx})
+		resp, err := http.Post(
+			fmt.Sprintf("http://localhost:%d/api/ask", port),
+			"application/json",
+			bytes.NewReader(body),
+		)
+		if err != nil {
+			return askErrorMsg{err: err}
+		}
+		defer resp.Body.Close()
+		var dr decomposeResponse
+		if err := json.NewDecoder(resp.Body).Decode(&dr); err != nil {
+			return askErrorMsg{err: err}
+		}
+		return askStartedMsg{jobID: dr.JobID}
+	}
+}
+
+func (m *createFeatureModel) pollAsk() tea.Cmd {
+	return tea.Tick(500*time.Millisecond, func(time.Time) tea.Msg {
+		return askPollTickMsg{}
+	})
+}
+
+func (m *createFeatureModel) checkAsk() tea.Cmd {
+	jobID := m.askJobID
+	port := m.port
+	return func() tea.Msg {
+		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/api/ask/%s", port, jobID))
+		if err != nil {
+			return askErrorMsg{err: err}
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		var job jobResponse
+		if err := json.Unmarshal(data, &job); err != nil {
+			return askErrorMsg{err: err}
+		}
+		switch job.Status {
+		case "completed":
+			var answer string
+			json.Unmarshal(job.Result, &answer)
+			return askDoneMsg{answer: answer}
+		case "failed":
+			return askErrorMsg{err: fmt.Errorf("%s", job.Error)}
+		default:
+			return askPollTickMsg{}
+		}
+	}
+}
+
 func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -298,53 +460,95 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 				m.state = stateDone
 				return nil
 			case "enter":
-				refinement := strings.TrimSpace(m.refineInput.Value())
-				if refinement == "" {
+				text := strings.TrimSpace(m.refineInput.Value())
+				if text == "" {
 					m.state = stateDone
 					return nil
 				}
-				m.requirement = m.requirement + "\n\n" + refinement
-				m.runeCursor = 0
-				m.leftScroll = 0
-				m.rightPane = paneDetail
-				return m.decompose(m.requirement)
+				switch m.inputMode {
+				case inputRefineFeature:
+					m.requirement = m.requirement + "\n\n" + text
+					m.runeCursor = 0
+					m.leftScroll = 0
+					return m.decompose(m.requirement)
+				case inputRefineRune:
+					name := m.selectedRuneName()
+					m.requirement = m.requirement + "\n\nFor " + name + ": " + text
+					m.runeCursor = 0
+					m.leftScroll = 0
+					return m.decompose(m.requirement)
+				case inputAskFeature, inputAskRune:
+					m.pendingQuestion = text
+					m.state = stateAsking
+					return tea.Batch(m.spinner.Tick, m.submitQuestion())
+				}
 			}
 			var cmd tea.Cmd
 			m.refineInput, cmd = m.refineInput.Update(msg)
 			return cmd
 		}
-		if m.state == stateDone {
+		if m.state == stateDone || m.state == stateAsking {
+			// Global keys
 			switch msg.String() {
-			case "j", "down":
-				if m.result != nil && m.runeCursor < len(m.result.NewRunes)-1 {
-					m.runeCursor++
+			case "tab":
+				if len(m.conversation) > 0 || m.state == stateAsking {
+					m.focus = (m.focus + 1) % 3
+				} else {
+					if m.focus == focusLeft {
+						m.focus = focusMiddle
+					} else {
+						m.focus = focusLeft
+					}
 				}
 				return nil
-			case "k", "up":
-				if m.runeCursor > 0 {
-					m.runeCursor--
-				}
-				return nil
-			case "t":
-				m.rightPane = (m.rightPane + 1) % 3
-				return nil
-			case "r":
-				m.state = stateRefining
-				m.refineInput = textinput.New()
-				m.refineInput.Placeholder = "Add refinement..."
-				m.refineInput.Width = m.width - 4
-				m.refineInput.Focus()
-				return m.refineInput.Cursor.BlinkCmd()
 			case "enter":
+				if m.state == stateAsking {
+					return nil
+				}
 				m.state = stateIdle
 				m.result = nil
 				m.requirement = ""
 				m.runeCursor = 0
 				m.leftScroll = 0
-				m.rightPane = paneDetail
+				m.focus = focusLeft
+				m.conversation = nil
 				m.descInput.Reset()
 				m.descInput.Focus()
 				return nil
+			}
+
+			if m.state == stateAsking {
+				return nil
+			}
+
+			// Focus-specific keys
+			switch m.focus {
+			case focusLeft:
+				switch msg.String() {
+				case "j", "down":
+					if m.result != nil && m.runeCursor < len(m.result.NewRunes)-1 {
+						m.runeCursor++
+					}
+					return nil
+				case "k", "up":
+					if m.runeCursor > 0 {
+						m.runeCursor--
+					}
+					return nil
+				case "r":
+					return m.openInput(inputRefineFeature, "Refine feature...")
+				case "q":
+					return m.openInput(inputAskFeature, "Ask about feature...")
+				}
+			case focusMiddle:
+				switch msg.String() {
+				case "r":
+					name := m.selectedRuneName()
+					return m.openInput(inputRefineRune, "Refine "+name+"...")
+				case "q":
+					name := m.selectedRuneName()
+					return m.openInput(inputAskRune, "Ask about "+name+"...")
+				}
 			}
 		}
 		if m.state == stateAuthError {
@@ -366,6 +570,35 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 		if m.state == stateDecomposing {
 			return m.checkJob()
 		}
+
+	case askStartedMsg:
+		m.askJobID = msg.jobID
+		return tea.Batch(m.spinner.Tick, m.pollAsk())
+
+	case askPollTickMsg:
+		if m.state == stateAsking {
+			return m.checkAsk()
+		}
+
+	case askDoneMsg:
+		m.conversation = append(m.conversation, qaPair{
+			question: m.pendingQuestion,
+			answer:   msg.answer,
+		})
+		m.pendingQuestion = ""
+		m.state = stateDone
+		m.focus = focusRight
+		return nil
+
+	case askErrorMsg:
+		m.conversation = append(m.conversation, qaPair{
+			question: m.pendingQuestion,
+			answer:   "Error: " + msg.err.Error(),
+		})
+		m.pendingQuestion = ""
+		m.state = stateDone
+		m.focus = focusRight
+		return nil
 
 	case decomposeDoneMsg:
 		m.state = stateDone
@@ -391,7 +624,6 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 			m.errMsg = fmt.Sprintf("login failed: %v", msg.err)
 			return nil
 		}
-		// Give the proxy's file watcher time to detect the new token
 		m.state = stateIdle
 		m.errMsg = ""
 		m.authURL = ""
@@ -399,7 +631,7 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 		return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return nil })
 
 	case spinner.TickMsg:
-		if m.state == stateDecomposing {
+		if m.state == stateDecomposing || m.state == stateAsking {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return cmd
@@ -425,7 +657,7 @@ func (m *createFeatureModel) view(width int) string {
 	switch m.state {
 	case stateDecomposing:
 		return m.viewDecomposing()
-	case stateDone:
+	case stateDone, stateAsking:
 		return m.viewResult(width)
 	case stateRefining:
 		return m.viewRefining(width)
@@ -466,8 +698,19 @@ func (m *createFeatureModel) viewDecomposing() string {
 }
 
 func (m *createFeatureModel) viewRefining(width int) string {
+	var label string
+	switch m.inputMode {
+	case inputRefineFeature:
+		label = "Refine feature"
+	case inputRefineRune:
+		label = "Refine " + m.selectedRuneName()
+	case inputAskFeature:
+		label = "Ask about feature"
+	case inputAskRune:
+		label = "Ask about " + m.selectedRuneName()
+	}
 	var b strings.Builder
-	b.WriteString(inputLabel.Render("Refine") + " ")
+	b.WriteString(inputLabel.Render(label) + " ")
 	b.WriteString(m.refineInput.View())
 	b.WriteString("\n\n")
 	b.WriteString(m.viewResult(width))
@@ -632,11 +875,24 @@ func (m *createFeatureModel) viewResult(width int) string {
 		return ""
 	}
 
-	leftWidth := width / 3
-	if leftWidth < 25 {
-		leftWidth = 25
+	showChat := len(m.conversation) > 0 || m.state == stateAsking
+
+	// Width allocation
+	var leftWidth, midWidth, chatWidth int
+	if showChat {
+		leftWidth = width * 25 / 100
+		midWidth = width * 35 / 100
+		chatWidth = width - leftWidth - midWidth - 6 // 6 for two separators
+	} else {
+		leftWidth = width / 3
+		midWidth = width - leftWidth - 3
 	}
-	rightWidth := width - leftWidth - 3
+	if leftWidth < 20 {
+		leftWidth = 20
+	}
+	if midWidth < 20 {
+		midWidth = 20
+	}
 
 	groups := groupRunesByNamespace(m.result.NewRunes)
 
@@ -645,7 +901,9 @@ func (m *createFeatureModel) viewResult(width int) string {
 	cursorLine := 0
 	lineNum := 0
 
-	// Feature name
+	left.WriteString(renderPaneHeader("feature", leftWidth, m.focus == focusLeft) + "\n")
+	lineNum++
+
 	left.WriteString(featureNameStyle.Render(m.featureName()) + "\n")
 	lineNum++
 	if m.result.Summary != "" {
@@ -655,7 +913,6 @@ func (m *createFeatureModel) viewResult(width int) string {
 	left.WriteString("\n")
 	lineNum++
 
-	// Grouped rune list
 	for gi, g := range groups {
 		left.WriteString(namespaceStyle.Render(g.namespace) +
 			runeSigStyle.Render(fmt.Sprintf(" (%d)", len(g.indices))) + "\n")
@@ -700,38 +957,29 @@ func (m *createFeatureModel) viewResult(width int) string {
 		}
 	}
 
-	// Right pane: detail, tree, or flow diagram
-	var right strings.Builder
-	switch m.rightPane {
-	case paneTree:
-		right.WriteString(renderCompositionTree(m.result.NewRunes))
-	case paneFlow:
-		if m.result.FlowDiagram != "" {
-			right.WriteString(m.result.FlowDiagram)
-		} else {
-			right.WriteString(runeSigStyle.Render("No flow diagram available"))
-		}
-	default:
-	}
-	if m.rightPane == paneDetail && m.runeCursor < len(m.result.NewRunes) {
+	// Middle pane: rune detail
+	var mid strings.Builder
+	mid.WriteString(renderPaneHeader("rune", midWidth, m.focus == focusMiddle) + "\n")
+
+	if m.runeCursor < len(m.result.NewRunes) {
 		r := m.result.NewRunes[m.runeCursor]
-		right.WriteString(runeNameStyle.Render(r.Name) + "\n\n")
+		mid.WriteString(runeNameStyle.Render(r.Name) + "\n\n")
 
 		if r.Signature != "" {
-			right.WriteString(runeSigStyle.Render(r.Signature) + "\n\n")
+			mid.WriteString(runeSigStyle.Render(r.Signature) + "\n\n")
 		}
 
 		if r.Description != "" {
-			right.WriteString(lipgloss.NewStyle().Width(rightWidth - 2).Render(r.Description) + "\n")
+			mid.WriteString(lipgloss.NewStyle().Width(midWidth - 2).Render(r.Description) + "\n")
 		}
 
 		if len(r.PositiveTests) > 0 || len(r.NegativeTests) > 0 {
-			right.WriteString("\n")
+			mid.WriteString("\n")
 			for _, t := range r.PositiveTests {
-				right.WriteString(testPassStyle.Render("+ ") + lipgloss.NewStyle().Width(rightWidth - 4).Render(t) + "\n")
+				mid.WriteString(testPassStyle.Render("+ ") + lipgloss.NewStyle().Width(midWidth - 4).Render(t) + "\n")
 			}
 			for _, t := range r.NegativeTests {
-				right.WriteString(testFailStyle.Render("- ") + lipgloss.NewStyle().Width(rightWidth - 4).Render(t) + "\n")
+				mid.WriteString(testFailStyle.Render("- ") + lipgloss.NewStyle().Width(midWidth - 4).Render(t) + "\n")
 			}
 		}
 	}
@@ -739,16 +987,12 @@ func (m *createFeatureModel) viewResult(width int) string {
 	// Separator
 	sep := lipgloss.NewStyle().Foreground(border).Render("│")
 
-	// Join panes line by line
-	leftLines := strings.Split(left.String(), "\n")
-	rightLines := strings.Split(right.String(), "\n")
-
 	paneHeight := m.height - 10
 	if paneHeight < 5 {
 		paneHeight = 5
 	}
 
-	// Scroll left pane to keep cursor visible
+	// Scroll left pane
 	if cursorLine < m.leftScroll {
 		m.leftScroll = cursorLine
 	}
@@ -759,7 +1003,7 @@ func (m *createFeatureModel) viewResult(width int) string {
 		m.leftScroll = 0
 	}
 
-	// Apply scroll to left pane
+	leftLines := strings.Split(left.String(), "\n")
 	if m.leftScroll < len(leftLines) {
 		leftLines = leftLines[m.leftScroll:]
 	}
@@ -767,26 +1011,66 @@ func (m *createFeatureModel) viewResult(width int) string {
 		leftLines = leftLines[:paneHeight]
 	}
 
+	midLines := strings.Split(mid.String(), "\n")
+
+	// Build conversation pane if needed
+	var chatLines []string
+	if showChat {
+		var chat strings.Builder
+		chat.WriteString(renderPaneHeader("conversation", chatWidth, m.focus == focusRight) + "\n")
+
+		for i, qa := range m.conversation {
+			chat.WriteString(qaQuestionStyle.Render("Q: ") + lipgloss.NewStyle().Width(chatWidth-4).Render(qa.question) + "\n")
+			chat.WriteString(qaAnswerStyle.Render(qa.answer) + "\n")
+			if i < len(m.conversation)-1 {
+				chat.WriteString("\n")
+			}
+		}
+
+		if m.state == stateAsking {
+			chat.WriteString(qaQuestionStyle.Render("Q: ") + lipgloss.NewStyle().Width(chatWidth-4).Render(m.pendingQuestion) + "\n")
+			chat.WriteString(m.spinner.View() + " thinking...\n")
+		}
+
+		chatLines = strings.Split(chat.String(), "\n")
+	}
+
+	// Determine max lines
 	maxLines := len(leftLines)
-	if len(rightLines) > maxLines {
-		maxLines = len(rightLines)
+	if len(midLines) > maxLines {
+		maxLines = len(midLines)
+	}
+	if len(chatLines) > maxLines {
+		maxLines = len(chatLines)
 	}
 	if maxLines > paneHeight {
 		maxLines = paneHeight
 	}
 
+	// Join panes
 	var b strings.Builder
 	for i := 0; i < maxLines; i++ {
 		l := ""
 		if i < len(leftLines) {
 			l = leftLines[i]
 		}
-		r := ""
-		if i < len(rightLines) {
-			r = rightLines[i]
+		m_ := ""
+		if i < len(midLines) {
+			m_ = midLines[i]
 		}
+
 		lRendered := lipgloss.NewStyle().Width(leftWidth).Render(l)
-		b.WriteString(lRendered + " " + sep + " " + r + "\n")
+		mRendered := lipgloss.NewStyle().Width(midWidth).Render(m_)
+
+		if showChat {
+			c := ""
+			if i < len(chatLines) {
+				c = chatLines[i]
+			}
+			b.WriteString(lRendered + " " + sep + " " + mRendered + " " + sep + " " + c + "\n")
+		} else {
+			b.WriteString(lRendered + " " + sep + " " + mRendered + "\n")
+		}
 	}
 
 	b.WriteString("\n" + statusOk.Render(fmt.Sprintf("%d runes proposed", len(m.result.NewRunes))))

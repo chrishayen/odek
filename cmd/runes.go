@@ -157,7 +157,7 @@ var runesDecomposeCmd = &cobra.Command{
 		requirements := strings.Join(args, " ")
 		yes, _ := cmd.Flags().GetBool("yes")
 
-		result, err := dec.Decompose(cmd.Context(), requirements)
+		result, err := dec.Decompose(cmd.Context(), requirements, "")
 		if err != nil {
 			return err
 		}
