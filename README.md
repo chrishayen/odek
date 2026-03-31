@@ -1,6 +1,6 @@
-# Valkyrie — The Rune Server
+# Odek — The Rune Server
 
-> Describe functionality in English. Valkyrie builds it, registers it, and wires it together — in any language, in parallel.
+> Describe functionality in English. Odek builds it, registers it, and wires it together — in any language, in parallel.
 
 ---
 
@@ -15,9 +15,9 @@ Standard software development patterns break down with AI agents:
 
 ## The Idea
 
-Valkyrie is a **rune server** — an orchestration layer between you and your codebase.
+Odek is a **rune server** — an orchestration layer between you and your codebase.
 
-You describe what you need. Valkyrie spins up sandboxed agents to build it, registers the result, and tracks how everything connects. Agents work in parallel. Humans review contracts, not diffs.
+You describe what you need. Odek spins up sandboxed agents to build it, registers the result, and tracks how everything connects. Agents work in parallel. Humans review contracts, not diffs.
 
 ## The Rune
 
@@ -81,16 +81,16 @@ Use `result[T, E]` for any function that can fail. Types nest: `result[list[i32]
 ## How It Works
 
 1. You describe requirements in English
-2. Valkyrie's analyzer decomposes them into runes — one function each
+2. Odek's analyzer decomposes them into runes — one function each
 3. You review and approve the proposed runes (name, description, signature, behavior, tests)
-4. Valkyrie registers each rune in the registry
+4. Odek registers each rune in the registry
 5. The hydrator spins up a sandboxed agent to generate code + tests for a rune
-6. Valkyrie runs the tests, tracks coverage, and marks the rune as hydrated
+6. Odek runs the tests, tracks coverage, and marks the rune as hydrated
 
 ### Analyze
 
 ```bash
-valkyrie runes analyze --requirements "User login with email and password"
+odek runes analyze --requirements "User login with email and password"
 ```
 
 The analyzer breaks requirements into the smallest functional parts, checks existing runes to avoid duplication, and proposes new runes with signatures, behavior specs, and test cases.
@@ -98,7 +98,7 @@ The analyzer breaks requirements into the smallest functional parts, checks exis
 ### Hydrate
 
 ```bash
-valkyrie runes hydrate auth/validate-email
+odek runes hydrate auth/validate-email
 ```
 
 The hydrator sends the rune spec to a sandboxed coding agent, extracts the generated files, runs tests, and records coverage.
@@ -147,32 +147,32 @@ Components describe how runes compose. The `Composes:` line lists runes by name.
 ## CLI
 
 ```bash
-valkyrie init                          # Initialize a new project
-valkyrie runes list                    # List all runes
-valkyrie runes create --name <slug> --description <desc> --signature <sig>
-valkyrie runes get <name>              # Get a rune by name
-valkyrie runes update <name> --description <desc> --signature <sig> --version <ver>
-valkyrie runes delete <name>           # Delete a rune
-valkyrie runes analyze --requirements <text> [--yes]
-valkyrie runes hydrate <name>          # Generate code via sandbox agent
-valkyrie features list                 # List all features
-valkyrie features create --name <ns> --description <desc>
-valkyrie features get <name>           # Get a feature by name
-valkyrie features update <name> --description <desc> --version <ver> --status <status>
-valkyrie features delete <name>        # Delete a feature
+odek init                          # Initialize a new project
+odek runes list                    # List all runes
+odek runes create --name <slug> --description <desc> --signature <sig>
+odek runes get <name>              # Get a rune by name
+odek runes update <name> --description <desc> --signature <sig> --version <ver>
+odek runes delete <name>           # Delete a rune
+odek runes analyze --requirements <text> [--yes]
+odek runes hydrate <name>          # Generate code via sandbox agent
+odek features list                 # List all features
+odek features create --name <ns> --description <desc>
+odek features get <name>           # Get a feature by name
+odek features update <name> --description <desc> --version <ver> --status <status>
+odek features delete <name>        # Delete a feature
 ```
 
 ## MCP Server
 
-Valkyrie exposes an **MCP (Model Context Protocol)** server. Any MCP-compatible agent connects and discovers tools dynamically.
+Odek exposes an **MCP (Model Context Protocol)** server. Any MCP-compatible agent connects and discovers tools dynamically.
 
 ```bash
-valkyrie mcp    # Start MCP server (stdio transport)
+odek mcp    # Start MCP server (stdio transport)
 ```
 
 Tools: `runes_list`, `runes_create`, `runes_get`, `runes_update`, `runes_delete`, `runes_analyze`, `runes_create_batch`, `runes_hydrate`, `features_list`, `features_create`, `features_get`, `features_update`, `features_delete`.
 
-Running `valkyrie init` generates `.mcp.json` so Claude Code auto-discovers the server.
+Running `odek init` generates `.mcp.json` so Claude Code auto-discovers the server.
 
 ## Storage
 
@@ -197,7 +197,7 @@ Namespaces are organizational (e.g. `auth/`, `payment/`), not judgments about pu
 ## Configuration
 
 ```toml
-# valkyrie.toml
+# odek.toml
 project = "my-app"
 
 [agent]

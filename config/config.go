@@ -56,9 +56,9 @@ func (a Agent) ResolveToken() string {
 	return ClaudeToken()
 }
 
-// FindRoot walks up from cwd (or VALKYRIE_PROJECT_DIR) looking for valkyrie.toml.
+// FindRoot walks up from cwd (or ODEK_PROJECT_DIR) looking for odek.toml.
 func FindRoot() (string, error) {
-	start := os.Getenv("VALKYRIE_PROJECT_DIR")
+	start := os.Getenv("ODEK_PROJECT_DIR")
 	if start == "" {
 		var err error
 		start, err = os.Getwd()
@@ -69,13 +69,13 @@ func FindRoot() (string, error) {
 
 	dir := start
 	for {
-		path := filepath.Join(dir, "valkyrie.toml")
+		path := filepath.Join(dir, "odek.toml")
 		if _, err := os.Stat(path); err == nil {
 			return dir, nil
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("valkyrie.toml not found — run 'valkyrie init' to create a project")
+			return "", fmt.Errorf("odek.toml not found — run 'odek init' to create a project")
 		}
 		dir = parent
 	}
@@ -87,7 +87,7 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	path := filepath.Join(root, "valkyrie.toml")
+	path := filepath.Join(root, "odek.toml")
 	cfg := &Config{
 		RegistryPath: root,
 		OutputPath:   filepath.Join(root, "src"),

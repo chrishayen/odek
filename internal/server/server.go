@@ -7,16 +7,16 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/chrishayen/valkyrie/config"
-	"github.com/chrishayen/valkyrie/internal/app"
-	"github.com/chrishayen/valkyrie/internal/decomposer"
-	"github.com/chrishayen/valkyrie/internal/feature"
-	"github.com/chrishayen/valkyrie/internal/hydrator"
-	runepkg "github.com/chrishayen/valkyrie/internal/rune"
-	"github.com/chrishayen/valkyrie/internal/server/jobs"
+	"github.com/chrishayen/odek/config"
+	"github.com/chrishayen/odek/internal/app"
+	"github.com/chrishayen/odek/internal/decomposer"
+	"github.com/chrishayen/odek/internal/feature"
+	"github.com/chrishayen/odek/internal/hydrator"
+	runepkg "github.com/chrishayen/odek/internal/rune"
+	"github.com/chrishayen/odek/internal/server/jobs"
 )
 
-// Server is the Valkyrie HTTP API server.
+// Server is the Odek HTTP API server.
 type Server struct {
 	cfg          *config.Config
 	runeStore    *runepkg.Store

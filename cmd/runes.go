@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/chrishayen/valkyrie/internal/decomposer"
-	runepkg "github.com/chrishayen/valkyrie/internal/rune"
+	"github.com/chrishayen/odek/internal/decomposer"
+	runepkg "github.com/chrishayen/odek/internal/rune"
 	"github.com/spf13/cobra"
 )
 

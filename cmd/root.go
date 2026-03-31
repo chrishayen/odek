@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/chrishayen/valkyrie/config"
-	"github.com/chrishayen/valkyrie/internal/app"
-	"github.com/chrishayen/valkyrie/internal/claude"
-	"github.com/chrishayen/valkyrie/internal/composer"
-	"github.com/chrishayen/valkyrie/internal/decomposer"
-	"github.com/chrishayen/valkyrie/internal/feature"
-	"github.com/chrishayen/valkyrie/internal/hydrator"
-	runepkg "github.com/chrishayen/valkyrie/internal/rune"
+	"github.com/chrishayen/odek/config"
+	"github.com/chrishayen/odek/internal/app"
+	"github.com/chrishayen/odek/internal/claude"
+	"github.com/chrishayen/odek/internal/composer"
+	"github.com/chrishayen/odek/internal/decomposer"
+	"github.com/chrishayen/odek/internal/feature"
+	"github.com/chrishayen/odek/internal/hydrator"
+	runepkg "github.com/chrishayen/odek/internal/rune"
 	"github.com/spf13/cobra"
 )
 
@@ -27,8 +27,8 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "valkyrie",
-	Short: "Valkyrie — agentic code orchestration",
+	Use:   "odek",
+	Short: "Odek — Tree Composition CLI and Rune Server",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if cmd.Name() == "init" {
 			return nil

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/chrishayen/valkyrie/internal/feature"
+	"github.com/chrishayen/odek/internal/feature"
 	"github.com/spf13/cobra"
 )
 

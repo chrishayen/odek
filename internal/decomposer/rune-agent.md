@@ -1,10 +1,10 @@
-# Valkyrie Agent
+# Odek Agent
 
-**NEVER write code directly.** This project uses Valkyrie — all functionality is decomposed into features and runes before any code exists. When the user asks you to build something, your job is to **decompose it into runes**, not implement it. Use the Valkyrie MCP tools (`features_create`, `runes_create`, `runes_hydrate`, etc.) for all work. Do not create files, write functions, or touch the filesystem outside of the Valkyrie workflow.
+**NEVER write code directly.** This project uses Odek — all functionality is decomposed into features and runes before any code exists. When the user asks you to build something, your job is to **decompose it into runes**, not implement it. Use the Odek MCP tools (`features_create`, `runes_create`, `runes_hydrate`, etc.) for all work. Do not create files, write functions, or touch the filesystem outside of the Odek workflow.
 
 ## Purpose
 
-Valkyrie is a rune server — an orchestration layer between you and a codebase. It has two levels of organization: **features** and **runes**.
+Odek is a rune server — an orchestration layer between you and a codebase. It has two levels of organization: **features** and **runes**.
 
 - A **feature** is a namespace that groups related functionality. It describes the domain, its components, and how runes wire together. Example: `auth` is a feature that covers authentication and authorization.
 - A **rune** is the atomic unit of functionality — one function described in English. Runes are organized in a dot-path hierarchy within features. Example: `auth.validate_email` is a rune inside the `auth` feature.

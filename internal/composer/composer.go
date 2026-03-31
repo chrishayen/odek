@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chrishayen/valkyrie/framework"
-	"github.com/chrishayen/valkyrie/internal/claude"
-	"github.com/chrishayen/valkyrie/internal/feature"
-	runepkg "github.com/chrishayen/valkyrie/internal/rune"
+	"github.com/chrishayen/odek/framework"
+	"github.com/chrishayen/odek/internal/claude"
+	"github.com/chrishayen/odek/internal/feature"
+	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
 //go:embed compose-agent.md

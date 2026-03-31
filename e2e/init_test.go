@@ -8,7 +8,7 @@ import (
 )
 
 func TestInitCreatesProject(t *testing.T) {
-	dir, err := os.MkdirTemp("", "valkyrie-init-*")
+	dir, err := os.MkdirTemp("", "odek-init-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,9 +19,9 @@ func TestInitCreatesProject(t *testing.T) {
 		t.Fatalf("expected exit 0, got %d: %s", code, out)
 	}
 
-	// Check valkyrie.toml was created
-	if _, err := os.Stat(filepath.Join(dir, "valkyrie.toml")); err != nil {
-		t.Errorf("expected valkyrie.toml to exist: %v", err)
+	// Check odek.toml was created
+	if _, err := os.Stat(filepath.Join(dir, "odek.toml")); err != nil {
+		t.Errorf("expected odek.toml to exist: %v", err)
 	}
 
 	// Check .mcp.json was created
@@ -47,7 +47,7 @@ func TestInitCreatesProject(t *testing.T) {
 }
 
 func TestInitWithProjectName(t *testing.T) {
-	dir, err := os.MkdirTemp("", "valkyrie-init-*")
+	dir, err := os.MkdirTemp("", "odek-init-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestInitWithProjectName(t *testing.T) {
 }
 
 func TestInitFailsIfAlreadyInitialized(t *testing.T) {
-	dir, err := os.MkdirTemp("", "valkyrie-init-*")
+	dir, err := os.MkdirTemp("", "odek-init-*")
 	if err != nil {
 		t.Fatal(err)
 	}

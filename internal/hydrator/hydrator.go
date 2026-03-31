@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chrishayen/valkyrie/framework"
-	"github.com/chrishayen/valkyrie/internal/claude"
-	runepkg "github.com/chrishayen/valkyrie/internal/rune"
+	"github.com/chrishayen/odek/framework"
+	"github.com/chrishayen/odek/internal/claude"
+	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
 // Result holds the outcome of hydrating a rune.

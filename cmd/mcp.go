@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/chrishayen/valkyrie/internal/app"
-	"github.com/chrishayen/valkyrie/internal/decomposer"
-	"github.com/chrishayen/valkyrie/internal/feature"
-	runepkg "github.com/chrishayen/valkyrie/internal/rune"
+	"github.com/chrishayen/odek/internal/app"
+	"github.com/chrishayen/odek/internal/decomposer"
+	"github.com/chrishayen/odek/internal/feature"
+	runepkg "github.com/chrishayen/odek/internal/rune"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
@@ -18,7 +18,7 @@ var mcpCmd = &cobra.Command{
 	Use:   "mcp",
 	Short: "Start MCP server (stdio transport)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		s := server.NewMCPServer("valkyrie", "0.2.0", server.WithToolCapabilities(true))
+		s := server.NewMCPServer("odek", "0.2.0", server.WithToolCapabilities(true))
 
 		s.AddTool(mcp.NewTool("runes_list",
 			mcp.WithDescription("List all runes in the registry."),

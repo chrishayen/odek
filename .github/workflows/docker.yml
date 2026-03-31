@@ -30,4 +30,4 @@ jobs:
         with:
           context: images/claude
           push: true
-          tags: ghcr.io/chrishayen/valkyrie-claude:latest
+          tags: ghcr.io/chrishayen/odek-claude:latest

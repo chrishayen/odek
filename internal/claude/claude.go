@@ -90,7 +90,7 @@ func (c *Client) Call(systemPrompt, userPrompt string) (string, error) {
 			if len(snippet) > 300 {
 				snippet = snippet[:300]
 			}
-			return "", fmt.Errorf("auth error: token expired — run 'valkyrie login'")
+			return "", fmt.Errorf("auth error: token expired — run 'odek login'")
 		}
 		snippet := string(respBody)
 		if len(snippet) > 200 {
@@ -212,7 +212,7 @@ func mockFlowDiagram() string {
 
 func mockHydrateResponse(prompt string) string {
 	return fmt.Sprintf(`=== FILE: go.mod ===
-module valkyrie-rune
+module odek-rune
 
 go 1.22
 === END FILE ===

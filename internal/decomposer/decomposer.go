@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/chrishayen/valkyrie/internal/claude"
-	runepkg "github.com/chrishayen/valkyrie/internal/rune"
+	"github.com/chrishayen/odek/internal/claude"
+	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
 //go:embed rune-agent.md

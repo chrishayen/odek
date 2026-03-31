@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/chrishayen/valkyrie/internal/decomposer"
+	"github.com/chrishayen/odek/internal/decomposer"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +17,7 @@ var supportedInitLanguages = map[string]bool{
 
 var initCmd = &cobra.Command{
 	Use:   "init <language>",
-	Short: "Initialize a new Valkyrie project in the current directory",
+	Short: "Initialize a new Odek project in the current directory",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		language := args[0]
@@ -30,9 +30,9 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
-		tomlPath := filepath.Join(cwd, "valkyrie.toml")
+		tomlPath := filepath.Join(cwd, "odek.toml")
 		if _, err := os.Stat(tomlPath); err == nil {
-			return fmt.Errorf("valkyrie.toml already exists — project already initialized")
+			return fmt.Errorf("odek.toml already exists — project already initialized")
 		}
 
 		project, _ := cmd.Flags().GetString("project")
@@ -40,7 +40,7 @@ var initCmd = &cobra.Command{
 			project = filepath.Base(cwd)
 		}
 
-		// valkyrie.toml
+		// odek.toml
 		tomlContent := fmt.Sprintf(`project = %q
 language = %q
 # output_path = "src"
@@ -55,14 +55,14 @@ language = %q
 `, project, language)
 
 		if err := os.WriteFile(tomlPath, []byte(tomlContent), 0644); err != nil {
-			return fmt.Errorf("writing valkyrie.toml: %w", err)
+			return fmt.Errorf("writing odek.toml: %w", err)
 		}
 
 		// .mcp.json — Claude Code auto-discovers this
 		mcpConfig := `{
   "mcpServers": {
-    "valkyrie": {
-      "command": "valkyrie",
+    "odek": {
+      "command": "odek",
       "args": ["mcp"]
     }
   }
@@ -79,7 +79,7 @@ language = %q
 			return fmt.Errorf("writing CLAUDE.md: %w", err)
 		}
 
-		// .claude/settings.json — auto-allow valkyrie MCP tools
+		// .claude/settings.json — auto-allow odek MCP tools
 		claudeDir := filepath.Join(cwd, ".claude")
 		if err := os.MkdirAll(claudeDir, 0755); err != nil {
 			return fmt.Errorf("creating .claude dir: %w", err)
@@ -87,7 +87,7 @@ language = %q
 		settings := `{
   "permissions": {
     "allow": [
-      "mcp__valkyrie__*"
+      "mcp__odek__*"
     ]
   }
 }
@@ -97,7 +97,7 @@ language = %q
 			return fmt.Errorf("writing .claude/settings.json: %w", err)
 		}
 
-		fmt.Printf("initialized valkyrie project %q\n", project)
+		fmt.Printf("initialized odek project %q\n", project)
 		return nil
 	},
 }

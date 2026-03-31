@@ -8,25 +8,25 @@ import (
 )
 
 func TestMissingConfig(t *testing.T) {
-	tmp, err := os.MkdirTemp("", "valkyrie-empty-*")
+	tmp, err := os.MkdirTemp("", "odek-empty-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(tmp)
 
-	// Point at an empty dir — no valkyrie.toml exists
+	// Point at an empty dir — no odek.toml exists
 	out, code := run(t, tmp, "runes", "list")
 	if code == 0 {
 		t.Fatal("expected non-zero exit when config is missing")
 	}
-	if !strings.Contains(out, "valkyrie.toml not found") {
-		t.Errorf("expected 'valkyrie.toml not found' in error, got: %s", out)
+	if !strings.Contains(out, "odek.toml not found") {
+		t.Errorf("expected 'odek.toml not found' in error, got: %s", out)
 	}
 }
 
 func TestMissingConfigNoEnv(t *testing.T) {
 	// Unset VALKYRIE_PROJECT_DIR and run from an empty temp dir
-	tmp, err := os.MkdirTemp("", "valkyrie-nohome-*")
+	tmp, err := os.MkdirTemp("", "odek-nohome-*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,19 +46,19 @@ func TestMissingConfigNoEnv(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected non-zero exit when no config exists")
 	}
-	if !strings.Contains(string(out), "valkyrie.toml not found") {
-		t.Errorf("expected valkyrie.toml error, got: %s", string(out))
+	if !strings.Contains(string(out), "odek.toml not found") {
+		t.Errorf("expected odek.toml error, got: %s", string(out))
 	}
 }
 
 func TestInvalidTOML(t *testing.T) {
-	tmp, err := os.MkdirTemp("", "valkyrie-badtoml-*")
+	tmp, err := os.MkdirTemp("", "odek-badtoml-*")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(tmp)
 
-	os.WriteFile(tmp+"/valkyrie.toml", []byte("this is not valid toml ][[["), 0644)
+	os.WriteFile(tmp+"/odek.toml", []byte("this is not valid toml ][[["), 0644)
 
 	out, code := run(t, tmp, "runes", "list")
 	if code == 0 {

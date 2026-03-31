@@ -253,7 +253,7 @@ func (m Model) viewSplash() string {
 	gradientLogo := renderStripes(logoBig, gradStops)
 
 	content := gradientLogo + "\n\n" +
-		taglineStyle.Render("agentic code orchestration")
+		taglineStyle.Render("Tree Composition CLI and Rune Server")
 
 	framed := frameStyle.Render(content)
 

@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/chrishayen/valkyrie/internal/server"
-	"github.com/chrishayen/valkyrie/internal/tui"
+	"github.com/chrishayen/odek/internal/server"
+	"github.com/chrishayen/odek/internal/tui"
 	"github.com/spf13/cobra"
 )
 

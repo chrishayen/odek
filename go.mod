@@ -1,4 +1,4 @@
-module github.com/chrishayen/valkyrie
+module github.com/chrishayen/odek
 
 go 1.26.1
 

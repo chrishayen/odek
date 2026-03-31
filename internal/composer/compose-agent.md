@@ -6,7 +6,7 @@ You are composing runes into a working feature. Runes are atomic functions that 
 
 ## The callable model
 
-Everything in Valkyrie is a callable — a named function with a typed signature. Runes are callables identified by dot-separated paths (e.g. `auth.validate_email`, `std.cli.parse_flags`). Components wire runes together, making them callables too. Features wire components together. The pattern is the same at every level.
+Everything in Odek is a callable — a named function with a typed signature. Runes are callables identified by dot-separated paths (e.g. `auth.validate_email`, `std.cli.parse_flags`). Components wire runes together, making them callables too. Features wire components together. The pattern is the same at every level.
 
 No callable may import or reference another callable directly. All calls go through the **dispatcher** — a registry that maps names to functions. This isolation is absolute.
 

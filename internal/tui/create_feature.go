@@ -19,7 +19,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	runepkg "github.com/chrishayen/valkyrie/internal/rune"
+	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
 type formState int

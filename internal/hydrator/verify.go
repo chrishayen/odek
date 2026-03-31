@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	runepkg "github.com/chrishayen/valkyrie/internal/rune"
+	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
 const VerifySystemPrompt = `You are a code reviewer. You receive a spec (with test descriptions) and an implementation. Your job is to verify the implementation satisfies every + and - test case in the spec.
