@@ -135,19 +135,6 @@ func (d *Decomposer) Ask(_ context.Context, question, decompContext string) (str
 	return d.client.Call(askSystemPrompt, decompContext+"\n\nQuestion: "+question)
 }
 
-const chatSystemPrompt = `You are a helpful assistant for refining software decompositions. You discuss features and runes (small, focused, testable functions) with the user. Be concise and direct. No markdown headers.
-
-When the user asks you to make a change to the feature or a rune, discuss the change and confirm understanding. If the user says to apply changes, respond with a line starting with "SIGNAL:" followed by the refinement text that should be applied. For example:
-SIGNAL: add rate limiting to the login rune
-
-Only emit SIGNAL when the user explicitly asks to apply/commit/make a change. Otherwise just discuss.`
-
-// Chat sends a multi-turn conversation to Claude with decomposition context.
-func (d *Decomposer) Chat(_ context.Context, decompContext string, messages []claude.ChatMessage) (string, error) {
-	system := chatSystemPrompt + "\n\n" + decompContext
-	return d.client.CallMessages(system, messages)
-}
-
 func (d *Decomposer) generateMeta(requirements string) (string, string, error) {
 	output, err := d.client.Call(metaSystemPrompt, requirements)
 	if err != nil {

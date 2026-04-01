@@ -19,7 +19,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/chrishayen/odek/internal/chat"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
@@ -32,7 +31,6 @@ const (
 	stateError
 	stateAuthError
 	stateRefining
-	stateChat // full chat mode — chat owns input
 )
 
 var (
@@ -90,7 +88,7 @@ func renderPaneHeader(label string, width int, active bool) string {
 	prefix := "── "
 	suffix := " "
 	inner := prefix + label + suffix
-	remaining := width - len(inner)
+	remaining := width - lipgloss.Width(inner)
 	if remaining < 0 {
 		remaining = 0
 	}
@@ -160,7 +158,6 @@ type focusPane int
 const (
 	focusLeft focusPane = iota
 	focusMiddle
-	focusRight
 )
 
 type inputMode int
@@ -191,14 +188,9 @@ type createFeatureModel struct {
 	// Drafts
 	draftID    string
 	draftStore *DraftStore
-
-	// Chat
-	chatView  chatModel
-	chatStore *chat.Store
-	hasChat   bool // true when a chat session is active
 }
 
-func newCreateFeatureModel(port, width, height int, draftStore *DraftStore, chatStore *chat.Store) createFeatureModel {
+func newCreateFeatureModel(port, width, height int, draftStore *DraftStore) createFeatureModel {
 	ta := textarea.New()
 	ta.Placeholder = "Describe the feature..."
 	ta.ShowLineNumbers = false
@@ -239,24 +231,14 @@ func newCreateFeatureModel(port, width, height int, draftStore *DraftStore, chat
 		height:     height,
 		spinner:    s,
 		draftStore: draftStore,
-		chatStore:  chatStore,
 	}
 }
 
-func newCreateFeatureModelFromDraft(port, width, height int, draftStore *DraftStore, chatStore *chat.Store, draft Draft) createFeatureModel {
-	m := newCreateFeatureModel(port, width, height, draftStore, chatStore)
+func newCreateFeatureModelFromDraft(port, width, height int, draftStore *DraftStore, draft Draft) createFeatureModel {
+	m := newCreateFeatureModel(port, width, height, draftStore)
 	m.draftID = draft.ID
 	m.requirement = draft.Requirement
 	m.result = draft.Result
-
-	// Restore chat session if one was saved with the draft
-	if draft.ChatSessionID != "" && chatStore != nil {
-		session, err := chatStore.Load(draft.ChatSessionID)
-		if err == nil && len(session.Messages) > 0 {
-			m.chatView = newChatModel(chatStore, session, port, width, height)
-			m.hasChat = true
-		}
-	}
 
 	if m.result != nil {
 		m.state = stateDone
@@ -277,17 +259,12 @@ func (m *createFeatureModel) toDraft() *Draft {
 		name = m.result.FeatureName
 		summary = m.result.Summary
 	}
-	chatSessionID := ""
-	if m.hasChat && m.chatView.session != nil {
-		chatSessionID = m.chatView.session.ID
-	}
 	return &Draft{
-		ID:            m.draftID,
-		FeatureName:   name,
-		Summary:       summary,
-		Requirement:   m.requirement,
-		Result:        m.result,
-		ChatSessionID: chatSessionID,
+		ID:          m.draftID,
+		FeatureName: name,
+		Summary:     summary,
+		Requirement: m.requirement,
+		Result:      m.result,
 	}
 }
 
@@ -304,9 +281,6 @@ func (m *createFeatureModel) resize(width, height int) {
 		taHeight = 3
 	}
 	m.descInput.SetHeight(taHeight)
-	if m.hasChat {
-		m.chatView.resize(width, height)
-	}
 }
 
 func (m *createFeatureModel) submit() tea.Cmd {
@@ -337,71 +311,6 @@ func (m *createFeatureModel) openRefine(mode inputMode, placeholder string) tea.
 	m.refineInput.Width = m.width - 4
 	m.refineInput.Focus()
 	return m.refineInput.Cursor.BlinkCmd()
-}
-
-// openChat creates or resumes a chat session and enters chat mode.
-func (m *createFeatureModel) openChat(runeName string) tea.Cmd {
-	ctx := m.buildChatContext(runeName)
-
-	// Try to resume an existing session for this context
-	var session *chat.Session
-	if m.chatStore != nil {
-		var sessions []*chat.Session
-		if runeName != "" {
-			sessions, _ = m.chatStore.FindByRune(ctx.FeatureName, runeName)
-		} else {
-			sessions, _ = m.chatStore.FindByFeature(ctx.FeatureName)
-			// Filter out rune-specific sessions
-			var featureOnly []*chat.Session
-			for _, s := range sessions {
-				if s.Context.RuneName == "" {
-					featureOnly = append(featureOnly, s)
-				}
-			}
-			sessions = featureOnly
-		}
-		if len(sessions) > 0 {
-			session = sessions[0]
-			// Update context in case decomposition changed
-			session.Context = ctx
-		}
-	}
-
-	if session == nil {
-		if m.chatStore != nil {
-			session = m.chatStore.New(ctx)
-		} else {
-			session = &chat.Session{ID: "local", Context: ctx}
-		}
-	}
-
-	m.chatView = newChatModel(m.chatStore, session, m.port, m.width, m.height)
-	m.hasChat = true
-	m.state = stateChat
-	m.focus = focusRight
-	return m.chatView.input.Focus()
-}
-
-func (m *createFeatureModel) buildChatContext(runeName string) chat.Context {
-	ctx := chat.Context{
-		Requirement: m.requirement,
-	}
-	if m.result != nil {
-		ctx.FeatureName = m.featureName()
-		ctx.FeatureSummary = m.result.Summary
-		ctx.TreeOutput = m.result.TreeOutput
-		if runeName != "" {
-			for _, r := range m.result.NewRunes {
-				if r.Name == runeName {
-					ctx.RuneName = r.Name
-					ctx.RuneSignature = r.Signature
-					ctx.RuneDesc = r.Description
-					break
-				}
-			}
-		}
-	}
-	return ctx
 }
 
 func (m *createFeatureModel) decompose(req string) tea.Cmd {
@@ -503,33 +412,14 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 			m.refineInput, cmd = m.refineInput.Update(msg)
 			return cmd
 		}
-		if m.state == stateChat {
-			switch msg.String() {
-			case "backspace":
-				// Only leave chat if input is empty
-				if m.chatView.input.Value() == "" {
-					m.state = stateDone
-					return nil
-				}
-			}
-			// Delegate to chat model
-			cmd := m.chatView.update(msg)
-			// Check for signals from chat
-			m.handleChatSignals()
-			return cmd
-		}
 		if m.state == stateDone {
 			// Global keys
 			switch msg.String() {
 			case "tab":
-				if m.hasChat {
-					m.focus = (m.focus + 1) % 3
+				if m.focus == focusLeft {
+					m.focus = focusMiddle
 				} else {
-					if m.focus == focusLeft {
-						m.focus = focusMiddle
-					} else {
-						m.focus = focusLeft
-					}
+					m.focus = focusLeft
 				}
 				return nil
 			case "enter":
@@ -543,7 +433,6 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 				m.runeCursor = 0
 				m.leftScroll = 0
 				m.focus = focusLeft
-				m.hasChat = false
 				m.descInput.Reset()
 				m.descInput.Focus()
 				return nil
@@ -567,25 +456,12 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 					return nil
 				case "r":
 					return m.openRefine(inputRefineFeature, "Refine feature...")
-				case "c":
-					return m.openChat("")
 				}
 			case focusMiddle:
 				switch msg.String() {
 				case "r":
 					name := m.selectedRuneName()
 					return m.openRefine(inputRefineRune, "Refine "+name+"...")
-				case "c":
-					return m.openChat(m.selectedRuneName())
-				}
-			case focusRight:
-				// Re-enter chat if we have one
-				if m.hasChat {
-					switch msg.String() {
-					case "c", "enter":
-						m.state = stateChat
-						return m.chatView.input.Focus()
-					}
 				}
 			}
 		}
@@ -647,14 +523,10 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 		}
 	}
 
-	// Delegate to chat if active (for poll ticks, response msgs, spinner ticks)
-	if m.state == stateChat || (m.hasChat && m.chatView.waiting) {
-		cmd := m.chatView.update(msg)
-		m.handleChatSignals()
-		return cmd
-	}
-
 	if m.state == stateIdle || m.state == stateError {
+		if km, ok := msg.(tea.KeyMsg); ok && km.String() == "esc" {
+			return func() tea.Msg { return goBackMsg{} }
+		}
 		var cmd tea.Cmd
 		m.descInput, cmd = m.descInput.Update(msg)
 		return cmd
@@ -669,36 +541,12 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-// handleChatSignals processes any pending signals from the chat.
-func (m *createFeatureModel) handleChatSignals() {
-	signals := m.chatView.consumeSignals()
-	for _, sig := range signals {
-		switch sig.Type {
-		case "refine_feature":
-			m.requirement = m.requirement + "\n\n" + sig.Data
-			m.runeCursor = 0
-			m.leftScroll = 0
-		case "refine_rune":
-			runeName := m.chatView.session.Context.RuneName
-			if runeName != "" {
-				m.requirement = m.requirement + "\n\nFor " + runeName + ": " + sig.Data
-			} else {
-				m.requirement = m.requirement + "\n\n" + sig.Data
-			}
-			m.runeCursor = 0
-			m.leftScroll = 0
-		}
-	}
-}
-
 func (m *createFeatureModel) view(width int) string {
 	switch m.state {
 	case stateDecomposing:
 		return m.viewDecomposing()
 	case stateDone:
 		return m.viewResult(width)
-	case stateChat:
-		return m.viewChat(width)
 	case stateRefining:
 		return m.viewRefining(width)
 	case stateAuthError:
@@ -750,92 +598,6 @@ func (m *createFeatureModel) viewRefining(width int) string {
 	b.WriteString(m.refineInput.View())
 	b.WriteString("\n\n")
 	b.WriteString(m.viewResult(width))
-	return b.String()
-}
-
-// viewChat shows the two-pane decomposition view alongside the active chat.
-func (m *createFeatureModel) viewChat(width int) string {
-	if m.result == nil {
-		return m.chatView.view()
-	}
-
-	// Two columns: left (feature+rune) and right (chat)
-	leftWidth := width * 40 / 100
-	chatWidth := width - leftWidth - 3
-	if leftWidth < 30 {
-		leftWidth = 30
-	}
-
-	// Left: compact feature + rune detail
-	var left strings.Builder
-	left.WriteString(renderPaneHeader("feature", leftWidth, false) + "\n")
-	left.WriteString(featureNameStyle.Render(m.featureName()) + "\n")
-	if m.result.Summary != "" {
-		left.WriteString(featureSummaryStyle.Render(m.result.Summary) + "\n")
-	}
-	left.WriteString("\n")
-
-	groups := groupRunesByNamespace(m.result.NewRunes)
-	for gi, g := range groups {
-		left.WriteString(namespaceStyle.Render(g.namespace) +
-			runeSigStyle.Render(fmt.Sprintf(" (%d)", len(g.indices))) + "\n")
-		for _, idx := range g.indices {
-			r := m.result.NewRunes[idx]
-			leaf := leafName(r.Name)
-			if len(leaf) > leftWidth-6 {
-				leaf = leaf[:leftWidth-7] + "~"
-			}
-			if idx == m.runeCursor {
-				left.WriteString(lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#FFFFFF")).
-					Background(lipgloss.Color("#333333")).
-					Width(leftWidth - 2).
-					Render("  > " + leaf) + "\n")
-			} else {
-				left.WriteString(runeLeafStyle.Render("    "+leaf) + "\n")
-			}
-		}
-		if gi < len(groups)-1 {
-			left.WriteString("\n")
-		}
-	}
-
-	// Right: chat
-	m.chatView.width = chatWidth
-	m.chatView.height = m.height - 4
-	chatContent := m.chatView.view()
-
-	sep := lipgloss.NewStyle().Foreground(border).Render("│")
-	paneHeight := m.height - 6
-	if paneHeight < 5 {
-		paneHeight = 5
-	}
-
-	leftLines := strings.Split(left.String(), "\n")
-	chatLines := strings.Split(chatContent, "\n")
-
-	maxLines := len(leftLines)
-	if len(chatLines) > maxLines {
-		maxLines = len(chatLines)
-	}
-	if maxLines > paneHeight {
-		maxLines = paneHeight
-	}
-
-	var b strings.Builder
-	for i := 0; i < maxLines; i++ {
-		l := ""
-		if i < len(leftLines) {
-			l = leftLines[i]
-		}
-		c := ""
-		if i < len(chatLines) {
-			c = chatLines[i]
-		}
-		lRendered := lipgloss.NewStyle().Width(leftWidth).Render(l)
-		b.WriteString(lRendered + " " + sep + " " + c + "\n")
-	}
-
 	return b.String()
 }
 
@@ -990,18 +752,9 @@ func (m *createFeatureModel) viewResult(width int) string {
 		return ""
 	}
 
-	showChat := m.hasChat && len(m.chatView.session.Messages) > 0
-
 	// Width allocation
-	var leftWidth, midWidth, chatWidth int
-	if showChat {
-		leftWidth = width * 25 / 100
-		midWidth = width * 35 / 100
-		chatWidth = width - leftWidth - midWidth - 6
-	} else {
-		leftWidth = width / 3
-		midWidth = width - leftWidth - 3
-	}
+	leftWidth := width / 3
+	midWidth := width - leftWidth - 3
 	if leftWidth < 20 {
 		leftWidth = 20
 	}
@@ -1016,10 +769,15 @@ func (m *createFeatureModel) viewResult(width int) string {
 	cursorLine := 0
 	lineNum := 0
 
-	left.WriteString(renderPaneHeader("feature", leftWidth, m.focus == focusLeft) + "\n")
-	lineNum++
-
-	left.WriteString(featureNameStyle.Render(m.featureName()) + "\n")
+	hdrStyle := paneHeaderInactive
+	if m.focus == focusLeft {
+		hdrStyle = paneHeaderActive
+	}
+	featureHdr := hdrStyle.Render("── feature ") + featureNameStyle.Render(m.featureName()) + " "
+	if remaining := leftWidth - lipgloss.Width(featureHdr); remaining > 0 {
+		featureHdr += hdrStyle.Render(strings.Repeat("─", remaining))
+	}
+	left.WriteString(featureHdr + "\n")
 	lineNum++
 	if m.result.Summary != "" {
 		left.WriteString(featureSummaryStyle.Render(m.result.Summary) + "\n")
@@ -1074,14 +832,21 @@ func (m *createFeatureModel) viewResult(width int) string {
 
 	// Middle pane: rune detail
 	var mid strings.Builder
-	mid.WriteString(renderPaneHeader("rune", midWidth, m.focus == focusMiddle) + "\n")
-
 	if m.runeCursor < len(m.result.NewRunes) {
 		r := m.result.NewRunes[m.runeCursor]
-		mid.WriteString(runeNameStyle.Render(r.Name) + "\n\n")
+
+		runeHdrStyle := paneHeaderInactive
+		if m.focus == focusMiddle {
+			runeHdrStyle = paneHeaderActive
+		}
+		runeHdr := runeHdrStyle.Render("── rune ") + runeNameStyle.Render(r.Name) + " "
+		if remaining := midWidth - lipgloss.Width(runeHdr); remaining > 0 {
+			runeHdr += runeHdrStyle.Render(strings.Repeat("─", remaining))
+		}
+		mid.WriteString(runeHdr + "\n")
 
 		if r.Signature != "" {
-			mid.WriteString(runeSigStyle.Render(r.Signature) + "\n\n")
+			mid.WriteString("\n" + runeSigStyle.Render(r.Signature) + "\n")
 		}
 
 		if r.Description != "" {
@@ -1097,56 +862,45 @@ func (m *createFeatureModel) viewResult(width int) string {
 				mid.WriteString(testFailStyle.Render("- ") + lipgloss.NewStyle().Width(midWidth-4).Render(t) + "\n")
 			}
 		}
+	} else {
+		mid.WriteString(renderPaneHeader("rune", midWidth, m.focus == focusMiddle) + "\n")
 	}
 
 	// Separator
 	sep := lipgloss.NewStyle().Foreground(border).Render("│")
 
-	paneHeight := m.height - 10
-	if paneHeight < 5 {
-		paneHeight = 5
+	leftLines := strings.Split(left.String(), "\n")
+	midLines := strings.Split(mid.String(), "\n")
+
+	// Only scroll/truncate the left pane when it overflows available space
+	availHeight := m.height - 6
+	if availHeight < 5 {
+		availHeight = 5
 	}
 
-	// Scroll left pane
-	if cursorLine < m.leftScroll {
-		m.leftScroll = cursorLine
-	}
-	if cursorLine >= m.leftScroll+paneHeight {
-		m.leftScroll = cursorLine - paneHeight + 1
-	}
-	if m.leftScroll < 0 {
+	if len(leftLines) > availHeight {
+		if cursorLine < m.leftScroll {
+			m.leftScroll = cursorLine
+		}
+		if cursorLine >= m.leftScroll+availHeight {
+			m.leftScroll = cursorLine - availHeight + 1
+		}
+		if m.leftScroll < 0 {
+			m.leftScroll = 0
+		}
+		if m.leftScroll < len(leftLines) {
+			leftLines = leftLines[m.leftScroll:]
+		}
+		if len(leftLines) > availHeight {
+			leftLines = leftLines[:availHeight]
+		}
+	} else {
 		m.leftScroll = 0
 	}
 
-	leftLines := strings.Split(left.String(), "\n")
-	if m.leftScroll < len(leftLines) {
-		leftLines = leftLines[m.leftScroll:]
-	}
-	if len(leftLines) > paneHeight {
-		leftLines = leftLines[:paneHeight]
-	}
-
-	midLines := strings.Split(mid.String(), "\n")
-
-	// Build chat pane if needed (read-only preview in result view)
-	var chatLines []string
-	if showChat {
-		m.chatView.width = chatWidth
-		m.chatView.height = paneHeight
-		chatContent := m.chatView.view()
-		chatLines = strings.Split(chatContent, "\n")
-	}
-
-	// Determine max lines
 	maxLines := len(leftLines)
 	if len(midLines) > maxLines {
 		maxLines = len(midLines)
-	}
-	if len(chatLines) > maxLines {
-		maxLines = len(chatLines)
-	}
-	if maxLines > paneHeight {
-		maxLines = paneHeight
 	}
 
 	// Join panes
@@ -1164,15 +918,7 @@ func (m *createFeatureModel) viewResult(width int) string {
 		lRendered := lipgloss.NewStyle().Width(leftWidth).Render(l)
 		mRendered := lipgloss.NewStyle().Width(midWidth).Render(m_)
 
-		if showChat {
-			c := ""
-			if i < len(chatLines) {
-				c = chatLines[i]
-			}
-			b.WriteString(lRendered + " " + sep + " " + mRendered + " " + sep + " " + c + "\n")
-		} else {
-			b.WriteString(lRendered + " " + sep + " " + mRendered + "\n")
-		}
+		b.WriteString(lRendered + " " + sep + " " + mRendered + "\n")
 	}
 
 	b.WriteString("\n" + statusOk.Render(fmt.Sprintf("%d runes proposed", len(m.result.NewRunes))))

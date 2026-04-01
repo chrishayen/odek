@@ -9,7 +9,6 @@ import (
 
 	"github.com/chrishayen/odek/config"
 	"github.com/chrishayen/odek/internal/app"
-	"github.com/chrishayen/odek/internal/claude"
 	"github.com/chrishayen/odek/internal/decomposer"
 	"github.com/chrishayen/odek/internal/feature"
 	"github.com/chrishayen/odek/internal/hydrator"
@@ -55,8 +54,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/hydrate/{id}", s.handleJobStatus)
 	s.mux.HandleFunc("POST /api/ask", s.handleAsk)
 	s.mux.HandleFunc("GET /api/ask/{id}", s.handleJobStatus)
-	s.mux.HandleFunc("POST /api/chat", s.handleChat)
-	s.mux.HandleFunc("GET /api/chat/{id}", s.handleJobStatus)
 	s.mux.HandleFunc("POST /api/check", s.handleCheck)
 	s.mux.HandleFunc("POST /api/verify", s.handleVerify)
 	s.mux.HandleFunc("GET /api/verify/{id}", s.handleJobStatus)
@@ -151,35 +148,6 @@ func (s *Server) handleAsk(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		s.jobs.SetRunning(j.ID)
 		answer, err := s.dec.Ask(context.Background(), req.Question, req.Context)
-		if err != nil {
-			s.jobs.SetFailed(j.ID, err)
-			return
-		}
-		data, _ := json.Marshal(answer)
-		s.jobs.SetCompleted(j.ID, data)
-	}()
-
-	jsonResponse(w, http.StatusAccepted, map[string]string{"job_id": j.ID})
-}
-
-func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Messages []claude.ChatMessage `json:"messages"`
-		Context  string               `json:"context"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-		return
-	}
-	if len(req.Messages) == 0 {
-		jsonError(w, http.StatusBadRequest, "messages required")
-		return
-	}
-
-	j := s.jobs.Create()
-	go func() {
-		s.jobs.SetRunning(j.ID)
-		answer, err := s.dec.Chat(context.Background(), req.Context, req.Messages)
 		if err != nil {
 			s.jobs.SetFailed(j.ID, err)
 			return

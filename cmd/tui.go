@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/chrishayen/odek/internal/chat"
 	"github.com/chrishayen/odek/internal/server"
 	"github.com/chrishayen/odek/internal/tui"
 	"github.com/spf13/cobra"
@@ -25,8 +24,7 @@ var tuiCmd = &cobra.Command{
 		s := server.New(cfg, store, featureStore, appStore, dec, hyd)
 		go http.ListenAndServe(fmt.Sprintf(":%d", port), s)
 
-		chatStore := chat.NewStore(cfg.RegistryPath)
-		p := tea.NewProgram(tui.New(port, cfg.RegistryPath, chatStore), tea.WithAltScreen())
+		p := tea.NewProgram(tui.New(port, cfg.RegistryPath, featureStore), tea.WithAltScreen())
 		_, err = p.Run()
 		return err
 	},

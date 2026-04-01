@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lucasb-eyer/go-colorful"
 
-	"github.com/chrishayen/odek/internal/chat"
+	"github.com/chrishayen/odek/internal/feature"
 )
 
 type screen int
@@ -190,18 +190,18 @@ type Model struct {
 	port         int
 	registryPath string
 	draftStore   *DraftStore
-	chatStore    *chat.Store
+	featureStore *feature.Store
 	createForm   createFeatureModel
 	featureList  featureListModel
 }
 
-func New(port int, registryPath string, chatStore *chat.Store) Model {
+func New(port int, registryPath string, featureStore *feature.Store) Model {
 	return Model{
 		screen:       screenSplash,
 		port:         port,
 		registryPath: registryPath,
 		draftStore:   NewDraftStore(registryPath),
-		chatStore:    chatStore,
+		featureStore: featureStore,
 	}
 }
 
@@ -235,15 +235,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case draftSelectedMsg:
-		m.createForm = newCreateFeatureModelFromDraft(m.port, m.width, m.height, m.draftStore, m.chatStore, msg.draft)
+		m.createForm = newCreateFeatureModelFromDraft(m.port, m.width, m.height, m.draftStore, msg.draft)
 		m.screen = screenCreateFeature
 		if m.createForm.state == stateDone {
 			return m, nil
 		}
 		return m, m.createForm.descInput.Focus()
 
+	case featureSelectedMsg:
+		// TODO: open feature detail view
+		return m, nil
+
 	case newFeatureMsg:
-		m.createForm = newCreateFeatureModel(m.port, m.width, m.height, m.draftStore, m.chatStore)
+		m.createForm = newCreateFeatureModel(m.port, m.width, m.height, m.draftStore)
 		m.screen = screenCreateFeature
 		return m, m.createForm.descInput.Focus()
 
@@ -257,13 +261,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "l":
 			if m.screen == screenSplash {
-				m.featureList = newFeatureListModel(m.draftStore, m.width, m.height)
+				m.featureList = newFeatureListModel(m.draftStore, m.featureStore, m.width, m.height)
 				m.screen = screenFeatureList
 				return m, nil
 			}
 		case "enter":
 			if m.screen == screenSplash {
-				m.createForm = newCreateFeatureModel(m.port, m.width, m.height, m.draftStore, m.chatStore)
+				m.createForm = newCreateFeatureModel(m.port, m.width, m.height, m.draftStore)
 				m.screen = screenCreateFeature
 				return m, m.createForm.descInput.Focus()
 			}
@@ -311,7 +315,7 @@ func (m Model) viewSplash() string {
 			helpKeyStyle.Render("enter"),
 			helpTextStyle.Render("create feature"),
 			helpKeyStyle.Render("l"),
-			helpTextStyle.Render("drafts"),
+			helpTextStyle.Render("features"),
 			helpKeyStyle.Render("q"),
 			helpTextStyle.Render("quit"),
 		),
@@ -335,14 +339,12 @@ func (m Model) viewCreateFeature() string {
 	case stateDone:
 		switch m.createForm.focus {
 		case focusLeft:
-			helpText = fmt.Sprintf("%s    %s %s    %s %s    %s %s    %s %s    %s %s    %s %s",
+			helpText = fmt.Sprintf("%s    %s %s    %s %s    %s %s    %s %s    %s %s",
 				featureNameStyle.Render("feature"),
 				helpKeyStyle.Render("j/k"),
 				helpTextStyle.Render("navigate"),
 				helpKeyStyle.Render("r"),
 				helpTextStyle.Render("refine"),
-				helpKeyStyle.Render("c"),
-				helpTextStyle.Render("chat"),
 				helpKeyStyle.Render("tab"),
 				helpTextStyle.Render("next"),
 				helpKeyStyle.Render("enter"),
@@ -351,24 +353,10 @@ func (m Model) viewCreateFeature() string {
 				helpTextStyle.Render("back"),
 			)
 		case focusMiddle:
-			helpText = fmt.Sprintf("%s    %s %s    %s %s    %s %s    %s %s    %s %s",
+			helpText = fmt.Sprintf("%s    %s %s    %s %s    %s %s    %s %s",
 				featureNameStyle.Render("rune"),
 				helpKeyStyle.Render("r"),
 				helpTextStyle.Render("refine"),
-				helpKeyStyle.Render("c"),
-				helpTextStyle.Render("chat"),
-				helpKeyStyle.Render("tab"),
-				helpTextStyle.Render("next"),
-				helpKeyStyle.Render("enter"),
-				helpTextStyle.Render("new"),
-				helpKeyStyle.Render("bksp"),
-				helpTextStyle.Render("back"),
-			)
-		case focusRight:
-			helpText = fmt.Sprintf("%s    %s %s    %s %s    %s %s    %s %s",
-				featureNameStyle.Render("chat"),
-				helpKeyStyle.Render("c"),
-				helpTextStyle.Render("resume"),
 				helpKeyStyle.Render("tab"),
 				helpTextStyle.Render("next"),
 				helpKeyStyle.Render("enter"),
@@ -377,13 +365,6 @@ func (m Model) viewCreateFeature() string {
 				helpTextStyle.Render("back"),
 			)
 		}
-	case stateChat:
-		helpText = fmt.Sprintf("%s %s    %s %s",
-			helpKeyStyle.Render("enter"),
-			helpTextStyle.Render("send"),
-			helpKeyStyle.Render("bksp"),
-			helpTextStyle.Render("back"),
-		)
 	case stateRefining:
 		helpText = fmt.Sprintf("%s %s    %s %s",
 			helpKeyStyle.Render("enter"),
@@ -404,11 +385,13 @@ func (m Model) viewCreateFeature() string {
 			helpTextStyle.Render("back"),
 		)
 	default:
-		helpText = fmt.Sprintf("%s %s    %s %s",
+		helpText = fmt.Sprintf("%s %s    %s %s    %s %s",
 			helpKeyStyle.Render("enter"),
 			helpTextStyle.Render("create"),
 			helpKeyStyle.Render("alt+enter"),
 			helpTextStyle.Render("new line"),
+			helpKeyStyle.Render("esc"),
+			helpTextStyle.Render("back"),
 		)
 	}
 	help := helpBarStyle.Render(helpText)
@@ -418,7 +401,6 @@ func (m Model) viewCreateFeature() string {
 
 	headerLines := strings.Count(header, "\n") + 1
 	formLines := strings.Count(form, "\n") + 1
-	helpHeight := 1
 
 	var b strings.Builder
 	b.WriteString(header + "\n")
@@ -426,9 +408,8 @@ func (m Model) viewCreateFeature() string {
 	b.WriteString(form)
 
 	// Push help bar to bottom
-	usedLines := headerLines + 1 + formLines + helpHeight
-	gap := m.height - usedLines
-	if gap > 0 {
+	usedLines := headerLines + 1 + formLines + 1
+	if gap := m.height - usedLines; gap > 0 {
 		b.WriteString(strings.Repeat("\n", gap))
 	}
 	b.WriteString(help)
@@ -442,19 +423,26 @@ func (m Model) viewFeatureList() string {
 	form := m.featureList.view()
 
 	var helpText string
-	if len(m.featureList.drafts) > 0 {
-		helpText = fmt.Sprintf("%s %s    %s %s    %s %s    %s %s    %s %s",
+	if m.featureList.totalItems() > 0 {
+		parts := fmt.Sprintf("%s %s    %s %s    %s %s",
 			helpKeyStyle.Render("j/k"),
 			helpTextStyle.Render("navigate"),
 			helpKeyStyle.Render("enter"),
 			helpTextStyle.Render("select"),
 			helpKeyStyle.Render("n"),
 			helpTextStyle.Render("new"),
-			helpKeyStyle.Render("d"),
-			helpTextStyle.Render("delete"),
+		)
+		if m.featureList.cursorOnDraft() {
+			parts += fmt.Sprintf("    %s %s",
+				helpKeyStyle.Render("d"),
+				helpTextStyle.Render("delete"),
+			)
+		}
+		parts += fmt.Sprintf("    %s %s",
 			helpKeyStyle.Render("bksp"),
 			helpTextStyle.Render("back"),
 		)
+		helpText = parts
 	} else {
 		helpText = fmt.Sprintf("%s %s    %s %s",
 			helpKeyStyle.Render("n"),
@@ -467,16 +455,14 @@ func (m Model) viewFeatureList() string {
 
 	headerLines := strings.Count(header, "\n") + 1
 	formLines := strings.Count(form, "\n") + 1
-	helpHeight := 1
 
 	var b strings.Builder
 	b.WriteString(header + "\n")
 	b.WriteString("\n")
 	b.WriteString(form)
 
-	usedLines := headerLines + 1 + formLines + helpHeight
-	gap := m.height - usedLines
-	if gap > 0 {
+	usedLines := headerLines + 1 + formLines + 1
+	if gap := m.height - usedLines; gap > 0 {
 		b.WriteString(strings.Repeat("\n", gap))
 	}
 	b.WriteString(help)
