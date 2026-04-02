@@ -958,7 +958,7 @@ func (m *createFeatureModel) viewResult(width int) string {
 			mid.WriteString(runeHdr + "\n")
 
 			if r.Signature != "" {
-				mid.WriteString("\n" + runeSigStyle.Render(r.Signature) + "\n")
+				mid.WriteString("\n" + runeSigStyle.Width(midWidth-2).Render(r.Signature) + "\n")
 			}
 
 			if r.Description != "" {

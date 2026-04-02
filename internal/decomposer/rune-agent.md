@@ -4,7 +4,9 @@
 
 ## Purpose
 
-Odek is a rune server — an orchestration layer between you and a codebase. It has two levels of organization: **features** and **runes**.
+Odek is a rune server — an orchestration layer between you and a codebase. It generates **libraries** — packages of reusable, importable functions that consumers call from their own code. The output is never an executable, CLI, or binary. Every feature is a library entry point with typed inputs and outputs, exported for use in other projects.
+
+It has two levels of organization: **features** and **runes**.
 
 - A **feature** is a namespace that groups related functionality. It describes the domain, its components, and how runes wire together. Example: `auth` is a feature that covers authentication and authorization.
 - A **rune** is the atomic unit of functionality — one function described in English. Runes are organized in a dot-path hierarchy within features. Example: `auth.validate_email` is a rune inside the `auth` feature.
@@ -78,6 +80,7 @@ The project namespace should be **thin**. The stdlib does the heavy lifting.
 7. Use **canonical verbs** in leaf names: `create`, `read`, `update`, `delete`, `validate`, `send`, `resolve`, `parse`, `serve`, `listen`, `handle`, `shutdown`, `filter`, `sort`, `transform`, `log`, `hash`, `generate`, `verify`.
 8. **snake_case everything.**
 9. For existing units: `->` to reference as-is, `~>` to extend with new test cases, or define a new node when nothing existing covers it.
+10. The output is always a **library**. Do not generate CLI entry points, main functions, argument parsing, or binary-level concerns (signal handling, process exit codes, graceful shutdown). The project root node is a library entry point — a callable function with typed parameters and return values that consumers import and call.
 
 #### For each rune, produce:
 
@@ -103,25 +106,23 @@ Type system:
 
 #### Example
 
-Requirement: "A Go CLI that serves a directory via HTTP"
+Requirement: "A token validation library"
 
 **std runes:**
-- `std.cli.parse_flags` — `(argv: list[string], known_flags: optional[list[string]]) -> result[ParseFlagsResult, string]`
-- `std.cli.validate_port` — `(value: string) -> result[u16, string]`
-- `std.filesystem.resolve_absolute` — `(raw_path: string) -> result[string, string]`
-- `std.filesystem.validate_readable_dir` — `(path: string) -> result[void, string]`
-- `std.http.handler.serve_directory` — `(root_dir: string) -> Handler`
-- `std.http.handler.log_middleware` — `(next: Handler) -> Handler`
-- `std.http.server.build` — `(addr: string, handler: Handler) -> result[Server, string]`
-- `std.http.server.listen_and_serve` — `(server: Server) -> result[void, string]`
-- `std.http.server.shutdown_graceful` — `(server: Server, timeout: Duration) -> result[void, string]`
-- `std.process.wait_for_signal` — `(signals: list[Signal]) -> Signal`
+- `std.encoding.decode_base64url` — `(encoded: string) -> result[bytes, string]`
+- `std.encoding.encode_base64url` — `(data: bytes) -> string`
+- `std.crypto.verify_hmac_sha256` — `(data: bytes, signature: bytes, key: bytes) -> bool`
+- `std.crypto.constant_time_compare` — `(a: bytes, b: bytes) -> bool`
+- `std.time.is_expired` — `(expires_at: i64, now: i64) -> bool`
+- `std.json.parse_object` — `(raw: string) -> result[map[string, string], string]`
 
 **Project runes (thin glue):**
-- `http_serve.config` — wires `std.cli.parse_flags` + `std.cli.validate_port` + `std.filesystem.*`
-- `http_serve.run` — wires `std.http.*` + `std.process.wait_for_signal`
+- `token_validator` — `(token: string, secret: string) -> result[TokenClaims, string]` — library entry point
+- `token_validator.parse` — wires `std.encoding.decode_base64url`
+- `token_validator.verify_signature` — wires `std.crypto.verify_hmac_sha256`
+- `token_validator.extract_claims` — wires `std.json.parse_object` + `std.time.is_expired`
 
-Notice: 10 granular stdlib units, 2 thin project wiring units. The stdlib is reusable across any project that needs CLI parsing, HTTP serving, or filesystem validation.
+Notice: 6 granular stdlib units, 4 thin project wiring units. The root is a callable library function with typed inputs and outputs — not an executable. The stdlib is reusable across any project that needs encoding, crypto, or time utilities.
 
 ### Step 4 — Present for approval
 

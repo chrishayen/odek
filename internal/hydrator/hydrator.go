@@ -281,8 +281,8 @@ func keys(m map[string]bool) []string {
 func buildPrompt(r *runepkg.Rune, language string) string {
 	var sb strings.Builder
 
-	fmt.Fprintf(&sb, `You are implementing a single, isolated software component called "%s".
-Write all code in %s.
+	fmt.Fprintf(&sb, `You are implementing a single, isolated library function called "%s".
+Write all code in %s. This is a library component meant to be imported and called by consumers — not an executable entry point. Do not generate main() functions or CLI scaffolding.
 
 Description: %s
 
