@@ -702,10 +702,10 @@ func (m *createFeatureModel) viewRefining(width int) string {
 		label = "Refine rune " + m.selectedRuneName()
 	}
 	var b strings.Builder
+	b.WriteString(m.viewResult(width))
+	b.WriteString("\n")
 	b.WriteString(inputLabel.Render(label) + " ")
 	b.WriteString(m.refineInput.View())
-	b.WriteString("\n\n")
-	b.WriteString(m.viewResult(width))
 	return b.String()
 }
 
@@ -980,6 +980,9 @@ func (m *createFeatureModel) viewResult(width int) string {
 	}
 
 	availHeight := m.height - 6
+	if m.state == stateRefining {
+		availHeight -= 2
+	}
 	if availHeight < 5 {
 		availHeight = 5
 	}
