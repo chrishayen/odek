@@ -67,6 +67,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
+// progressWriter updates a Job's Progress field on each Write.
+type progressWriter struct {
+	jobs  *jobs.Manager
+	jobID string
+}
+
+func (pw *progressWriter) Write(p []byte) (int, error) {
+	pw.jobs.SetProgress(pw.jobID, strings.TrimSpace(string(p)))
+	return len(p), nil
+}
+
 func jsonResponse(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -118,7 +129,8 @@ func (s *Server) handleDecompose(w http.ResponseWriter, r *http.Request) {
 	j := s.jobs.Create()
 	go func() {
 		s.jobs.SetRunning(j.ID)
-		result, err := s.dec.Decompose(context.Background(), req.Requirement, req.Decomposition)
+		pw := &progressWriter{jobs: s.jobs, jobID: j.ID}
+		result, err := s.dec.Decompose(context.Background(), req.Requirement, req.Decomposition, pw)
 		if err != nil {
 			s.jobs.SetFailed(j.ID, err)
 			return

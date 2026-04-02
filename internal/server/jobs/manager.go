@@ -22,6 +22,7 @@ const (
 type Job struct {
 	ID        string          `json:"id"`
 	Status    JobStatus       `json:"status"`
+	Progress  string          `json:"progress,omitempty"`
 	Result    json.RawMessage `json:"result,omitempty"`
 	Error     string          `json:"error,omitempty"`
 	CreatedAt time.Time       `json:"created_at"`
@@ -52,6 +53,14 @@ func (m *Manager) Get(id string) (*Job, bool) {
 		return nil, false
 	}
 	return v.(*Job), true
+}
+
+// SetProgress updates a job's progress message.
+func (m *Manager) SetProgress(id string, msg string) {
+	if v, ok := m.jobs.Load(id); ok {
+		j := v.(*Job)
+		j.Progress = msg
+	}
 }
 
 // SetRunning updates a job's status to running.

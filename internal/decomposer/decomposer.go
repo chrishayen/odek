@@ -5,11 +5,18 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/chrishayen/odek/internal/claude"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 )
+
+func logProgress(w io.Writer, format string, args ...any) {
+	if w != nil {
+		fmt.Fprintf(w, format+"\n", args...)
+	}
+}
 
 //go:embed rune-agent.md
 var Instructions string
@@ -70,11 +77,13 @@ const flowSystemPrompt = `You draw flow diagrams for software features using box
 
 // Decompose sends requirements to Claude and returns the decomposition.
 // If prevDecomposition is non-empty, it is included as context so the LLM can iterate.
-func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecomposition string) (*Result, error) {
+func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecomposition string, logOut io.Writer) (*Result, error) {
 	userPrompt, err := d.buildPrompt(requirements, prevDecomposition)
 	if err != nil {
 		return nil, err
 	}
+
+	logProgress(logOut, "Analyzing requirements...")
 
 	type treeOut struct {
 		output string
@@ -112,13 +121,15 @@ func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecompositio
 	if tr.err != nil {
 		return nil, fmt.Errorf("claude call failed: %w", tr.err)
 	}
+	logProgress(logOut, "Parsing composition tree...")
 
 	result, err := d.parseResult(tr.output)
 	if err != nil {
 		return nil, err
 	}
+	logProgress(logOut, "Found %d runes", len(result.NewRunes))
 
-	d.generatePackageSummaries(result)
+	d.generatePackageSummaries(result, logOut)
 
 	mr := <-metaCh
 	if mr.err == nil {
@@ -131,6 +142,7 @@ func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecompositio
 		result.FlowDiagram = fr.diagram
 	}
 
+	logProgress(logOut, "Decomposition complete")
 	return result, nil
 }
 
@@ -138,7 +150,7 @@ const pkgSummaryPrompt = `You summarize software packages in one sentence. Given
 
 // generatePackageSummaries identifies packages in the result and generates
 // a one-sentence summary for each via Claude. Calls run in parallel.
-func (d *Decomposer) generatePackageSummaries(result *Result) {
+func (d *Decomposer) generatePackageSummaries(result *Result, logOut io.Writer) {
 	// Find packages: any rune whose name is a prefix of another rune's name.
 	packages := map[string][]ProposedRune{}
 	for _, r := range result.NewRunes {
@@ -153,6 +165,7 @@ func (d *Decomposer) generatePackageSummaries(result *Result) {
 	if len(packages) == 0 {
 		return
 	}
+	logProgress(logOut, "Generating %d package summaries...", len(packages))
 
 	type summaryResult struct {
 		name    string

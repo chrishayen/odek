@@ -105,10 +105,11 @@ type decomposeResponse struct {
 }
 
 type jobResponse struct {
-	ID     string          `json:"id"`
-	Status string          `json:"status"`
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  string          `json:"error,omitempty"`
+	ID       string          `json:"id"`
+	Status   string          `json:"status"`
+	Progress string          `json:"progress,omitempty"`
+	Result   json.RawMessage `json:"result,omitempty"`
+	Error    string          `json:"error,omitempty"`
 }
 
 type proposedRune struct {
@@ -148,6 +149,10 @@ type decomposeErrorMsg struct {
 
 type pollTickMsg struct{}
 
+type progressMsg struct {
+	text string
+}
+
 type decomposeDoneMsg struct {
 	result decomposeResult
 }
@@ -166,21 +171,22 @@ const (
 )
 
 type createFeatureModel struct {
-	descInput   textarea.Model
-	refineInput textinput.Model
-	state       formState
-	port        int
-	width       int
-	jobID       string
-	spinner     spinner.Model
-	result      *decomposeResult
-	errMsg      string
-	authURL     string
-	runeCursor  int
-	height      int
-	leftScroll  int
-	requirement string
-	inputMode   inputMode
+	descInput    textarea.Model
+	refineInput  textinput.Model
+	state        formState
+	port         int
+	width        int
+	jobID        string
+	spinner      spinner.Model
+	result       *decomposeResult
+	errMsg       string
+	authURL      string
+	runeCursor   int
+	height       int
+	leftScroll   int
+	requirement  string
+	inputMode    inputMode
+	progressText string
 
 	// Drafts
 	draftID    string
@@ -313,6 +319,7 @@ func (m *createFeatureModel) openRefine(mode inputMode, placeholder string) tea.
 
 func (m *createFeatureModel) decompose(req string) tea.Cmd {
 	m.state = stateDecomposing
+	m.progressText = ""
 	port := m.port
 	prevDecomp := ""
 	if m.result != nil {
@@ -368,6 +375,9 @@ func (m *createFeatureModel) checkJob() tea.Cmd {
 		case "failed":
 			return decomposeErrorMsg{err: fmt.Errorf("%s", job.Error)}
 		default:
+			if job.Progress != "" {
+				return progressMsg{text: job.Progress}
+			}
 			return pollTickMsg{}
 		}
 	}
@@ -462,6 +472,10 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 	case decomposeStartedMsg:
 		m.jobID = msg.jobID
 		return tea.Batch(m.spinner.Tick, m.pollJob())
+
+	case progressMsg:
+		m.progressText = msg.text
+		return m.pollJob()
 
 	case pollTickMsg:
 		if m.state == stateDecomposing {
@@ -566,7 +580,11 @@ func (m *createFeatureModel) viewAuthError() string {
 }
 
 func (m *createFeatureModel) viewDecomposing() string {
-	return m.spinner.View() + " Decomposing into runes..."
+	text := "Decomposing into runes..."
+	if m.progressText != "" {
+		text = m.progressText
+	}
+	return m.spinner.View() + " " + text
 }
 
 func (m *createFeatureModel) viewRefining(width int) string {
