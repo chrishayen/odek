@@ -930,6 +930,9 @@ func (m *createFeatureModel) viewResult(width int) string {
 				for _, child := range children {
 					leaf := leafName(child.Name)
 					line := "  " + leaf
+					if child.Signature != "" {
+						line += " " + child.Signature
+					}
 					if child.Description != "" {
 						line += " — " + child.Description
 					}
