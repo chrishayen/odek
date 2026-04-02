@@ -83,7 +83,9 @@ Types can be nested: result[list[i32], string]
 1. STDLIB FIRST. Decompose generic capabilities before the project. Ask: could another project use this without modification? If yes → std.*
 2. The tree structure IS the composition. Parent nodes compose their children. Indentation shows nesting.
 3. Every node MUST have a signature (@ line) and test cases (except -> references). Include every meaningful positive (+) and negative (-) test case — not just one of each. Cover edge cases, boundary values, and error variants.
-4. std.* test cases must be project-agnostic. Never mention a project name in std tests.
+4. std.* test cases must be project-agnostic. Never mention a project name or use feature-specific example values in std tests. The FIRST positive test case becomes the rune's description — it must describe the generic capability.
+   - BAD: `+ writes "hello world" to stdout` (uses content from the specific feature)
+   - GOOD: `+ writes provided string to stdout` (describes the generic capability)
 5. Do not emit nodes for constants, config values, or type definitions — only executable behavior.
 6. Use canonical verbs in leaf names: create, read, update, delete, validate, send, resolve, parse, serve, listen, handle, shutdown, filter, sort, transform, log, hash, generate, verify, etc.
 7. Normalize verb synonyms (e.g., "show" → "read", "remove" → "delete").

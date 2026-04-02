@@ -255,7 +255,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
-		case "q":
+		case "backspace":
 			if m.screen == screenSplash {
 				return m, tea.Quit
 			}
@@ -316,7 +316,7 @@ func (m Model) viewSplash() string {
 			helpTextStyle.Render("create feature"),
 			helpKeyStyle.Render("l"),
 			helpTextStyle.Render("features"),
-			helpKeyStyle.Render("q"),
+			helpKeyStyle.Render("bksp"),
 			helpTextStyle.Render("quit"),
 		),
 	)
@@ -337,34 +337,19 @@ func (m Model) viewCreateFeature() string {
 	var helpText string
 	switch m.createForm.state {
 	case stateDone:
-		switch m.createForm.focus {
-		case focusLeft:
-			helpText = fmt.Sprintf("%s    %s %s    %s %s    %s %s    %s %s    %s %s",
-				featureNameStyle.Render("feature"),
-				helpKeyStyle.Render("j/k"),
-				helpTextStyle.Render("navigate"),
-				helpKeyStyle.Render("r"),
-				helpTextStyle.Render("refine"),
-				helpKeyStyle.Render("tab"),
-				helpTextStyle.Render("next"),
-				helpKeyStyle.Render("enter"),
-				helpTextStyle.Render("new"),
-				helpKeyStyle.Render("bksp"),
-				helpTextStyle.Render("back"),
-			)
-		case focusMiddle:
-			helpText = fmt.Sprintf("%s    %s %s    %s %s    %s %s    %s %s",
-				featureNameStyle.Render("rune"),
-				helpKeyStyle.Render("r"),
-				helpTextStyle.Render("refine"),
-				helpKeyStyle.Render("tab"),
-				helpTextStyle.Render("next"),
-				helpKeyStyle.Render("enter"),
-				helpTextStyle.Render("new"),
-				helpKeyStyle.Render("bksp"),
-				helpTextStyle.Render("back"),
-			)
-		}
+		helpText = fmt.Sprintf("%s    %s %s    %s %s    %s %s    %s %s    %s %s",
+			featureNameStyle.Render("feature"),
+			helpKeyStyle.Render("j/k"),
+			helpTextStyle.Render("navigate"),
+			helpKeyStyle.Render("r"),
+			helpTextStyle.Render("refine"),
+			helpKeyStyle.Render("t"),
+			helpTextStyle.Render("refine rune"),
+			helpKeyStyle.Render("enter"),
+			helpTextStyle.Render("new"),
+			helpKeyStyle.Render("bksp"),
+			helpTextStyle.Render("back"),
+		)
 	case stateRefining:
 		helpText = fmt.Sprintf("%s %s    %s %s",
 			helpKeyStyle.Render("enter"),

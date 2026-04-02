@@ -38,14 +38,15 @@ type ExistingMatch struct {
 
 // Result is the structured output of a decomposition.
 type Result struct {
-	FeatureName   string          `json:"feature_name,omitempty"`
-	Summary       string          `json:"summary,omitempty"`
-	FlowDiagram   string          `json:"flow_diagram,omitempty"`
-	NewRunes      []ProposedRune  `json:"new_runes"`
-	ExistingRunes []ExistingMatch `json:"existing_runes"`
-	TreeOutput    string          `json:"tree_output,omitempty"`
-	NewCount      int             `json:"new_count"`
-	UpdatedCount  int             `json:"updated_count"`
+	FeatureName      string            `json:"feature_name,omitempty"`
+	Summary          string            `json:"summary,omitempty"`
+	FlowDiagram      string            `json:"flow_diagram,omitempty"`
+	NewRunes         []ProposedRune    `json:"new_runes"`
+	ExistingRunes    []ExistingMatch   `json:"existing_runes"`
+	TreeOutput       string            `json:"tree_output,omitempty"`
+	NewCount         int               `json:"new_count"`
+	UpdatedCount     int               `json:"updated_count"`
+	PackageSummaries map[string]string `json:"package_summaries,omitempty"`
 }
 
 // Decomposer decomposes requirements into runes.
@@ -114,6 +115,8 @@ func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecompositio
 		return nil, err
 	}
 
+	d.generatePackageSummaries(result)
+
 	mr := <-metaCh
 	if mr.err == nil {
 		result.FeatureName = mr.name
@@ -126,6 +129,57 @@ func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecompositio
 	}
 
 	return result, nil
+}
+
+const pkgSummaryPrompt = `You summarize software packages in one sentence. Given a package name and its contained runes, write a single concise sentence describing what the package provides. No quotes, no markdown, no prefix — just the sentence.`
+
+// generatePackageSummaries identifies packages in the result and generates
+// a one-sentence summary for each via Claude. Calls run in parallel.
+func (d *Decomposer) generatePackageSummaries(result *Result) {
+	// Find packages: any rune whose name is a prefix of another rune's name.
+	packages := map[string][]ProposedRune{}
+	for _, r := range result.NewRunes {
+		prefix := r.Name + "."
+		for _, other := range result.NewRunes {
+			if strings.HasPrefix(other.Name, prefix) {
+				packages[r.Name] = append(packages[r.Name], other)
+				break
+			}
+		}
+	}
+	if len(packages) == 0 {
+		return
+	}
+
+	type summaryResult struct {
+		name    string
+		summary string
+	}
+	ch := make(chan summaryResult, len(packages))
+
+	for name, children := range packages {
+		go func(name string, children []ProposedRune) {
+			var b strings.Builder
+			fmt.Fprintf(&b, "Package: %s\nContains:\n", name)
+			for _, c := range children {
+				fmt.Fprintf(&b, "  %s — %s\n", c.Name, c.Description)
+			}
+			resp, err := d.client.Call(pkgSummaryPrompt, b.String())
+			if err != nil {
+				ch <- summaryResult{name, ""}
+				return
+			}
+			ch <- summaryResult{name, strings.TrimSpace(resp)}
+		}(name, children)
+	}
+
+	result.PackageSummaries = make(map[string]string, len(packages))
+	for range packages {
+		sr := <-ch
+		if sr.summary != "" {
+			result.PackageSummaries[sr.name] = sr.summary
+		}
+	}
 }
 
 const askSystemPrompt = `You answer questions about software decompositions concisely and directly. No markdown headers.`

@@ -123,12 +123,13 @@ type existingMatch struct {
 }
 
 type decomposeResult struct {
-	FeatureName   string          `json:"feature_name,omitempty"`
-	Summary       string          `json:"summary,omitempty"`
-	FlowDiagram   string          `json:"flow_diagram,omitempty"`
-	NewRunes      []proposedRune  `json:"new_runes"`
-	ExistingRunes []existingMatch `json:"existing_runes"`
-	TreeOutput    string          `json:"tree_output"`
+	FeatureName      string            `json:"feature_name,omitempty"`
+	Summary          string            `json:"summary,omitempty"`
+	FlowDiagram      string            `json:"flow_diagram,omitempty"`
+	NewRunes         []proposedRune    `json:"new_runes"`
+	ExistingRunes    []existingMatch   `json:"existing_runes"`
+	TreeOutput       string            `json:"tree_output"`
+	PackageSummaries map[string]string `json:"package_summaries,omitempty"`
 }
 
 // Messages
@@ -153,13 +154,6 @@ type loginDoneMsg struct {
 
 type goBackMsg struct{}
 
-type focusPane int
-
-const (
-	focusLeft focusPane = iota
-	focusMiddle
-)
-
 type inputMode int
 
 const (
@@ -182,7 +176,6 @@ type createFeatureModel struct {
 	height      int
 	leftScroll  int
 	requirement string
-	focus       focusPane
 	inputMode   inputMode
 
 	// Drafts
@@ -241,6 +234,7 @@ func newCreateFeatureModelFromDraft(port, width, height int, draftStore *DraftSt
 	m.result = draft.Result
 
 	if m.result != nil {
+		sortRunesStdLast(m.result.NewRunes)
 		m.state = stateDone
 		m.descInput.Blur()
 	} else if m.requirement != "" {
@@ -415,13 +409,6 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 		if m.state == stateDone {
 			// Global keys
 			switch msg.String() {
-			case "tab":
-				if m.focus == focusLeft {
-					m.focus = focusMiddle
-				} else {
-					m.focus = focusLeft
-				}
-				return nil
 			case "enter":
 				if draft := m.toDraft(); draft != nil && m.draftStore != nil {
 					_ = m.draftStore.Save(*draft)
@@ -432,7 +419,6 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 				m.requirement = ""
 				m.runeCursor = 0
 				m.leftScroll = 0
-				m.focus = focusLeft
 				m.descInput.Reset()
 				m.descInput.Focus()
 				return nil
@@ -440,29 +426,22 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 				return func() tea.Msg { return goBackMsg{} }
 			}
 
-			// Focus-specific keys
-			switch m.focus {
-			case focusLeft:
-				switch msg.String() {
-				case "j", "down":
-					if m.result != nil && m.runeCursor < len(m.result.NewRunes)-1 {
-						m.runeCursor++
-					}
-					return nil
-				case "k", "up":
-					if m.runeCursor > 0 {
-						m.runeCursor--
-					}
-					return nil
-				case "r":
-					return m.openRefine(inputRefineFeature, "Refine feature...")
+			switch msg.String() {
+			case "j", "down":
+				if m.result != nil && m.runeCursor < len(m.result.NewRunes)-1 {
+					m.runeCursor++
 				}
-			case focusMiddle:
-				switch msg.String() {
-				case "r":
-					name := m.selectedRuneName()
-					return m.openRefine(inputRefineRune, "Refine "+name+"...")
+				return nil
+			case "k", "up":
+				if m.runeCursor > 0 {
+					m.runeCursor--
 				}
+				return nil
+			case "r":
+				return m.openRefine(inputRefineFeature, "Refine feature...")
+			case "t":
+				name := m.selectedRuneName()
+				return m.openRefine(inputRefineRune, "Refine rune "+name+"...")
 			}
 		}
 		if m.state == stateAuthError {
@@ -488,6 +467,7 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 	case decomposeDoneMsg:
 		m.state = stateDone
 		m.result = &msg.result
+		sortRunesStdLast(m.result.NewRunes)
 		m.runeCursor = 0
 		m.leftScroll = 0
 		return nil
@@ -591,7 +571,7 @@ func (m *createFeatureModel) viewRefining(width int) string {
 	case inputRefineFeature:
 		label = "Refine feature"
 	case inputRefineRune:
-		label = "Refine " + m.selectedRuneName()
+		label = "Refine rune " + m.selectedRuneName()
 	}
 	var b strings.Builder
 	b.WriteString(inputLabel.Render(label) + " ")
@@ -599,6 +579,26 @@ func (m *createFeatureModel) viewRefining(width int) string {
 	b.WriteString("\n\n")
 	b.WriteString(m.viewResult(width))
 	return b.String()
+}
+
+// sortRunesStdLast reorders runes so std-namespace runes come after feature runes.
+func sortRunesStdLast(runes []proposedRune) {
+	sort.SliceStable(runes, func(i, j int) bool {
+		ni, nj := runes[i].Name, runes[j].Name
+		if dot := strings.IndexByte(ni, '.'); dot > 0 {
+			ni = ni[:dot]
+		}
+		if dot := strings.IndexByte(nj, '.'); dot > 0 {
+			nj = nj[:dot]
+		}
+		if ni == "std" && nj != "std" {
+			return false
+		}
+		if ni != "std" && nj == "std" {
+			return true
+		}
+		return false
+	})
 }
 
 // runeGroup holds runes under a common namespace.
@@ -621,6 +621,15 @@ func groupRunesByNamespace(runes []proposedRune) []runeGroup {
 		}
 		groups[ns] = append(groups[ns], i)
 	}
+	sort.SliceStable(order, func(i, j int) bool {
+		if order[i] == "std" {
+			return false
+		}
+		if order[j] == "std" {
+			return true
+		}
+		return false
+	})
 	result := make([]runeGroup, len(order))
 	for i, ns := range order {
 		result[i] = runeGroup{namespace: ns, indices: groups[ns]}
@@ -651,6 +660,29 @@ func leafName(fullPath string) string {
 		return fullPath[dot+1:]
 	}
 	return fullPath
+}
+
+// isPackage returns true if the named rune has children (other runes prefixed by name+".").
+func isPackage(name string, runes []proposedRune) bool {
+	prefix := name + "."
+	for _, r := range runes {
+		if strings.HasPrefix(r.Name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// childRunes returns all runes whose name is prefixed by name+".".
+func childRunes(name string, runes []proposedRune) []proposedRune {
+	prefix := name + "."
+	var children []proposedRune
+	for _, r := range runes {
+		if strings.HasPrefix(r.Name, prefix) {
+			children = append(children, r)
+		}
+	}
+	return children
 }
 
 var (
@@ -769,10 +801,7 @@ func (m *createFeatureModel) viewResult(width int) string {
 	cursorLine := 0
 	lineNum := 0
 
-	hdrStyle := paneHeaderInactive
-	if m.focus == focusLeft {
-		hdrStyle = paneHeaderActive
-	}
+	hdrStyle := paneHeaderActive
 	featureHdr := hdrStyle.Render("── feature ") + featureNameStyle.Render(m.featureName()) + " "
 	if remaining := leftWidth - lipgloss.Width(featureHdr); remaining > 0 {
 		featureHdr += hdrStyle.Render(strings.Repeat("─", remaining))
@@ -787,11 +816,36 @@ func (m *createFeatureModel) viewResult(width int) string {
 	lineNum++
 
 	for gi, g := range groups {
-		left.WriteString(namespaceStyle.Render(g.namespace) +
-			runeSigStyle.Render(fmt.Sprintf(" (%d)", len(g.indices))) + "\n")
+		// Find self-rune where leaf matches namespace (e.g. hello_world.hello_world)
+		selfIdx := -1
+		for _, idx := range g.indices {
+			if leafName(m.result.NewRunes[idx].Name) == g.namespace {
+				selfIdx = idx
+				break
+			}
+		}
+
+		// Render namespace header (selectable if it has a self-rune)
+		countStr := fmt.Sprintf(" (%d)", len(g.indices))
+		if selfIdx >= 0 && selfIdx == m.runeCursor {
+			cursorLine = lineNum
+			left.WriteString(lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Background(lipgloss.Color("#333333")).
+				Bold(true).
+				Width(leftWidth - 2).
+				Render(g.namespace+countStr) + "\n")
+		} else {
+			left.WriteString(namespaceStyle.Render(g.namespace) +
+				runeSigStyle.Render(countStr) + "\n")
+		}
 		lineNum++
 
 		for _, idx := range g.indices {
+			// Skip self-rune, already represented by the header
+			if idx == selfIdx {
+				continue
+			}
 			r := m.result.NewRunes[idx]
 			leaf := leafName(r.Name)
 			if len(leaf) > leftWidth-6 {
@@ -830,40 +884,64 @@ func (m *createFeatureModel) viewResult(width int) string {
 		}
 	}
 
-	// Middle pane: rune detail
+	// Middle pane: rune or package detail
 	var mid strings.Builder
 	if m.runeCursor < len(m.result.NewRunes) {
 		r := m.result.NewRunes[m.runeCursor]
 
-		runeHdrStyle := paneHeaderInactive
-		if m.focus == focusMiddle {
-			runeHdrStyle = paneHeaderActive
-		}
-		runeHdr := runeHdrStyle.Render("── rune ") + runeNameStyle.Render(r.Name) + " "
-		if remaining := midWidth - lipgloss.Width(runeHdr); remaining > 0 {
-			runeHdr += runeHdrStyle.Render(strings.Repeat("─", remaining))
-		}
-		mid.WriteString(runeHdr + "\n")
-
-		if r.Signature != "" {
-			mid.WriteString("\n" + runeSigStyle.Render(r.Signature) + "\n")
-		}
-
-		if r.Description != "" {
-			mid.WriteString(lipgloss.NewStyle().Width(midWidth - 2).Render(r.Description) + "\n")
-		}
-
-		if len(r.PositiveTests) > 0 || len(r.NegativeTests) > 0 {
-			mid.WriteString("\n")
-			for _, t := range r.PositiveTests {
-				mid.WriteString(testPassStyle.Render("+ ") + lipgloss.NewStyle().Width(midWidth-4).Render(t) + "\n")
+		if isPackage(r.Name, m.result.NewRunes) {
+			// Package view
+			pkgHdr := paneHeaderInactive.Render("── package ") + namespaceStyle.Render(r.Name) + " "
+			if remaining := midWidth - lipgloss.Width(pkgHdr); remaining > 0 {
+				pkgHdr += paneHeaderInactive.Render(strings.Repeat("─", remaining))
 			}
-			for _, t := range r.NegativeTests {
-				mid.WriteString(testFailStyle.Render("- ") + lipgloss.NewStyle().Width(midWidth-4).Render(t) + "\n")
+			mid.WriteString(pkgHdr + "\n")
+
+			children := childRunes(r.Name, m.result.NewRunes)
+
+			if summary := m.result.PackageSummaries[r.Name]; summary != "" {
+				mid.WriteString("\n" + lipgloss.NewStyle().Width(midWidth-2).Render(summary) + "\n")
+			}
+
+			if len(children) > 0 {
+				mid.WriteString("\n" + runeSigStyle.Render("contains:") + "\n")
+				for _, child := range children {
+					leaf := leafName(child.Name)
+					line := "  " + leaf
+					if child.Description != "" {
+						line += " — " + child.Description
+					}
+					mid.WriteString(lipgloss.NewStyle().Width(midWidth-2).Render(line) + "\n")
+				}
+			}
+		} else {
+			// Rune view
+			runeHdr := paneHeaderInactive.Render("── rune ") + runeNameStyle.Render(r.Name) + " "
+			if remaining := midWidth - lipgloss.Width(runeHdr); remaining > 0 {
+				runeHdr += paneHeaderInactive.Render(strings.Repeat("─", remaining))
+			}
+			mid.WriteString(runeHdr + "\n")
+
+			if r.Signature != "" {
+				mid.WriteString("\n" + runeSigStyle.Render(r.Signature) + "\n")
+			}
+
+			if r.Description != "" {
+				mid.WriteString(lipgloss.NewStyle().Width(midWidth-2).Render(r.Description) + "\n")
+			}
+
+			if len(r.PositiveTests) > 0 || len(r.NegativeTests) > 0 {
+				mid.WriteString("\n")
+				for _, t := range r.PositiveTests {
+					mid.WriteString(testPassStyle.Render("+ ") + lipgloss.NewStyle().Width(midWidth-4).Render(t) + "\n")
+				}
+				for _, t := range r.NegativeTests {
+					mid.WriteString(testFailStyle.Render("- ") + lipgloss.NewStyle().Width(midWidth-4).Render(t) + "\n")
+				}
 			}
 		}
 	} else {
-		mid.WriteString(renderPaneHeader("rune", midWidth, m.focus == focusMiddle) + "\n")
+		mid.WriteString(renderPaneHeader("rune", midWidth, false) + "\n")
 	}
 
 	// Separator
