@@ -44,7 +44,7 @@ var rootCmd = &cobra.Command{
 		appStore = app.NewStore(cfg.RegistryPath, cfg.OutputPath)
 		client = claude.New(cfg.Agent.Model, cfg.Agent.ResolveToken(), cfg.Agent.Mock)
 		hyd = hydrator.New(store, client, cfg.Language)
-		dec = decomposer.New(store, client)
+		dec = decomposer.New(store, client, cfg.Project)
 		comp = composer.New(featureStore, store, client, cfg.Language)
 		return nil
 	},

@@ -52,13 +52,14 @@ type Result struct {
 
 // Decomposer decomposes requirements into runes.
 type Decomposer struct {
-	store  *runepkg.Store
-	client *claude.Client
+	store   *runepkg.Store
+	client  *claude.Client
+	project string
 }
 
 // New creates a Decomposer backed by the given store and client.
-func New(store *runepkg.Store, client *claude.Client) *Decomposer {
-	return &Decomposer{store: store, client: client}
+func New(store *runepkg.Store, client *claude.Client, project string) *Decomposer {
+	return &Decomposer{store: store, client: client, project: project}
 }
 
 const metaSystemPrompt = `You name features. Given a requirement, respond with exactly this JSON and nothing else:
@@ -93,8 +94,9 @@ func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecompositio
 	metaCh := make(chan metaOut, 1)
 	flowCh := make(chan flowOut, 1)
 
+	prompt := strings.ReplaceAll(systemPrompt, "project_name", d.project)
 	go func() {
-		output, err := d.client.Call(systemPrompt, userPrompt)
+		output, err := d.client.Call(prompt, userPrompt)
 		treeCh <- treeOut{output, err}
 	}()
 	go func() {

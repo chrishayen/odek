@@ -63,7 +63,7 @@ Your FIRST job is to identify what **generic, reusable capabilities** the requir
 
 **Two namespaces:**
 - `std.*` — the standard library. Generic, reusable, project-agnostic. This is where the real functionality lives. These units never reference a specific project.
-- `project_name.*` — thin project-specific glue: the composition root that wires stdlib units together with app-specific defaults and any truly unique domain logic.
+- `<project>.*` — thin project-specific glue (named after your project): the composition root that wires stdlib units together with app-specific defaults and any truly unique domain logic.
 
 The project namespace should be **thin**. The stdlib does the heavy lifting.
 
