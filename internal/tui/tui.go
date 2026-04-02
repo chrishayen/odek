@@ -1,9 +1,10 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lucasb-eyer/go-colorful"
@@ -51,9 +52,75 @@ var (
 			Foreground(dim)
 
 	helpBarStyle = lipgloss.NewStyle()
-
-	_ = lipgloss.NewStyle()
 )
+
+// Key bindings
+var (
+	keyCreate     = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "create"))
+	keyNewLine    = key.NewBinding(key.WithKeys("alt+enter"), key.WithHelp("alt+enter", "new line"))
+	keySubmit     = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "submit"))
+	keyNew        = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "new"))
+	keyCancel     = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel"))
+	keyBack       = key.NewBinding(key.WithKeys("backspace"), key.WithHelp("bksp", "back"))
+	keyQuit       = key.NewBinding(key.WithKeys("backspace"), key.WithHelp("bksp", "quit"))
+	keyNavigate   = key.NewBinding(key.WithKeys("j", "k"), key.WithHelp("j/k", "navigate"))
+	keyRefine     = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refine"))
+	keyRefineRune = key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "refine rune"))
+	keyLogin      = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "login"))
+	keyFeatures   = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "features"))
+)
+
+// Help keymaps per state
+type splashKeyMap struct{}
+
+func (splashKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{keyCreate, keyFeatures, keyQuit}
+}
+func (splashKeyMap) FullHelp() [][]key.Binding { return nil }
+
+type formKeyMap struct{}
+
+func (formKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{keyCreate, keyNewLine, keyCancel}
+}
+func (formKeyMap) FullHelp() [][]key.Binding { return nil }
+
+type doneKeyMap struct{}
+
+func (doneKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{keyNavigate, keyRefine, keyRefineRune, keyNew, keyBack}
+}
+func (doneKeyMap) FullHelp() [][]key.Binding { return nil }
+
+type refiningKeyMap struct{}
+
+func (refiningKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{keySubmit, keyCancel}
+}
+func (refiningKeyMap) FullHelp() [][]key.Binding { return nil }
+
+type decomposingKeyMap struct{}
+
+func (decomposingKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{keyBack}
+}
+func (decomposingKeyMap) FullHelp() [][]key.Binding { return nil }
+
+type authErrorKeyMap struct{}
+
+func (authErrorKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{keyLogin, keyBack}
+}
+func (authErrorKeyMap) FullHelp() [][]key.Binding { return nil }
+
+func newHelpModel() help.Model {
+	h := help.New()
+	h.Styles.ShortKey = helpKeyStyle
+	h.Styles.ShortDesc = helpTextStyle
+	h.Styles.ShortSeparator = lipgloss.NewStyle().Foreground(dim)
+	h.ShortSeparator = "    "
+	return h
+}
 
 // 70s VHS tape stripe palette
 var gradStops []colorful.Color
@@ -193,6 +260,7 @@ type Model struct {
 	featureStore *feature.Store
 	createForm   createFeatureModel
 	featureList  featureListModel
+	help         help.Model
 }
 
 func New(port int, registryPath string, featureStore *feature.Store) Model {
@@ -202,6 +270,7 @@ func New(port int, registryPath string, featureStore *feature.Store) Model {
 		registryPath: registryPath,
 		draftStore:   NewDraftStore(registryPath),
 		featureStore: featureStore,
+		help:         newHelpModel(),
 	}
 }
 
@@ -212,12 +281,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.help.Width = msg.Width
 		if m.screen == screenCreateFeature {
 			m.createForm.resize(msg.Width, msg.Height)
 		}
 		if m.screen == screenFeatureList {
-			m.featureList.width = msg.Width
-			m.featureList.height = msg.Height
+			m.featureList.list.SetSize(msg.Width, msg.Height-3)
 		}
 		return m, nil
 
@@ -309,19 +378,9 @@ func (m Model) viewSplash() string {
 		taglineStyle.Render("Tree Composition CLI and Rune Server")
 
 	framed := frameStyle.Render(content)
+	helpBar := helpBarStyle.Render(m.help.View(splashKeyMap{}))
 
-	help := helpBarStyle.Render(
-		fmt.Sprintf("%s %s    %s %s    %s %s",
-			helpKeyStyle.Render("enter"),
-			helpTextStyle.Render("create feature"),
-			helpKeyStyle.Render("l"),
-			helpTextStyle.Render("features"),
-			helpKeyStyle.Render("bksp"),
-			helpTextStyle.Render("quit"),
-		),
-	)
-
-	block := lipgloss.JoinVertical(lipgloss.Center, framed, help)
+	block := lipgloss.JoinVertical(lipgloss.Center, framed, helpBar)
 
 	return lipgloss.Place(m.width, m.height,
 		lipgloss.Center, lipgloss.Center,
@@ -329,128 +388,36 @@ func (m Model) viewSplash() string {
 	)
 }
 
-func (m Model) viewCreateFeature() string {
-	// Header: gradient logo on full-width dark bar
-	header := renderGradientOnBg(" "+logoSmall, gradStops, "#1A1A1A", m.width)
-
-	// Help bar pinned to bottom — context-sensitive
-	var helpText string
+func (m Model) createFeatureKeyMap() help.KeyMap {
 	switch m.createForm.state {
 	case stateDone:
-		helpText = fmt.Sprintf("%s    %s %s    %s %s    %s %s    %s %s    %s %s",
-			featureNameStyle.Render("feature"),
-			helpKeyStyle.Render("j/k"),
-			helpTextStyle.Render("navigate"),
-			helpKeyStyle.Render("r"),
-			helpTextStyle.Render("refine"),
-			helpKeyStyle.Render("t"),
-			helpTextStyle.Render("refine rune"),
-			helpKeyStyle.Render("enter"),
-			helpTextStyle.Render("new"),
-			helpKeyStyle.Render("bksp"),
-			helpTextStyle.Render("back"),
-		)
+		return doneKeyMap{}
 	case stateRefining:
-		helpText = fmt.Sprintf("%s %s    %s %s",
-			helpKeyStyle.Render("enter"),
-			helpTextStyle.Render("submit"),
-			helpKeyStyle.Render("esc"),
-			helpTextStyle.Render("cancel"),
-		)
+		return refiningKeyMap{}
 	case stateDecomposing:
-		helpText = fmt.Sprintf("%s %s",
-			helpKeyStyle.Render("bksp"),
-			helpTextStyle.Render("back"),
-		)
+		return decomposingKeyMap{}
 	case stateAuthError:
-		helpText = fmt.Sprintf("%s %s    %s %s",
-			helpKeyStyle.Render("l"),
-			helpTextStyle.Render("login"),
-			helpKeyStyle.Render("bksp"),
-			helpTextStyle.Render("back"),
-		)
+		return authErrorKeyMap{}
 	default:
-		helpText = fmt.Sprintf("%s %s    %s %s    %s %s",
-			helpKeyStyle.Render("enter"),
-			helpTextStyle.Render("create"),
-			helpKeyStyle.Render("alt+enter"),
-			helpTextStyle.Render("new line"),
-			helpKeyStyle.Render("esc"),
-			helpTextStyle.Render("back"),
-		)
+		return formKeyMap{}
 	}
-	help := helpBarStyle.Render(helpText)
+}
 
-	// Form in the middle
+func (m Model) viewCreateFeature() string {
+	header := renderGradientOnBg(" "+logoSmall, gradStops, "#1A1A1A", m.width)
 	form := m.createForm.view(m.width)
+	helpBar := helpBarStyle.Render(m.help.View(m.createFeatureKeyMap()))
 
-	headerLines := strings.Count(header, "\n") + 1
-	formLines := strings.Count(form, "\n") + 1
+	body := header + "\n\n" + form
+	bodyBlock := lipgloss.NewStyle().Height(m.height - 1).Render(body)
 
-	var b strings.Builder
-	b.WriteString(header + "\n")
-	b.WriteString("\n")
-	b.WriteString(form)
-
-	// Push help bar to bottom
-	usedLines := headerLines + 1 + formLines + 1
-	if gap := m.height - usedLines; gap > 0 {
-		b.WriteString(strings.Repeat("\n", gap))
-	}
-	b.WriteString(help)
-
-	return b.String()
+	return bodyBlock + "\n" + helpBar
 }
 
 func (m Model) viewFeatureList() string {
 	header := renderGradientOnBg(" "+logoSmall, gradStops, "#1A1A1A", m.width)
+	content := m.featureList.view()
 
-	form := m.featureList.view()
-
-	var helpText string
-	if m.featureList.totalItems() > 0 {
-		parts := fmt.Sprintf("%s %s    %s %s    %s %s",
-			helpKeyStyle.Render("j/k"),
-			helpTextStyle.Render("navigate"),
-			helpKeyStyle.Render("enter"),
-			helpTextStyle.Render("select"),
-			helpKeyStyle.Render("n"),
-			helpTextStyle.Render("new"),
-		)
-		if m.featureList.cursorOnDraft() {
-			parts += fmt.Sprintf("    %s %s",
-				helpKeyStyle.Render("d"),
-				helpTextStyle.Render("delete"),
-			)
-		}
-		parts += fmt.Sprintf("    %s %s",
-			helpKeyStyle.Render("bksp"),
-			helpTextStyle.Render("back"),
-		)
-		helpText = parts
-	} else {
-		helpText = fmt.Sprintf("%s %s    %s %s",
-			helpKeyStyle.Render("n"),
-			helpTextStyle.Render("new"),
-			helpKeyStyle.Render("bksp"),
-			helpTextStyle.Render("back"),
-		)
-	}
-	help := helpBarStyle.Render(helpText)
-
-	headerLines := strings.Count(header, "\n") + 1
-	formLines := strings.Count(form, "\n") + 1
-
-	var b strings.Builder
-	b.WriteString(header + "\n")
-	b.WriteString("\n")
-	b.WriteString(form)
-
-	usedLines := headerLines + 1 + formLines + 1
-	if gap := m.height - usedLines; gap > 0 {
-		b.WriteString(strings.Repeat("\n", gap))
-	}
-	b.WriteString(help)
-
-	return b.String()
+	body := header + "\n\n" + content
+	return lipgloss.NewStyle().Height(m.height).Render(body)
 }

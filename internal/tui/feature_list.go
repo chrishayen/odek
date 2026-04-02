@@ -2,9 +2,10 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -15,23 +16,96 @@ type draftSelectedMsg struct{ draft Draft }
 type featureSelectedMsg struct{ feature feature.Feature }
 type newFeatureMsg struct{}
 
+// listItem wraps either a Draft or Feature for bubbles/list.
+type listItem struct {
+	draft   *Draft
+	feature *feature.Feature
+}
+
+func (i listItem) Title() string {
+	if i.draft != nil {
+		if i.draft.FeatureName != "" {
+			return i.draft.FeatureName
+		}
+		return "untitled"
+	}
+	return i.feature.Name
+}
+
+func (i listItem) Description() string {
+	if i.draft != nil {
+		desc := i.draft.Summary
+		if desc == "" && i.draft.Requirement != "" {
+			desc = i.draft.Requirement
+		}
+		return desc + "  " + timeAgo(i.draft.UpdatedAt)
+	}
+	status := i.feature.Status
+	if status == "" {
+		status = "unknown"
+	}
+	version := i.feature.Version
+	if version == "" {
+		version = "-"
+	}
+	return status + "  " + version
+}
+
+func (i listItem) FilterValue() string { return i.Title() }
+
+func (i listItem) isDraft() bool { return i.draft != nil }
+
+// featureListModel wraps bubbles/list.
 type featureListModel struct {
-	drafts       []Draft
-	features     []feature.Feature
-	cursor       int
-	width        int
-	height       int
+	list         list.Model
 	draftStore   *DraftStore
 	featureStore *feature.Store
+	drafts       []Draft
+	features     []feature.Feature
 	err          string
 }
 
 func newFeatureListModel(draftStore *DraftStore, featureStore *feature.Store, width, height int) featureListModel {
+	delegate := list.NewDefaultDelegate()
+	delegate.Styles.NormalTitle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#F5A623")).
+		Padding(0, 0, 0, 2)
+	delegate.Styles.NormalDesc = lipgloss.NewStyle().
+		Foreground(lipgloss.AdaptiveColor{Light: "#A49FA5", Dark: "#777777"}).
+		Padding(0, 0, 0, 2)
+	delegate.Styles.SelectedTitle = lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(lipgloss.Color("#F5A623")).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Padding(0, 0, 0, 1)
+	delegate.Styles.SelectedDesc = lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(lipgloss.Color("#F5A623")).
+		Foreground(lipgloss.AdaptiveColor{Light: "#A49FA5", Dark: "#777777"}).
+		Padding(0, 0, 0, 1)
+
+	l := list.New(nil, delegate, width, height)
+	l.Title = "features"
+	l.Styles.Title = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#F5A623")).
+		Bold(true).
+		Padding(0, 1)
+	l.SetShowStatusBar(false)
+	l.SetFilteringEnabled(false)
+	l.SetShowHelp(false)
+	l.KeyMap.Quit.Unbind()
+
+	l.AdditionalShortHelpKeys = func() []key.Binding {
+		return []key.Binding{
+			key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
+			key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
+		}
+	}
+
 	m := featureListModel{
+		list:         l,
 		draftStore:   draftStore,
 		featureStore: featureStore,
-		width:        width,
-		height:       height,
 	}
 	m.reload()
 	return m
@@ -55,60 +129,53 @@ func (m *featureListModel) reload() {
 	}
 
 	m.err = ""
-	total := m.totalItems()
-	if m.cursor >= total {
-		m.cursor = total - 1
+	items := make([]list.Item, 0, len(m.drafts)+len(m.features))
+	for i := range m.drafts {
+		items = append(items, listItem{draft: &m.drafts[i]})
 	}
-	if m.cursor < 0 {
-		m.cursor = 0
+	for i := range m.features {
+		items = append(items, listItem{feature: &m.features[i]})
 	}
+	m.list.SetItems(items)
 }
 
 func (m *featureListModel) totalItems() int {
 	return len(m.drafts) + len(m.features)
 }
 
-func (m *featureListModel) cursorOnDraft() bool {
-	return m.cursor < len(m.drafts)
-}
-
 func (m *featureListModel) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		total := m.totalItems()
 		switch msg.String() {
-		case "j", "down":
-			if m.cursor < total-1 {
-				m.cursor++
-			}
-		case "k", "up":
-			if m.cursor > 0 {
-				m.cursor--
-			}
 		case "enter":
-			if total > 0 && m.cursor < total {
-				if m.cursorOnDraft() {
-					return func() tea.Msg {
-						return draftSelectedMsg{draft: m.drafts[m.cursor]}
-					}
+			if item, ok := m.list.SelectedItem().(listItem); ok {
+				if item.isDraft() {
+					return func() tea.Msg { return draftSelectedMsg{draft: *item.draft} }
 				}
-				idx := m.cursor - len(m.drafts)
-				return func() tea.Msg {
-					return featureSelectedMsg{feature: m.features[idx]}
-				}
+				return func() tea.Msg { return featureSelectedMsg{feature: *item.feature} }
 			}
 		case "n":
 			return func() tea.Msg { return newFeatureMsg{} }
 		case "d", "x":
-			if m.cursorOnDraft() && len(m.drafts) > 0 {
-				_ = m.draftStore.Delete(m.drafts[m.cursor].ID)
+			if item, ok := m.list.SelectedItem().(listItem); ok && item.isDraft() {
+				_ = m.draftStore.Delete(item.draft.ID)
 				m.reload()
+				return nil
 			}
 		case "backspace":
 			return func() tea.Msg { return goBackMsg{} }
 		}
 	}
-	return nil
+	var cmd tea.Cmd
+	m.list, cmd = m.list.Update(msg)
+	return cmd
+}
+
+func (m *featureListModel) view() string {
+	if m.err != "" {
+		return statusErr.Render(m.err) + "\n"
+	}
+	return m.list.View()
 }
 
 func timeAgo(t time.Time) string {
@@ -135,113 +202,4 @@ func timeAgo(t time.Time) string {
 		}
 		return fmt.Sprintf("%dd ago", days)
 	}
-}
-
-func (m *featureListModel) view() string {
-	var b strings.Builder
-
-	if m.err != "" {
-		b.WriteString(statusErr.Render(m.err) + "\n")
-		return b.String()
-	}
-
-	// ── drafts section ──
-	b.WriteString(renderPaneHeader("drafts", m.width, true) + "\n\n")
-
-	if len(m.drafts) == 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(dim).Render("  No drafts yet.") + "\n")
-	} else {
-		nameWidth := 24
-		ageWidth := 10
-		summaryWidth := m.width - nameWidth - ageWidth - 8
-		if summaryWidth < 20 {
-			summaryWidth = 20
-		}
-
-		for i, d := range m.drafts {
-			name := d.FeatureName
-			if name == "" {
-				name = "untitled"
-			}
-			if len(name) > nameWidth-2 {
-				name = name[:nameWidth-3] + "~"
-			}
-
-			summary := d.Summary
-			if summary == "" && d.Requirement != "" {
-				summary = strings.ReplaceAll(d.Requirement, "\n", " ")
-			}
-			if len(summary) > summaryWidth {
-				summary = summary[:summaryWidth-3] + "..."
-			}
-
-			age := timeAgo(d.UpdatedAt)
-
-			nameCol := lipgloss.NewStyle().Width(nameWidth).Render(name)
-			summaryCol := lipgloss.NewStyle().Width(summaryWidth).Foreground(dim).Render(summary)
-			ageCol := lipgloss.NewStyle().Width(ageWidth).Foreground(dim).Render(age)
-
-			row := nameCol + summaryCol + ageCol
-
-			if i == m.cursor {
-				b.WriteString(lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#FFFFFF")).
-					Background(lipgloss.Color("#333333")).
-					Width(m.width - 2).
-					Render("  "+row) + "\n")
-			} else {
-				b.WriteString("  " + row + "\n")
-			}
-		}
-	}
-
-	b.WriteString("\n")
-
-	// ── features section ──
-	b.WriteString(renderPaneHeader("features", m.width, true) + "\n\n")
-
-	if len(m.features) == 0 {
-		b.WriteString(lipgloss.NewStyle().Foreground(dim).Render("  No features in registry.") + "\n")
-	} else {
-		nameWidth := 24
-		statusWidth := 12
-		versionWidth := 12
-
-		for i, f := range m.features {
-			globalIdx := len(m.drafts) + i
-
-			name := f.Name
-			if len(name) > nameWidth-2 {
-				name = name[:nameWidth-3] + "~"
-			}
-
-			status := f.Status
-			if status == "" {
-				status = "unknown"
-			}
-
-			version := f.Version
-			if version == "" {
-				version = "-"
-			}
-
-			nameCol := lipgloss.NewStyle().Width(nameWidth).Render(name)
-			statusCol := lipgloss.NewStyle().Width(statusWidth).Foreground(dim).Render(status)
-			versionCol := lipgloss.NewStyle().Width(versionWidth).Foreground(dim).Render(version)
-
-			row := nameCol + statusCol + versionCol
-
-			if globalIdx == m.cursor {
-				b.WriteString(lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#FFFFFF")).
-					Background(lipgloss.Color("#333333")).
-					Width(m.width - 2).
-					Render("  "+row) + "\n")
-			} else {
-				b.WriteString("  " + row + "\n")
-			}
-		}
-	}
-
-	return b.String()
 }

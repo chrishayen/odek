@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -183,10 +184,11 @@ type createFeatureModel struct {
 	authURL      string
 	runeCursor   int
 	height       int
-	leftScroll   int
 	requirement  string
 	inputMode    inputMode
 	progressText string
+	leftVP       viewport.Model
+	midVP        viewport.Model
 
 	// Drafts
 	draftID    string
@@ -226,6 +228,11 @@ func newCreateFeatureModel(port, width, height int, draftStore *DraftStore) crea
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623"))
 
+	leftVP := viewport.New(width/3, height-6)
+	leftVP.KeyMap = viewport.KeyMap{}
+	midVP := viewport.New(width-width/3-3, height-6)
+	midVP.KeyMap = viewport.KeyMap{}
+
 	return createFeatureModel{
 		descInput:  ta,
 		state:      stateIdle,
@@ -233,6 +240,8 @@ func newCreateFeatureModel(port, width, height int, draftStore *DraftStore) crea
 		width:      width,
 		height:     height,
 		spinner:    s,
+		leftVP:     leftVP,
+		midVP:      midVP,
 		draftStore: draftStore,
 	}
 }
@@ -285,6 +294,16 @@ func (m *createFeatureModel) resize(width, height int) {
 		taHeight = 3
 	}
 	m.descInput.SetHeight(taHeight)
+
+	leftWidth := width / 3
+	availHeight := height - 6
+	if availHeight < 5 {
+		availHeight = 5
+	}
+	m.leftVP.Width = leftWidth
+	m.leftVP.Height = availHeight
+	m.midVP.Width = width - leftWidth - 3
+	m.midVP.Height = availHeight
 }
 
 func (m *createFeatureModel) submit() tea.Cmd {
@@ -406,13 +425,13 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 				case inputRefineFeature:
 					m.requirement = m.requirement + "\n\n" + text
 					m.runeCursor = 0
-					m.leftScroll = 0
+					m.leftVP.GotoTop()
 					return m.decompose(m.requirement)
 				case inputRefineRune:
 					name := m.selectedRuneName()
 					m.requirement = m.requirement + "\n\nFor " + name + ": " + text
 					m.runeCursor = 0
-					m.leftScroll = 0
+					m.leftVP.GotoTop()
 					return m.decompose(m.requirement)
 				}
 			}
@@ -432,7 +451,7 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 				m.result = nil
 				m.requirement = ""
 				m.runeCursor = 0
-				m.leftScroll = 0
+				m.leftVP.GotoTop()
 				m.descInput.Reset()
 				m.descInput.Focus()
 				return nil
@@ -487,7 +506,7 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 		m.result = &msg.result
 		sortRunesStdLast(m.result.NewRunes)
 		m.runeCursor = 0
-		m.leftScroll = 0
+		m.leftVP.GotoTop()
 		return nil
 
 	case decomposeErrorMsg:
@@ -926,17 +945,18 @@ func (m *createFeatureModel) viewResult(width int) string {
 			}
 
 			if len(children) > 0 {
-				mid.WriteString("\n" + runeSigStyle.Render("contains:") + "\n")
+				mid.WriteString("\n")
 				for _, child := range children {
 					leaf := leafName(child.Name)
-					line := "  " + leaf
+					title := runeNameStyle.Render(leaf)
 					if child.Signature != "" {
-						line += " " + child.Signature
+						title += " " + runeSigStyle.Render(child.Signature)
 					}
+					mid.WriteString(lipgloss.NewStyle().Width(midWidth-2).Render("  "+title) + "\n")
 					if child.Description != "" {
-						line += " — " + child.Description
+						mid.WriteString(lipgloss.NewStyle().Foreground(dim).Width(midWidth-2).PaddingLeft(4).Render(child.Description) + "\n")
 					}
-					mid.WriteString(lipgloss.NewStyle().Width(midWidth-2).Render(line) + "\n")
+					mid.WriteString("\n")
 				}
 			}
 
@@ -989,62 +1009,40 @@ func (m *createFeatureModel) viewResult(width int) string {
 		mid.WriteString(renderPaneHeader("rune", midWidth, false) + "\n")
 	}
 
-	// Separator
-	sep := lipgloss.NewStyle().Foreground(border).Render("│")
-
-	leftLines := strings.Split(left.String(), "\n")
-	midLines := strings.Split(mid.String(), "\n")
-
-	// Only scroll/truncate the left pane when it overflows available space
+	// Update viewport dimensions
 	availHeight := m.height - 6
 	if availHeight < 5 {
 		availHeight = 5
 	}
+	m.leftVP.Width = leftWidth
+	m.leftVP.Height = availHeight
+	m.midVP.Width = midWidth
+	m.midVP.Height = availHeight
 
-	if len(leftLines) > availHeight {
-		if cursorLine < m.leftScroll {
-			m.leftScroll = cursorLine
-		}
-		if cursorLine >= m.leftScroll+availHeight {
-			m.leftScroll = cursorLine - availHeight + 1
-		}
-		if m.leftScroll < 0 {
-			m.leftScroll = 0
-		}
-		if m.leftScroll < len(leftLines) {
-			leftLines = leftLines[m.leftScroll:]
-		}
-		if len(leftLines) > availHeight {
-			leftLines = leftLines[:availHeight]
-		}
-	} else {
-		m.leftScroll = 0
+	// Set viewport content
+	m.leftVP.SetContent(left.String())
+	m.midVP.SetContent(mid.String())
+
+	// Auto-scroll left viewport to keep cursor visible
+	if cursorLine < m.leftVP.YOffset {
+		m.leftVP.SetYOffset(cursorLine)
+	} else if cursorLine >= m.leftVP.YOffset+availHeight {
+		m.leftVP.SetYOffset(cursorLine - availHeight + 1)
 	}
 
-	maxLines := len(leftLines)
-	if len(midLines) > maxLines {
-		maxLines = len(midLines)
+	// Build separator column
+	sepChar := lipgloss.NewStyle().Foreground(border).Render("│")
+	sepLines := make([]string, availHeight)
+	for i := range sepLines {
+		sepLines[i] = " " + sepChar + " "
 	}
 
 	// Join panes
-	var b strings.Builder
-	for i := 0; i < maxLines; i++ {
-		l := ""
-		if i < len(leftLines) {
-			l = leftLines[i]
-		}
-		m_ := ""
-		if i < len(midLines) {
-			m_ = midLines[i]
-		}
+	layout := lipgloss.JoinHorizontal(lipgloss.Top,
+		m.leftVP.View(),
+		strings.Join(sepLines, "\n"),
+		m.midVP.View(),
+	)
 
-		lRendered := lipgloss.NewStyle().Width(leftWidth).Render(l)
-		mRendered := lipgloss.NewStyle().Width(midWidth).Render(m_)
-
-		b.WriteString(lRendered + " " + sep + " " + mRendered + "\n")
-	}
-
-	b.WriteString("\n" + statusOk.Render(fmt.Sprintf("%d runes proposed", len(m.result.NewRunes))))
-
-	return b.String()
+	return layout + "\n\n" + statusOk.Render(fmt.Sprintf("%d runes proposed", len(m.result.NewRunes)))
 }
