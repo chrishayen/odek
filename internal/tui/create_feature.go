@@ -13,6 +13,7 @@ import (
 
 	"sort"
 
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -83,6 +84,94 @@ var (
 	paneHeaderInactive = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#555555"))
 )
+
+// runeListItem is an item in the decomposition rune list.
+type runeListItem struct {
+	runeIdx    int    // index into NewRunes; -1 for non-rune items
+	name       string // display name
+	isHeader   bool   // namespace group header
+	isExisting bool   // existing rune section
+	count      int    // child count for namespace headers
+	covers     string // what existing rune covers
+}
+
+func (i runeListItem) Title() string       { return i.name }
+func (i runeListItem) Description() string { return "" }
+func (i runeListItem) FilterValue() string { return i.name }
+
+// runeListDelegate renders items in the rune list with left-border selection.
+type runeListDelegate struct{}
+
+func (d runeListDelegate) Height() int                             { return 1 }
+func (d runeListDelegate) Spacing() int                            { return 0 }
+func (d runeListDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+
+func (d runeListDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	ri, ok := item.(runeListItem)
+	if !ok {
+		return
+	}
+
+	selected := index == m.Index()
+	availWidth := m.Width()
+
+	selectedBorder := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(lipgloss.Color("#F5A623")).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Width(availWidth)
+
+	var str string
+	switch {
+	case ri.isHeader && ri.isExisting:
+		str = lipgloss.NewStyle().
+			Foreground(dim).
+			Italic(true).
+			Width(availWidth).
+			Render(" " + ri.name)
+	case ri.isExisting:
+		name := ri.name
+		if len(name) > availWidth-6 {
+			name = name[:availWidth-7] + "~"
+		}
+		if selected {
+			str = selectedBorder.
+				Foreground(lipgloss.Color("#777777")).
+				Padding(0, 0, 0, 3).
+				Render(name)
+		} else {
+			str = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#555555")).
+				Width(availWidth).
+				Render("    " + name)
+		}
+	case ri.isHeader:
+		countStr := fmt.Sprintf(" (%d)", ri.count)
+		if selected {
+			str = selectedBorder.
+				Bold(true).
+				Render(ri.name + countStr)
+		} else {
+			str = lipgloss.NewStyle().
+				Width(availWidth).
+				Render(" " + namespaceStyle.Render(ri.name) + runeSigStyle.Render(countStr))
+		}
+	default:
+		name := ri.name
+		if len(name) > availWidth-6 {
+			name = name[:availWidth-7] + "~"
+		}
+		if selected {
+			str = selectedBorder.
+				Padding(0, 0, 0, 3).
+				Render(name)
+		} else {
+			str = runeLeafStyle.Width(availWidth).Render("    " + name)
+		}
+	}
+
+	fmt.Fprint(w, str)
+}
 
 func renderPaneHeader(label string, width int, active bool) string {
 	style := paneHeaderInactive
@@ -182,12 +271,11 @@ type createFeatureModel struct {
 	result       *decomposeResult
 	errMsg       string
 	authURL      string
-	runeCursor   int
 	height       int
 	requirement  string
 	inputMode    inputMode
 	progressText string
-	leftVP       viewport.Model
+	runeList     list.Model
 	midVP        viewport.Model
 
 	// Drafts
@@ -228,8 +316,18 @@ func newCreateFeatureModel(port, width, height int, draftStore *DraftStore) crea
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623"))
 
-	leftVP := viewport.New(width/3, height-6)
-	leftVP.KeyMap = viewport.KeyMap{}
+	rl := list.New(nil, runeListDelegate{}, width/3, height-6)
+	rl.SetShowTitle(false)
+	rl.SetShowStatusBar(false)
+	rl.SetFilteringEnabled(false)
+	rl.SetShowHelp(false)
+	rl.SetShowPagination(false)
+	rl.KeyMap.Quit.Unbind()
+	rl.KeyMap.ShowFullHelp.Unbind()
+	rl.KeyMap.CloseFullHelp.Unbind()
+	rl.Styles.TitleBar = lipgloss.NewStyle()
+	rl.Styles.NoItems = lipgloss.NewStyle()
+
 	midVP := viewport.New(width-width/3-3, height-6)
 	midVP.KeyMap = viewport.KeyMap{}
 
@@ -240,7 +338,7 @@ func newCreateFeatureModel(port, width, height int, draftStore *DraftStore) crea
 		width:      width,
 		height:     height,
 		spinner:    s,
-		leftVP:     leftVP,
+		runeList:   rl,
 		midVP:      midVP,
 		draftStore: draftStore,
 	}
@@ -254,6 +352,7 @@ func newCreateFeatureModelFromDraft(port, width, height int, draftStore *DraftSt
 
 	if m.result != nil {
 		sortRunesStdLast(m.result.NewRunes)
+		m.buildRuneListItems()
 		m.state = stateDone
 		m.descInput.Blur()
 	} else if m.requirement != "" {
@@ -300,8 +399,7 @@ func (m *createFeatureModel) resize(width, height int) {
 	if availHeight < 5 {
 		availHeight = 5
 	}
-	m.leftVP.Width = leftWidth
-	m.leftVP.Height = availHeight
+	m.runeList.SetSize(leftWidth, availHeight)
 	m.midVP.Width = width - leftWidth - 3
 	m.midVP.Height = availHeight
 }
@@ -320,8 +418,8 @@ func (m *createFeatureModel) submit() tea.Cmd {
 }
 
 func (m *createFeatureModel) selectedRuneName() string {
-	if m.result != nil && m.runeCursor < len(m.result.NewRunes) {
-		return m.result.NewRunes[m.runeCursor].Name
+	if item, ok := m.runeList.SelectedItem().(runeListItem); ok && item.runeIdx >= 0 {
+		return m.result.NewRunes[item.runeIdx].Name
 	}
 	return "rune"
 }
@@ -424,14 +522,12 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 				switch m.inputMode {
 				case inputRefineFeature:
 					m.requirement = m.requirement + "\n\n" + text
-					m.runeCursor = 0
-					m.leftVP.GotoTop()
+					m.runeList.Select(0)
 					return m.decompose(m.requirement)
 				case inputRefineRune:
 					name := m.selectedRuneName()
 					m.requirement = m.requirement + "\n\nFor " + name + ": " + text
-					m.runeCursor = 0
-					m.leftVP.GotoTop()
+					m.runeList.Select(0)
 					return m.decompose(m.requirement)
 				}
 			}
@@ -440,7 +536,6 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 			return cmd
 		}
 		if m.state == stateDone {
-			// Global keys
 			switch msg.String() {
 			case "enter":
 				if draft := m.toDraft(); draft != nil && m.draftStore != nil {
@@ -450,26 +545,12 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 				m.draftID = ""
 				m.result = nil
 				m.requirement = ""
-				m.runeCursor = 0
-				m.leftVP.GotoTop()
+				m.runeList.SetItems(nil)
 				m.descInput.Reset()
 				m.descInput.Focus()
 				return nil
 			case "backspace":
 				return func() tea.Msg { return goBackMsg{} }
-			}
-
-			switch msg.String() {
-			case "j", "down":
-				if m.result != nil && m.runeCursor < len(m.result.NewRunes)-1 {
-					m.runeCursor++
-				}
-				return nil
-			case "k", "up":
-				if m.runeCursor > 0 {
-					m.runeCursor--
-				}
-				return nil
 			case "r":
 				return m.openRefine(inputRefineFeature, "Refine feature...")
 			case "t":
@@ -505,8 +586,8 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 		m.state = stateDone
 		m.result = &msg.result
 		sortRunesStdLast(m.result.NewRunes)
-		m.runeCursor = 0
-		m.leftVP.GotoTop()
+		m.buildRuneListItems()
+		m.runeList.Select(0)
 		return nil
 
 	case decomposeErrorMsg:
@@ -552,6 +633,12 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 	if m.state == stateRefining {
 		var cmd tea.Cmd
 		m.refineInput, cmd = m.refineInput.Update(msg)
+		return cmd
+	}
+
+	if m.state == stateDone {
+		var cmd tea.Cmd
+		m.runeList, cmd = m.runeList.Update(msg)
 		return cmd
 	}
 
@@ -703,6 +790,63 @@ func leafName(fullPath string) string {
 	return fullPath
 }
 
+// buildRuneListItems populates the rune list from the current decomposition result.
+func (m *createFeatureModel) buildRuneListItems() {
+	if m.result == nil {
+		m.runeList.SetItems(nil)
+		return
+	}
+
+	groups := groupRunesByNamespace(m.result.NewRunes)
+	var items []list.Item
+
+	for _, g := range groups {
+		selfIdx := -1
+		for _, idx := range g.indices {
+			if leafName(m.result.NewRunes[idx].Name) == g.namespace {
+				selfIdx = idx
+				break
+			}
+		}
+
+		items = append(items, runeListItem{
+			runeIdx:  selfIdx,
+			name:     g.namespace,
+			isHeader: true,
+			count:    len(g.indices),
+		})
+
+		for _, idx := range g.indices {
+			if idx == selfIdx {
+				continue
+			}
+			items = append(items, runeListItem{
+				runeIdx: idx,
+				name:    leafName(m.result.NewRunes[idx].Name),
+			})
+		}
+	}
+
+	if len(m.result.ExistingRunes) > 0 {
+		items = append(items, runeListItem{
+			name:       "existing",
+			isHeader:   true,
+			isExisting: true,
+			runeIdx:    -1,
+		})
+		for _, r := range m.result.ExistingRunes {
+			items = append(items, runeListItem{
+				runeIdx:    -1,
+				name:       r.Name,
+				isExisting: true,
+				covers:     r.Covers,
+			})
+		}
+	}
+
+	m.runeList.SetItems(items)
+}
+
 // isPackage returns true if the named rune has children (other runes prefixed by name+".").
 func isPackage(name string, runes []proposedRune) bool {
 	prefix := name + "."
@@ -835,100 +979,51 @@ func (m *createFeatureModel) viewResult(width int) string {
 		midWidth = 20
 	}
 
-	groups := groupRunesByNamespace(m.result.NewRunes)
+	availHeight := m.height - 6
+	if availHeight < 5 {
+		availHeight = 5
+	}
 
-	// Left pane: feature header + grouped rune list
-	var left strings.Builder
-	cursorLine := 0
-	lineNum := 0
-
+	// Left pane: feature header + rune list
+	var header strings.Builder
 	hdrStyle := paneHeaderActive
 	featureHdr := hdrStyle.Render("── feature ") + featureNameStyle.Render(m.featureName()) + " "
 	if remaining := leftWidth - lipgloss.Width(featureHdr); remaining > 0 {
 		featureHdr += hdrStyle.Render(strings.Repeat("─", remaining))
 	}
-	left.WriteString(featureHdr + "\n")
-	lineNum++
+	header.WriteString(featureHdr + "\n")
+	headerLines := 1
 	if m.result.Summary != "" {
-		left.WriteString(featureSummaryStyle.Render(m.result.Summary) + "\n")
-		lineNum++
+		wrapped := featureSummaryStyle.Width(leftWidth - 2).Render(m.result.Summary)
+		headerLines += strings.Count(wrapped, "\n") + 1
+		header.WriteString(wrapped + "\n")
 	}
-	left.WriteString("\n")
-	lineNum++
+	header.WriteString("\n")
+	headerLines++
 
-	for gi, g := range groups {
-		// Find self-rune where leaf matches namespace (e.g. hello_world.hello_world)
-		selfIdx := -1
-		for _, idx := range g.indices {
-			if leafName(m.result.NewRunes[idx].Name) == g.namespace {
-				selfIdx = idx
-				break
-			}
-		}
-
-		// Render namespace header (selectable if it has a self-rune)
-		countStr := fmt.Sprintf(" (%d)", len(g.indices))
-		if selfIdx >= 0 && selfIdx == m.runeCursor {
-			cursorLine = lineNum
-			left.WriteString(lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFFFFF")).
-				Background(lipgloss.Color("#333333")).
-				Bold(true).
-				Width(leftWidth - 2).
-				Render(g.namespace+countStr) + "\n")
-		} else {
-			left.WriteString(namespaceStyle.Render(g.namespace) +
-				runeSigStyle.Render(countStr) + "\n")
-		}
-		lineNum++
-
-		for _, idx := range g.indices {
-			// Skip self-rune, already represented by the header
-			if idx == selfIdx {
-				continue
-			}
-			r := m.result.NewRunes[idx]
-			leaf := leafName(r.Name)
-			if len(leaf) > leftWidth-6 {
-				leaf = leaf[:leftWidth-7] + "~"
-			}
-			if idx == m.runeCursor {
-				cursorLine = lineNum
-				left.WriteString(lipgloss.NewStyle().
-					Foreground(lipgloss.Color("#FFFFFF")).
-					Background(lipgloss.Color("#333333")).
-					Width(leftWidth - 2).
-					Render("  > " + leaf) + "\n")
-			} else {
-				left.WriteString(runeLeafStyle.Render("    "+leaf) + "\n")
-			}
-			lineNum++
-		}
-
-		if gi < len(groups)-1 {
-			left.WriteString("\n")
-			lineNum++
-		}
-	}
-
-	if len(m.result.ExistingRunes) > 0 {
-		left.WriteString("\n" + lipgloss.NewStyle().Foreground(dim).Italic(true).Render("existing") + "\n")
-		lineNum += 2
-		for _, r := range m.result.ExistingRunes {
-			name := r.Name
-			if len(name) > leftWidth-6 {
-				name = name[:leftWidth-7] + "~"
-			}
-			left.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).
-				Render("    " + name) + "\n")
-			lineNum++
-		}
-	}
+	m.runeList.SetSize(leftWidth, availHeight-headerLines)
+	leftContent := header.String() + m.runeList.View()
 
 	// Middle pane: rune or package detail
 	var mid strings.Builder
-	if m.runeCursor < len(m.result.NewRunes) {
-		r := m.result.NewRunes[m.runeCursor]
+
+	selectedRuneIdx := -1
+	var selectedExisting *existingMatch
+	if item, ok := m.runeList.SelectedItem().(runeListItem); ok {
+		if item.runeIdx >= 0 && item.runeIdx < len(m.result.NewRunes) {
+			selectedRuneIdx = item.runeIdx
+		} else if item.isExisting && !item.isHeader {
+			for i := range m.result.ExistingRunes {
+				if m.result.ExistingRunes[i].Name == item.name {
+					selectedExisting = &m.result.ExistingRunes[i]
+					break
+				}
+			}
+		}
+	}
+
+	if selectedRuneIdx >= 0 {
+		r := m.result.NewRunes[selectedRuneIdx]
 
 		if isPackage(r.Name, m.result.NewRunes) {
 			// Package view
@@ -1005,30 +1100,23 @@ func (m *createFeatureModel) viewResult(width int) string {
 				}
 			}
 		}
+	} else if selectedExisting != nil {
+		hdr := paneHeaderInactive.Render("── existing ") + lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).Render(selectedExisting.Name) + " "
+		if remaining := midWidth - lipgloss.Width(hdr); remaining > 0 {
+			hdr += paneHeaderInactive.Render(strings.Repeat("─", remaining))
+		}
+		mid.WriteString(hdr + "\n")
+		if selectedExisting.Covers != "" {
+			mid.WriteString("\n" + lipgloss.NewStyle().Width(midWidth-2).Render(selectedExisting.Covers) + "\n")
+		}
 	} else {
 		mid.WriteString(renderPaneHeader("rune", midWidth, false) + "\n")
 	}
 
-	// Update viewport dimensions
-	availHeight := m.height - 6
-	if availHeight < 5 {
-		availHeight = 5
-	}
-	m.leftVP.Width = leftWidth
-	m.leftVP.Height = availHeight
+	// Update mid viewport
 	m.midVP.Width = midWidth
 	m.midVP.Height = availHeight
-
-	// Set viewport content
-	m.leftVP.SetContent(left.String())
 	m.midVP.SetContent(mid.String())
-
-	// Auto-scroll left viewport to keep cursor visible
-	if cursorLine < m.leftVP.YOffset {
-		m.leftVP.SetYOffset(cursorLine)
-	} else if cursorLine >= m.leftVP.YOffset+availHeight {
-		m.leftVP.SetYOffset(cursorLine - availHeight + 1)
-	}
 
 	// Build separator column
 	sepChar := lipgloss.NewStyle().Foreground(border).Render("│")
@@ -1039,7 +1127,7 @@ func (m *createFeatureModel) viewResult(width int) string {
 
 	// Join panes
 	layout := lipgloss.JoinHorizontal(lipgloss.Top,
-		m.leftVP.View(),
+		leftContent,
 		strings.Join(sepLines, "\n"),
 		m.midVP.View(),
 	)
