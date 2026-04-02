@@ -72,6 +72,9 @@ var (
 	testFailStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#CC6666"))
 
+	assumptionStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#D4A843"))
+
 	paneHeaderActive = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#F5A623")).
 				Bold(true)
@@ -114,6 +117,7 @@ type proposedRune struct {
 	Signature     string   `json:"signature"`
 	PositiveTests []string `json:"positive_tests"`
 	NegativeTests []string `json:"negative_tests"`
+	Assumptions   []string `json:"assumptions,omitempty"`
 	Refs          []string `json:"refs"`
 }
 
@@ -914,6 +918,19 @@ func (m *createFeatureModel) viewResult(width int) string {
 					mid.WriteString(lipgloss.NewStyle().Width(midWidth-2).Render(line) + "\n")
 				}
 			}
+
+			// Aggregate assumptions from package and all children
+			var allAssumptions []string
+			allAssumptions = append(allAssumptions, r.Assumptions...)
+			for _, child := range children {
+				allAssumptions = append(allAssumptions, child.Assumptions...)
+			}
+			if len(allAssumptions) > 0 {
+				mid.WriteString("\n" + runeSigStyle.Render("assumes:") + "\n")
+				for _, a := range allAssumptions {
+					mid.WriteString(assumptionStyle.Render("? ") + lipgloss.NewStyle().Width(midWidth-4).Render(a) + "\n")
+				}
+			}
 		} else {
 			// Rune view
 			runeHdr := paneHeaderInactive.Render("── rune ") + runeNameStyle.Render(r.Name) + " "
@@ -937,6 +954,13 @@ func (m *createFeatureModel) viewResult(width int) string {
 				}
 				for _, t := range r.NegativeTests {
 					mid.WriteString(testFailStyle.Render("- ") + lipgloss.NewStyle().Width(midWidth-4).Render(t) + "\n")
+				}
+			}
+
+			if len(r.Assumptions) > 0 {
+				mid.WriteString("\n" + runeSigStyle.Render("assumes:") + "\n")
+				for _, a := range r.Assumptions {
+					mid.WriteString(assumptionStyle.Render("? ") + lipgloss.NewStyle().Width(midWidth-4).Render(a) + "\n")
 				}
 			}
 		}

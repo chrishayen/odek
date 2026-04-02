@@ -25,6 +25,7 @@ type ProposedRune struct {
 	Behavior      string   `json:"behavior"`
 	PositiveTests []string `json:"positive_tests"`
 	NegativeTests []string `json:"negative_tests"`
+	Assumptions   []string `json:"assumptions,omitempty"`
 	Refs          []string `json:"refs,omitempty"`
 	Extend        bool     `json:"extend,omitempty"`
 }
@@ -213,6 +214,7 @@ func (p ProposedRune) ToRune() runepkg.Rune {
 		Behavior:      p.Behavior,
 		PositiveTests: p.PositiveTests,
 		NegativeTests: p.NegativeTests,
+		Assumptions:   p.Assumptions,
 		Dependencies:  p.Refs,
 	}
 }
@@ -259,10 +261,11 @@ func (d *Decomposer) parseResult(output string) (*Result, error) {
 		}
 
 		pr := ProposedRune{
-			Name:      n.Path,
-			Signature: n.Signature,
-			Refs:      n.Refs,
-			Extend:    n.Extend,
+			Name:        n.Path,
+			Signature:   n.Signature,
+			Assumptions: n.Assumptions,
+			Refs:        n.Refs,
+			Extend:      n.Extend,
 		}
 
 		if len(n.Pos) > 0 {

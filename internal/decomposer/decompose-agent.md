@@ -39,6 +39,7 @@ Format:
         @ (input: type) -> return_type
         + test for this slice
         - failure case
+        ? chosen strategy over alternative
         std.slice.component
           @ (input: type) -> return_type
           + test
@@ -47,15 +48,18 @@ Format:
             @ (input: type) -> return_type
             + unit test
             - unit failure
+            ? default value chosen since unspecified
 
     project_name
       @ () -> result[void, string]
       + integration test for the whole app
       - integration failure
+      ? scope limited to single-user mode
       project_name.slice
         @ (args: type) -> return_type
         + wiring test
         - wiring failure
+        ? errors logged to stderr, not a file
         -> std.some.unit
         project_name.slice.custom_leaf
           @ (input: type) -> return_type
@@ -83,14 +87,15 @@ Types can be nested: result[list[i32], string]
 1. STDLIB FIRST. Decompose generic capabilities before the project. Ask: could another project use this without modification? If yes → std.*
 2. The tree structure IS the composition. Parent nodes compose their children. Indentation shows nesting.
 3. Every node MUST have a signature (@ line) and test cases (except -> references). Include every meaningful positive (+) and negative (-) test case — not just one of each. Cover edge cases, boundary values, and error variants.
-4. std.* test cases must be project-agnostic. Never mention a project name or use feature-specific example values in std tests. The FIRST positive test case becomes the rune's description — it must describe the generic capability.
+4. Every node SHOULD list assumptions (? lines) — decisions you made to fill gaps the user didn't specify. These are behaviors, defaults, scope choices, or strategies you chose on their behalf. The user will review these and refine. Examples: "default port 8080", "graceful shutdown with 5s timeout", "serves index.html at directory root", "plaintext logging, not JSON". Omit ? lines only when the requirement fully specifies the node's behavior.
+5. std.* test cases must be project-agnostic. Never mention a project name or use feature-specific example values in std tests. The FIRST positive test case becomes the rune's description — it must describe the generic capability.
    - BAD: `+ writes "hello world" to stdout` (uses content from the specific feature)
    - GOOD: `+ writes provided string to stdout` (describes the generic capability)
-5. Do not emit nodes for constants, config values, or type definitions — only executable behavior.
-6. Use canonical verbs in leaf names: create, read, update, delete, validate, send, resolve, parse, serve, listen, handle, shutdown, filter, sort, transform, log, hash, generate, verify, etc.
-7. Normalize verb synonyms (e.g., "show" → "read", "remove" → "delete").
-8. snake_case everything. Subjects are domain entities, not UI elements.
-9. If existing units are provided as context, you have three options for each:
+6. Do not emit nodes for constants, config values, or type definitions — only executable behavior.
+7. Use canonical verbs in leaf names: create, read, update, delete, validate, send, resolve, parse, serve, listen, handle, shutdown, filter, sort, transform, log, hash, generate, verify, etc.
+8. Normalize verb synonyms (e.g., "show" → "read", "remove" → "delete").
+9. snake_case everything. Subjects are domain entities, not UI elements.
+10. If existing units are provided as context, you have three options for each:
    - -> path.to.unit — reference it as-is (it already does what you need)
    - ~> path.to.unit — extend it (it partially does what you need; include only the NEW +/- test cases to add)
    - Define a new node — when nothing existing covers the capability
@@ -113,6 +118,7 @@ std
       @ (value: string) -> result[u16, string]
       + accepts 8080, accepts boundary values 1 and 65535
       - returns error for 0, for 70000, for non-numeric "abc"
+      ? valid range is 1-65535, not just well-known ports
   std.http
     @ (addr: string, handler: Handler) -> result[void, string]
     + generic HTTP server lifecycle: build, listen, serve, shutdown
@@ -129,6 +135,7 @@ std
         @ (next: Handler) -> Handler
         + logs method, path, status, duration for each request
         - does not panic on non-ASCII request paths
+        ? plaintext log format, not structured JSON
     std.http.server
       @ (addr: string, handler: Handler) -> result[Server, string]
       + builds, starts, and stops an HTTP server
@@ -146,6 +153,7 @@ std
         + completes immediately when no active connections
         + waits for in-flight request to finish
         - returns error when context deadline exceeded
+        ? graceful shutdown rather than hard kill
 
 http_serve
   @ () -> result[void, string]
@@ -155,6 +163,7 @@ http_serve
     @ (argv: list[string]) -> result[Config, string]
     + resolves CLI args into app config with defaults (port 8080)
     - returns error when directory arg missing
+    ? default port 8080 when --port not provided
     -> std.cli.parse_flags
     -> std.cli.validate_port
   http_serve.run

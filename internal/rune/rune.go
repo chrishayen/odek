@@ -122,12 +122,13 @@ func LatestVersionForMajor(dir string, major int) (Semver, bool) {
 
 // Node represents a parsed item from a composition tree output.
 type Node struct {
-	Path      string   // dot path, e.g. "std.cli.parse_flags"
-	Signature string   // e.g. "(argv: list[string]) -> result[ParseFlagsResult, string]"
-	Pos       []string // positive test cases
-	Neg       []string // negative test cases
-	Refs      []string // -> references
-	Extend    bool     // true if this is a ~> extension
+	Path        string   // dot path, e.g. "std.cli.parse_flags"
+	Signature   string   // e.g. "(argv: list[string]) -> result[ParseFlagsResult, string]"
+	Pos         []string // positive test cases
+	Neg         []string // negative test cases
+	Refs        []string // -> references
+	Extend      bool     // true if this is a ~> extension
+	Assumptions []string // ? assumptions
 }
 
 // IsDotPath checks if a string looks like a dot-notation path (e.g. "std.cli.parse_flags").
@@ -165,6 +166,10 @@ func ParseTree(output string) []Node {
 		} else if strings.HasPrefix(trimmed, "- ") {
 			if current != nil {
 				current.Neg = append(current.Neg, strings.TrimPrefix(trimmed, "- "))
+			}
+		} else if strings.HasPrefix(trimmed, "? ") {
+			if current != nil {
+				current.Assumptions = append(current.Assumptions, strings.TrimPrefix(trimmed, "? "))
 			}
 		} else if strings.HasPrefix(trimmed, "-> ") {
 			if current != nil {
@@ -217,6 +222,7 @@ type Rune struct {
 	Behavior      string   `json:"behavior,omitempty"       yaml:"-"`
 	PositiveTests []string `json:"positive_tests,omitempty" yaml:"-"`
 	NegativeTests []string `json:"negative_tests,omitempty" yaml:"-"`
+	Assumptions   []string `json:"assumptions,omitempty"    yaml:"-"`
 	Version       Semver   `json:"version"                  yaml:"version"`
 	Hydrated      bool     `json:"hydrated"                 yaml:"hydrated"`
 	Coverage      float64  `json:"coverage"                 yaml:"coverage"`
@@ -566,6 +572,14 @@ func write(path string, r Rune) error {
 		}
 	}
 
+	if len(r.Assumptions) > 0 {
+		fmt.Fprintln(f, "\n## Assumptions")
+		fmt.Fprintln(f)
+		for _, a := range r.Assumptions {
+			fmt.Fprintf(f, "? %s\n", a)
+		}
+	}
+
 	return nil
 }
 
@@ -614,6 +628,15 @@ func parse(content string) (*Rune, error) {
 			r.PositiveTests = parseList(sectionLines)
 		case "negative tests":
 			r.NegativeTests = parseList(sectionLines)
+		case "assumptions":
+			for _, line := range sectionLines {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "? ") {
+					r.Assumptions = append(r.Assumptions, strings.TrimPrefix(trimmed, "? "))
+				} else if trimmed != "" {
+					r.Assumptions = append(r.Assumptions, trimmed)
+				}
+			}
 		}
 		sectionLines = nil
 	}
@@ -688,6 +711,13 @@ func renderSpec(path string, n Node, ver Semver, projectName string) string {
 		}
 	}
 
+	if len(n.Assumptions) > 0 {
+		sb.WriteString("\n## Assumptions\n\n")
+		for _, a := range n.Assumptions {
+			sb.WriteString("? " + a + "\n")
+		}
+	}
+
 	return sb.String()
 }
 
@@ -723,7 +753,19 @@ func mergeSpec(existing string, n Node, projectName string) (Semver, string) {
 		}
 	}
 
-	if len(newTests) == 0 {
+	// Collect existing assumptions to avoid duplicates.
+	existingAssumptions := make(map[string]bool)
+	for _, a := range r.Assumptions {
+		existingAssumptions[a] = true
+	}
+	var newAssumptions []string
+	for _, a := range n.Assumptions {
+		if !existingAssumptions[a] {
+			newAssumptions = append(newAssumptions, "? "+a)
+		}
+	}
+
+	if len(newTests) == 0 && len(newAssumptions) == 0 {
 		return curVer, existing
 	}
 
@@ -775,6 +817,14 @@ func mergeSpec(existing string, n Node, projectName string) (Semver, string) {
 	result := strings.TrimRight(sb.String(), "\n") + "\n"
 	for _, t := range newTests {
 		result += t + "\n"
+	}
+	if len(newAssumptions) > 0 {
+		if len(r.Assumptions) == 0 {
+			result += "\n## Assumptions\n\n"
+		}
+		for _, a := range newAssumptions {
+			result += a + "\n"
+		}
 	}
 
 	return newVer, result
