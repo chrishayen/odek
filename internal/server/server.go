@@ -61,7 +61,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/features/{name}", s.handleFeaturesGet)
 	s.mux.HandleFunc("GET /api/apps", s.handleAppsList)
 	s.mux.HandleFunc("GET /api/apps/{name}", s.handleAppsGet)
-	s.mux.HandleFunc("POST /api/commit", s.handleCommit)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -279,61 +278,4 @@ func (s *Server) handleAppsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, http.StatusOK, a)
-}
-
-func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		FeatureName string `json:"feature_name"`
-		Summary     string `json:"summary"`
-		Runes       []struct {
-			Name          string   `json:"name"`
-			Description   string   `json:"description"`
-			Signature     string   `json:"signature"`
-			PositiveTests []string `json:"positive_tests"`
-			NegativeTests []string `json:"negative_tests"`
-			Assumptions   []string `json:"assumptions,omitempty"`
-		} `json:"runes"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-		return
-	}
-	if req.FeatureName == "" {
-		jsonError(w, http.StatusBadRequest, "feature_name is required")
-		return
-	}
-
-	// Create feature
-	if err := s.featureStore.Create(req.FeatureName, req.Summary); err != nil {
-		if !strings.Contains(err.Error(), "already exists") {
-			jsonError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	}
-
-	// Create runes
-	var created int
-	for _, pr := range req.Runes {
-		rn := runepkg.Rune{
-			Name:          pr.Name,
-			Description:   pr.Description,
-			Signature:     pr.Signature,
-			PositiveTests: pr.PositiveTests,
-			NegativeTests: pr.NegativeTests,
-			Assumptions:   pr.Assumptions,
-		}
-		if err := s.runeStore.Create(rn); err != nil {
-			if strings.Contains(err.Error(), "already exists") {
-				continue
-			}
-			jsonError(w, http.StatusInternalServerError, fmt.Sprintf("creating rune %q: %v", pr.Name, err))
-			return
-		}
-		created++
-	}
-
-	jsonResponse(w, http.StatusOK, map[string]any{
-		"feature": req.FeatureName,
-		"created": created,
-	})
 }

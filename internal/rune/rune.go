@@ -222,7 +222,7 @@ func (s *Store) OutputPath() string { return s.outputPath }
 
 // runeDir returns the directory for a dot-path rune name.
 func (s *Store) runeDir(name string) string {
-	return filepath.Join(s.registryPath, strings.ReplaceAll(name, ".", string(filepath.Separator)))
+	return filepath.Join(s.registryPath, "runes", strings.ReplaceAll(name, ".", string(filepath.Separator)))
 }
 
 // CodeDir returns the directory where generated code for a rune is stored.
@@ -307,7 +307,7 @@ func (s *Store) Delete(name string) error {
 
 // ScanAll walks the registry and returns ALL rune versions found.
 func (s *Store) ScanAll() ([]Rune, error) {
-	base := s.registryPath
+	base := filepath.Join(s.registryPath, "runes")
 	if _, err := os.Stat(base); os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -317,19 +317,9 @@ func (s *Store) ScanAll() ([]Rune, error) {
 			return err
 		}
 		if d.IsDir() {
-			name := d.Name()
-			if name != "." && strings.HasPrefix(name, ".") {
-				return filepath.SkipDir
-			}
-			if path == s.outputPath {
-				return filepath.SkipDir
-			}
 			return nil
 		}
 		if !strings.HasSuffix(d.Name(), ".md") {
-			return nil
-		}
-		if d.Name() == "feature.md" || d.Name() == "app.md" {
 			return nil
 		}
 		if _, ok := IsSemverFilename(d.Name()); !ok {
@@ -421,12 +411,6 @@ func validate(r Rune) error {
 	}
 	if !IsDotPath(r.Name) {
 		return fmt.Errorf("name must be a dot-separated path (e.g. auth.validate_email)")
-	}
-	if r.Description == "" {
-		return fmt.Errorf("description is required")
-	}
-	if r.Signature == "" {
-		return fmt.Errorf("signature is required")
 	}
 	return nil
 }

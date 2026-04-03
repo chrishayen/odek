@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -9,82 +10,141 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/chrishayen/odek/internal/draft"
 	"github.com/chrishayen/odek/internal/feature"
 )
 
-type draftSelectedMsg struct{ draft Draft }
+type draftSelectedMsg struct{ draft draft.Draft }
 type featureSelectedMsg struct{ feature feature.Feature }
 type newFeatureMsg struct{}
 
 // listItem wraps either a Draft or Feature for bubbles/list.
 type listItem struct {
-	draft   *Draft
+	draft   *draft.Draft
 	feature *feature.Feature
 }
 
-func (i listItem) Title() string {
+func (i listItem) FilterValue() string {
 	if i.draft != nil {
-		if i.draft.FeatureName != "" {
-			return i.draft.FeatureName
-		}
-		return "untitled"
+		return i.draft.FeatureName
 	}
 	return i.feature.Name
 }
 
-func (i listItem) Description() string {
-	if i.draft != nil {
-		desc := i.draft.Summary
-		if desc == "" && i.draft.Requirement != "" {
-			desc = i.draft.Requirement
-		}
-		return desc + "  " + timeAgo(i.draft.UpdatedAt)
-	}
-	status := i.feature.Status
-	if status == "" {
-		status = "unknown"
-	}
-	version := i.feature.Version
-	if version == "" {
-		version = "-"
-	}
-	return status + "  " + version
-}
-
-func (i listItem) FilterValue() string { return i.Title() }
-
 func (i listItem) isDraft() bool { return i.draft != nil }
+
+// featureDelegate renders items in the feature list with color-coded drafts and features.
+type featureDelegate struct{}
+
+func (d featureDelegate) Height() int                             { return 2 }
+func (d featureDelegate) Spacing() int                            { return 1 }
+func (d featureDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil }
+
+var (
+	fdNameStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F5A623")).
+			Bold(true)
+
+	fdIDStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#555555"))
+
+	fdDraftTagStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#D4A843"))
+
+	fdDescStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#777777"))
+
+	fdTimeStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#555555"))
+
+	fdStatusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#777777"))
+
+	fdSelectedBorder = lipgloss.NewStyle().
+				Border(lipgloss.NormalBorder(), false, false, false, true).
+				BorderForeground(lipgloss.Color("#F5A623"))
+)
+
+func (d featureDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
+	li, ok := item.(listItem)
+	if !ok {
+		return
+	}
+
+	selected := index == m.Index()
+	availWidth := m.Width()
+
+	var title, desc string
+
+	if li.isDraft() {
+		name := li.draft.FeatureName
+		if name == "" {
+			name = "untitled"
+		}
+		if selected {
+			title = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true).Render(name) +
+				"  " + fdIDStyle.Render(li.draft.ID)
+		} else {
+			title = fdNameStyle.Render(name) + "  " + fdIDStyle.Render(li.draft.ID)
+		}
+
+		desc = fdDraftTagStyle.Render("draft")
+		if li.draft.Summary != "" {
+			desc += "  " + fdDescStyle.Render(li.draft.Summary)
+		} else if li.draft.Requirement != "" {
+			desc += "  " + fdDescStyle.Render(li.draft.Requirement)
+		}
+		desc += "  " + fdTimeStyle.Render(timeAgo(li.draft.UpdatedAt))
+	} else {
+		f := li.feature
+		if selected {
+			title = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true).Render(f.Name)
+		} else {
+			title = fdNameStyle.Render(f.Name)
+		}
+
+		status := f.Status
+		if status == "" {
+			status = "unknown"
+		}
+		version := f.Version
+		if version == "" {
+			version = "-"
+		}
+		desc = fdStatusStyle.Render(status + "  " + version)
+	}
+
+	// Truncate if needed
+	if lipgloss.Width(title) > availWidth-4 {
+		title = title[:availWidth-5] + "~"
+	}
+	if lipgloss.Width(desc) > availWidth-4 {
+		desc = desc[:availWidth-5] + "~"
+	}
+
+	if selected {
+		block := fdSelectedBorder.Width(availWidth).
+			Padding(0, 0, 0, 1).
+			Render(title + "\n" + desc)
+		fmt.Fprint(w, block)
+	} else {
+		pad := lipgloss.NewStyle().Padding(0, 0, 0, 2)
+		fmt.Fprint(w, pad.Render(title)+"\n"+pad.Render(desc))
+	}
+}
 
 // featureListModel wraps bubbles/list.
 type featureListModel struct {
 	list         list.Model
-	draftStore   *DraftStore
+	draftStore   *draft.Store
 	featureStore *feature.Store
-	drafts       []Draft
+	drafts       []draft.Draft
 	features     []feature.Feature
 	err          string
 }
 
-func newFeatureListModel(draftStore *DraftStore, featureStore *feature.Store, width, height int) featureListModel {
-	delegate := list.NewDefaultDelegate()
-	delegate.Styles.NormalTitle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#F5A623")).
-		Padding(0, 0, 0, 2)
-	delegate.Styles.NormalDesc = lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#A49FA5", Dark: "#777777"}).
-		Padding(0, 0, 0, 2)
-	delegate.Styles.SelectedTitle = lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(lipgloss.Color("#F5A623")).
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Padding(0, 0, 0, 1)
-	delegate.Styles.SelectedDesc = lipgloss.NewStyle().
-		Border(lipgloss.NormalBorder(), false, false, false, true).
-		BorderForeground(lipgloss.Color("#F5A623")).
-		Foreground(lipgloss.AdaptiveColor{Light: "#A49FA5", Dark: "#777777"}).
-		Padding(0, 0, 0, 1)
-
-	l := list.New(nil, delegate, width, height)
+func newFeatureListModel(draftStore *draft.Store, featureStore *feature.Store, width, height int) featureListModel {
+	l := list.New(nil, featureDelegate{}, width, height)
 	l.Title = "features"
 	l.Styles.Title = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#F5A623")).

@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lucasb-eyer/go-colorful"
 
+	"github.com/chrishayen/odek/internal/draft"
 	"github.com/chrishayen/odek/internal/feature"
 )
 
@@ -233,19 +234,19 @@ type Model struct {
 	screen       screen
 	port         int
 	registryPath string
-	draftStore   *DraftStore
+	draftStore   *draft.Store
 	featureStore *feature.Store
 	createForm   createFeatureModel
 	featureList  featureListModel
 	help         help.Model
 }
 
-func New(port int, registryPath string, featureStore *feature.Store) Model {
+func New(port int, registryPath string, featureStore *feature.Store, draftStore *draft.Store) Model {
 	return Model{
 		screen:       screenSplash,
 		port:         port,
 		registryPath: registryPath,
-		draftStore:   NewDraftStore(registryPath),
+		draftStore:   draftStore,
 		featureStore: featureStore,
 		help:         newHelpModel(),
 	}
@@ -272,9 +273,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.screen {
 		case screenCreateFeature:
 			if m.createForm.state != stateApproved {
-				if draft := m.createForm.toDraft(); draft != nil {
-					_ = m.draftStore.Save(*draft)
-				}
+				m.createForm.saveDraft()
 			}
 			m.screen = screenSplash
 			return m, nil
@@ -285,6 +284,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case draftSelectedMsg:
 		m.createForm = newCreateFeatureModelFromDraft(m.port, m.width-viewPadX*2, m.height, m.draftStore, msg.draft)
+
 		m.screen = screenCreateFeature
 		if m.createForm.state == stateDone {
 			return m, nil
@@ -292,8 +292,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.createForm.descInput.Focus()
 
 	case featureSelectedMsg:
-		// TODO: open feature detail view
-		return m, nil
+		m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.draftStore)
+		m.screen = screenCreateFeature
+		// Load runes directly — featureLoadedMsg will set stateApproved
+		return m, loadFeatureRunes(msg.feature.Name, m.port)
 
 	case newFeatureMsg:
 		m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.draftStore)

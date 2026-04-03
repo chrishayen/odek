@@ -107,6 +107,9 @@ func (s *Store) List() ([]Feature, error) {
 		if strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
+		if e.Name() == "draft" {
+			continue
+		}
 		if filepath.Join(base, e.Name()) == s.outputPath {
 			continue
 		}

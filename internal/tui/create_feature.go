@@ -21,6 +21,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/chrishayen/odek/internal/draft"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
@@ -264,10 +265,7 @@ type loginDoneMsg struct {
 
 type goBackMsg struct{}
 
-type commitDoneMsg struct {
-	feature string
-	created int
-}
+type commitDoneMsg struct{}
 
 type commitErrorMsg struct {
 	err error
@@ -275,6 +273,14 @@ type commitErrorMsg struct {
 
 type hydrateDoneMsg struct{}
 type hydrateErrorMsg struct{ err error }
+
+type featureLoadedMsg struct {
+	feature string
+	runes   []proposedRune
+	summary string
+}
+
+type featureLoadErrorMsg struct{ err error }
 
 type inputMode int
 
@@ -307,10 +313,10 @@ type createFeatureModel struct {
 
 	// Drafts
 	draftID    string
-	draftStore *DraftStore
+	draftStore *draft.Store
 }
 
-func newCreateFeatureModel(port, width, height int, draftStore *DraftStore) createFeatureModel {
+func newCreateFeatureModel(port, width, height int, draftStore *draft.Store) createFeatureModel {
 	ta := textarea.New()
 	ta.Placeholder = "Describe the feature..."
 	ta.ShowLineNumbers = false
@@ -372,13 +378,15 @@ func newCreateFeatureModel(port, width, height int, draftStore *DraftStore) crea
 	}
 }
 
-func newCreateFeatureModelFromDraft(port, width, height int, draftStore *DraftStore, draft Draft) createFeatureModel {
+func newCreateFeatureModelFromDraft(port, width, height int, draftStore *draft.Store, d draft.Draft) createFeatureModel {
 	m := newCreateFeatureModel(port, width, height, draftStore)
-	m.draftID = draft.ID
-	m.requirement = draft.Requirement
-	m.result = draft.Result
+	m.draftID = d.ID
+	m.requirement = d.Requirement
 
-	if m.result != nil {
+	// Load runes from the draft folder
+	runes, err := draftStore.ListRunes(d.ID)
+	if err == nil && len(runes) > 0 {
+		m.result = runesToResult(d.FeatureName, d.Summary, runes)
 		sortRunesStdLast(m.result.NewRunes)
 		m.buildRuneListItems()
 		m.state = stateDone
@@ -389,23 +397,72 @@ func newCreateFeatureModelFromDraft(port, width, height int, draftStore *DraftSt
 	return m
 }
 
-func (m *createFeatureModel) toDraft() *Draft {
-	if m.requirement == "" && m.result == nil {
-		return nil
+// runesToResult converts loaded runes into a decomposeResult for display.
+func runesToResult(featureName, summary string, runes []runepkg.Rune) *decomposeResult {
+	proposed := make([]proposedRune, len(runes))
+	for i, r := range runes {
+		proposed[i] = proposedRune{
+			Name:          r.Name,
+			Description:   r.Description,
+			Signature:     r.Signature,
+			PositiveTests: r.PositiveTests,
+			NegativeTests: r.NegativeTests,
+			Assumptions:   r.Assumptions,
+		}
 	}
+	return &decomposeResult{
+		FeatureName: featureName,
+		Summary:     summary,
+		NewRunes:    proposed,
+	}
+}
+
+// saveDraft persists the current state to the draft store.
+// Returns the draft ID (may be newly generated).
+func (m *createFeatureModel) saveDraft() string {
+	if m.draftStore == nil || (m.requirement == "" && m.result == nil) {
+		return m.draftID
+	}
+
 	name := ""
 	summary := ""
 	if m.result != nil {
 		name = m.result.FeatureName
 		summary = m.result.Summary
 	}
-	return &Draft{
-		ID:          m.draftID,
-		FeatureName: name,
-		Summary:     summary,
-		Requirement: m.requirement,
-		Result:      m.result,
+
+	if m.draftID == "" {
+		// Create a new draft
+		d, err := m.draftStore.Create(name, m.requirement, summary)
+		if err != nil {
+			return ""
+		}
+		m.draftID = d.ID
+	} else {
+		// Update existing draft
+		if name == "" {
+			name = "untitled"
+		}
+		_ = m.draftStore.Update(m.draftID, name, m.requirement, summary)
 	}
+
+	// Save runes if we have a decomposition result
+	if m.result != nil && len(m.result.NewRunes) > 0 {
+		runes := make([]runepkg.Rune, len(m.result.NewRunes))
+		for i, pr := range m.result.NewRunes {
+			runes[i] = runepkg.Rune{
+				Name:          pr.Name,
+				Description:   pr.Description,
+				Signature:     pr.Signature,
+				PositiveTests: pr.PositiveTests,
+				NegativeTests: pr.NegativeTests,
+				Assumptions:   pr.Assumptions,
+			}
+		}
+		_ = m.draftStore.SaveRunes(m.draftID, runes)
+	}
+
+	return m.draftID
 }
 
 func (m *createFeatureModel) resize(width, height int) {
@@ -599,11 +656,7 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 		return nil
 	case commitDoneMsg:
 		m.state = stateApproved
-		// Clean up draft
-		if m.draftID != "" && m.draftStore != nil {
-			_ = m.draftStore.Delete(m.draftID)
-			m.draftID = ""
-		}
+		m.draftID = ""
 		return nil
 	case commitErrorMsg:
 		m.state = stateDone
@@ -613,6 +666,20 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 		// Return to splash after hydration
 		return func() tea.Msg { return goBackMsg{} }
 	case hydrateErrorMsg:
+		m.state = stateError
+		m.errMsg = msg.err.Error()
+		return nil
+	case featureLoadedMsg:
+		m.result = &decomposeResult{
+			FeatureName: msg.feature,
+			Summary:     msg.summary,
+			NewRunes:    msg.runes,
+		}
+		sortRunesStdLast(m.result.NewRunes)
+		m.buildRuneListItems()
+		m.state = stateApproved
+		return nil
+	case featureLoadErrorMsg:
 		m.state = stateError
 		m.errMsg = msg.err.Error()
 		return nil
@@ -773,62 +840,25 @@ func (m *createFeatureModel) updateAuthErrorState(msg tea.Msg) tea.Cmd {
 }
 
 func (m *createFeatureModel) commitRunes() tea.Cmd {
-	if m.result == nil {
+	if m.result == nil || m.draftStore == nil {
 		return nil
 	}
-	port := m.port
-	result := m.result
-	featureName := m.featureName()
 
-	type commitRune struct {
-		Name          string   `json:"name"`
-		Description   string   `json:"description"`
-		Signature     string   `json:"signature"`
-		PositiveTests []string `json:"positive_tests"`
-		NegativeTests []string `json:"negative_tests"`
-		Assumptions   []string `json:"assumptions,omitempty"`
-	}
-
-	runes := make([]commitRune, len(result.NewRunes))
-	for i, r := range result.NewRunes {
-		runes[i] = commitRune{
-			Name:          r.Name,
-			Description:   r.Description,
-			Signature:     r.Signature,
-			PositiveTests: r.PositiveTests,
-			NegativeTests: r.NegativeTests,
-			Assumptions:   r.Assumptions,
+	// Ensure draft is saved first
+	m.saveDraft()
+	if m.draftID == "" {
+		return func() tea.Msg {
+			return commitErrorMsg{err: fmt.Errorf("no draft to commit")}
 		}
 	}
 
+	draftID := m.draftID
+	draftStore := m.draftStore
 	return func() tea.Msg {
-		body, _ := json.Marshal(map[string]any{
-			"feature_name": featureName,
-			"summary":      result.Summary,
-			"runes":        runes,
-		})
-		resp, err := http.Post(
-			fmt.Sprintf("http://localhost:%d/api/commit", port),
-			"application/json",
-			bytes.NewReader(body),
-		)
-		if err != nil {
+		if err := draftStore.Merge(draftID); err != nil {
 			return commitErrorMsg{err: err}
 		}
-		defer resp.Body.Close()
-
-		var res struct {
-			Feature string `json:"feature"`
-			Created int    `json:"created"`
-			Error   string `json:"error"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-			return commitErrorMsg{err: err}
-		}
-		if res.Error != "" {
-			return commitErrorMsg{err: fmt.Errorf("%s", res.Error)}
-		}
-		return commitDoneMsg{feature: res.Feature, created: res.Created}
+		return commitDoneMsg{}
 	}
 }
 
@@ -853,6 +883,68 @@ func (m *createFeatureModel) hydrateAll() tea.Cmd {
 			return hydrateErrorMsg{err: err}
 		}
 		return decomposeStartedMsg{jobID: dr.JobID}
+	}
+}
+
+func loadFeatureRunes(featureName string, port int) tea.Cmd {
+	return func() tea.Msg {
+		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/api/runes", port))
+		if err != nil {
+			return featureLoadErrorMsg{err: err}
+		}
+		defer resp.Body.Close()
+
+		var allRunes []struct {
+			Name          string   `json:"name"`
+			Description   string   `json:"description"`
+			Signature     string   `json:"signature"`
+			PositiveTests []string `json:"positive_tests"`
+			NegativeTests []string `json:"negative_tests"`
+			Assumptions   []string `json:"assumptions"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&allRunes); err != nil {
+			return featureLoadErrorMsg{err: err}
+		}
+
+		// Filter runes belonging to this feature (matching top-level package)
+		var matched []proposedRune
+		for _, r := range allRunes {
+			pkg := r.Name
+			if dot := strings.IndexByte(pkg, '.'); dot > 0 {
+				pkg = pkg[:dot]
+			}
+			if pkg == featureName {
+				matched = append(matched, proposedRune{
+					Name:          r.Name,
+					Description:   r.Description,
+					Signature:     r.Signature,
+					PositiveTests: r.PositiveTests,
+					NegativeTests: r.NegativeTests,
+					Assumptions:   r.Assumptions,
+				})
+			}
+		}
+
+		// Also load the feature summary
+		var summary string
+		fResp, err := http.Get(fmt.Sprintf("http://localhost:%d/api/features/%s", port, featureName))
+		if err == nil {
+			defer fResp.Body.Close()
+			var feat struct {
+				Raw string `json:"raw"`
+			}
+			json.NewDecoder(fResp.Body).Decode(&feat)
+			// Extract summary from body after frontmatter
+			if idx := strings.Index(feat.Raw, "\n---\n"); idx >= 0 {
+				body := strings.TrimSpace(feat.Raw[idx+5:])
+				// Skip # heading line
+				if nl := strings.Index(body, "\n"); nl >= 0 {
+					summary = strings.TrimSpace(body[nl+1:])
+				}
+			}
+		}
+
+		return featureLoadedMsg{feature: featureName, runes: matched, summary: summary}
 	}
 }
 
@@ -1115,12 +1207,24 @@ func (m *createFeatureModel) buildRuneListItems() {
 			}
 		}
 
+		// Count visible children (non-empty runes)
+		visibleCount := 0
+		for _, idx := range g.indices {
+			if idx == selfIdx {
+				continue
+			}
+			r := m.result.NewRunes[idx]
+			if r.Description != "" || r.Signature != "" || len(r.Assumptions) > 0 {
+				visibleCount++
+			}
+		}
+
 		_, selfHasComment := m.runeComments[selfIdx]
 		items = append(items, runeListItem{
 			runeIdx:    selfIdx,
 			name:       g.pkg,
 			isHeader:   true,
-			count:      len(g.indices),
+			count:      visibleCount,
 			hasComment: selfHasComment,
 		})
 
@@ -1128,10 +1232,15 @@ func (m *createFeatureModel) buildRuneListItems() {
 			if idx == selfIdx {
 				continue
 			}
+			r := m.result.NewRunes[idx]
+			// Skip empty structural entries (intermediate path nodes)
+			if r.Description == "" && r.Signature == "" && len(r.Assumptions) == 0 {
+				continue
+			}
 			_, hasComment := m.runeComments[idx]
 			items = append(items, runeListItem{
 				runeIdx:    idx,
-				name:       leafName(m.result.NewRunes[idx].Name),
+				name:       leafName(r.Name),
 				hasComment: hasComment,
 			})
 		}
@@ -1362,6 +1471,9 @@ func (m *createFeatureModel) viewResult(width int) string {
 			if len(children) > 0 {
 				mid.WriteString("\n")
 				for _, child := range children {
+					if child.Description == "" && child.Signature == "" && len(child.Assumptions) == 0 {
+						continue
+					}
 					leaf := leafName(child.Name)
 					title := runeNameStyle.Render(leaf)
 					if child.Signature != "" {
