@@ -55,7 +55,7 @@ func run(t *testing.T, projectDir string, args ...string) (output string, exitCo
 	t.Helper()
 	cmd := exec.Command(binaryPath, args...)
 	cmd.Dir = projectDir
-	cmd.Env = append(os.Environ(), "VALKYRIE_PROJECT_DIR="+projectDir)
+	cmd.Env = append(os.Environ(), "ODEK_PROJECT_DIR="+projectDir)
 	out, err := cmd.CombinedOutput()
 	output = strings.TrimSpace(string(out))
 	if err != nil {

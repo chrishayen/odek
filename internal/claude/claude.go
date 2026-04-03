@@ -62,14 +62,12 @@ func (c *Client) CallMessages(systemPrompt string, messages []ChatMessage) (stri
 		return mockResponse(systemPrompt, last), nil
 	}
 
-	body := map[string]any{
+	jsonBody, err := json.Marshal(map[string]any{
 		"model":      c.Model,
 		"max_tokens": 16384,
 		"system":     systemPrompt,
 		"messages":   messages,
-	}
-
-	jsonBody, err := json.Marshal(body)
+	})
 	if err != nil {
 		return "", fmt.Errorf("marshal: %w", err)
 	}
@@ -94,24 +92,7 @@ func (c *Client) CallMessages(systemPrompt string, messages []ChatMessage) (stri
 	}
 
 	if resp.StatusCode != 200 {
-		bodyStr := strings.ToLower(string(respBody))
-		if resp.StatusCode == 401 || resp.StatusCode == 403 ||
-			strings.Contains(bodyStr, "expired") ||
-			strings.Contains(bodyStr, "unauthorized") ||
-			strings.Contains(bodyStr, "authentication") ||
-			strings.Contains(bodyStr, "invalid_api_key") ||
-			(resp.StatusCode == 502 && strings.Contains(bodyStr, "unknown provider")) {
-			snippet := string(respBody)
-			if len(snippet) > 300 {
-				snippet = snippet[:300]
-			}
-			return "", fmt.Errorf("auth error: token expired — run 'odek login'")
-		}
-		snippet := string(respBody)
-		if len(snippet) > 200 {
-			snippet = snippet[:200]
-		}
-		return "", fmt.Errorf("api error %d: %s", resp.StatusCode, snippet)
+		return "", classifyError(resp.StatusCode, respBody)
 	}
 
 	var result struct {
@@ -122,12 +103,27 @@ func (c *Client) CallMessages(systemPrompt string, messages []ChatMessage) (stri
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return "", fmt.Errorf("unmarshal: %w", err)
 	}
-
 	if len(result.Content) == 0 {
 		return "", fmt.Errorf("empty response")
 	}
-
 	return result.Content[0].Text, nil
+}
+
+func classifyError(statusCode int, body []byte) error {
+	bodyStr := strings.ToLower(string(body))
+	if statusCode == 401 || statusCode == 403 ||
+		strings.Contains(bodyStr, "expired") ||
+		strings.Contains(bodyStr, "unauthorized") ||
+		strings.Contains(bodyStr, "authentication") ||
+		strings.Contains(bodyStr, "invalid_api_key") ||
+		(statusCode == 502 && strings.Contains(bodyStr, "unknown provider")) {
+		return fmt.Errorf("auth error: token expired — run 'odek login'")
+	}
+	snippet := string(body)
+	if len(snippet) > 200 {
+		snippet = snippet[:200]
+	}
+	return fmt.Errorf("api error %d: %s", statusCode, snippet)
 }
 
 // StripCodeFences removes markdown code fences from Claude output.

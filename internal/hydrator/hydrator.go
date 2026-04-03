@@ -5,17 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/chrishayen/odek/framework"
 	"github.com/chrishayen/odek/internal/claude"
+	"github.com/chrishayen/odek/internal/codegen"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
@@ -83,11 +79,11 @@ func (h *Hydrator) FinalizeHydration(name, output string) (*Result, error) {
 		return nil, fmt.Errorf("creating code dir: %w", err)
 	}
 
-	if err := extractFiles(codeDir, output); err != nil {
+	if err := codegen.ExtractFiles(codeDir, output); err != nil {
 		return nil, fmt.Errorf("extracting files: %w", err)
 	}
 
-	coverage, testsRan := runTests(codeDir, h.language)
+	coverage, testsRan := codegen.RunTests(codeDir, h.language)
 
 	r.Hydrated = true
 	r.Coverage = coverage
@@ -126,11 +122,11 @@ func (h *Hydrator) Hydrate(_ context.Context, name string) (*Result, error) {
 		return nil, fmt.Errorf("claude call failed: %w", err)
 	}
 
-	if err := extractFiles(codeDir, output); err != nil {
+	if err := codegen.ExtractFiles(codeDir, output); err != nil {
 		return nil, fmt.Errorf("extracting files: %w", err)
 	}
 
-	coverage, testsRan := runTests(codeDir, h.language)
+	coverage, testsRan := codegen.RunTests(codeDir, h.language)
 
 	rn.Hydrated = true
 	rn.Coverage = coverage
@@ -159,14 +155,40 @@ func (h *Hydrator) HydrateAll(ctx context.Context, concurrency int, verify bool,
 			targets = append(targets, rn)
 		}
 	}
-
 	if len(targets) == 0 {
 		return &HydrateAllResult{}, nil
 	}
 
-	// Build children map for topological sort.
-	pathSet := make(map[string]bool)
-	for _, rn := range runes {
+	levels := groupByDepth(runes, targets)
+	result := &HydrateAllResult{}
+
+	for _, level := range levels {
+		logProgress(logOut, "Level %d: hydrating %d runes\n", level.depth, len(level.runes))
+
+		for _, hr := range h.parallelHydrate(ctx, level.runes, concurrency, logOut) {
+			if hr.err != nil {
+				logProgress(logOut, "  FAIL %s: %v\n", hr.name, hr.err)
+				result.Failed++
+				continue
+			}
+			logProgress(logOut, "  OK   %s\n", hr.name)
+			result.Hydrated++
+		}
+	}
+
+	return result, nil
+}
+
+type runeLevel struct {
+	depth int
+	runes []runepkg.Rune
+}
+
+// groupByDepth computes tree depths and groups un-hydrated runes by level
+// (leaves first) for bottom-up hydration.
+func groupByDepth(all, targets []runepkg.Rune) []runeLevel {
+	pathSet := make(map[string]bool, len(all))
+	for _, rn := range all {
 		pathSet[rn.Name] = true
 	}
 	children := runepkg.BuildChildrenMap(keys(pathSet))
@@ -179,8 +201,7 @@ func (h *Hydrator) HydrateAll(ctx context.Context, concurrency int, verify bool,
 		}
 		maxChild := -1
 		for _, c := range children[p] {
-			cd := computeDepth(c)
-			if cd > maxChild {
+			if cd := computeDepth(c); cd > maxChild {
 				maxChild = cd
 			}
 		}
@@ -191,57 +212,35 @@ func (h *Hydrator) HydrateAll(ctx context.Context, concurrency int, verify bool,
 		computeDepth(p)
 	}
 
-	type levelTarget struct {
+	type depthTarget struct {
 		depth int
 		rune  runepkg.Rune
 	}
-	var lts []levelTarget
-	for _, t := range targets {
-		lts = append(lts, levelTarget{depth: depths[t.Name], rune: t})
+	dts := make([]depthTarget, len(targets))
+	for i, t := range targets {
+		dts[i] = depthTarget{depth: depths[t.Name], rune: t}
 	}
-	sort.Slice(lts, func(i, j int) bool {
-		if lts[i].depth != lts[j].depth {
-			return lts[i].depth < lts[j].depth
+	sort.Slice(dts, func(i, j int) bool {
+		if dts[i].depth != dts[j].depth {
+			return dts[i].depth < dts[j].depth
 		}
-		return lts[i].rune.Name < lts[j].rune.Name
+		return dts[i].rune.Name < dts[j].rune.Name
 	})
 
-	type specLevel struct {
-		depth int
-		runes []runepkg.Rune
-	}
-	var levels []specLevel
-	for _, lt := range lts {
-		if len(levels) == 0 || levels[len(levels)-1].depth != lt.depth {
-			levels = append(levels, specLevel{depth: lt.depth})
+	var levels []runeLevel
+	for _, dt := range dts {
+		if len(levels) == 0 || levels[len(levels)-1].depth != dt.depth {
+			levels = append(levels, runeLevel{depth: dt.depth})
 		}
-		levels[len(levels)-1].runes = append(levels[len(levels)-1].runes, lt.rune)
+		levels[len(levels)-1].runes = append(levels[len(levels)-1].runes, dt.rune)
 	}
+	return levels
+}
 
-	result := &HydrateAllResult{}
-
-	for _, level := range levels {
-		if logOut != nil {
-			fmt.Fprintf(logOut, "Level %d: hydrating %d runes\n", level.depth, len(level.runes))
-		}
-
-		results := h.parallelHydrate(ctx, level.runes, concurrency, logOut)
-		for _, hr := range results {
-			if hr.err != nil {
-				if logOut != nil {
-					fmt.Fprintf(logOut, "  FAIL %s: %v\n", hr.name, hr.err)
-				}
-				result.Failed++
-			} else {
-				if logOut != nil {
-					fmt.Fprintf(logOut, "  OK   %s\n", hr.name)
-				}
-				result.Hydrated++
-			}
-		}
+func logProgress(w io.Writer, format string, args ...any) {
+	if w != nil {
+		fmt.Fprintf(w, format, args...)
 	}
-
-	return result, nil
 }
 
 type hydrateResult struct {
@@ -327,66 +326,3 @@ Do not include explanations outside of file blocks.`)
 	return sb.String()
 }
 
-func extractFiles(dir, output string) error {
-	re := regexp.MustCompile(`(?s)=== FILE: (.+?) ===\n(.+?)=== END FILE ===`)
-	matches := re.FindAllStringSubmatch(output, -1)
-	if len(matches) == 0 {
-		return os.WriteFile(filepath.Join(dir, "main.go"), []byte(output), 0644)
-	}
-	for _, m := range matches {
-		filename := strings.TrimSpace(m[1])
-		content := m[2]
-		path := filepath.Join(dir, filename)
-		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func runTests(dir, language string) (coverage float64, ran bool) {
-	cmd, args := testCommand(language)
-	if cmd == "" {
-		return -1, false
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	c := exec.CommandContext(ctx, cmd, args...)
-	c.Dir = dir
-	out, _ := c.CombinedOutput()
-
-	coverage = parseCoverage(string(out))
-	return coverage, true
-}
-
-func testCommand(language string) (string, []string) {
-	switch language {
-	case "go":
-		return "go", []string{"test", "-cover", "."}
-	case "ts":
-		return "node", []string{"--test"}
-	case "py":
-		return "python", []string{"-m", "pytest", "-q"}
-	default:
-		return "", nil
-	}
-}
-
-var coverageRe = regexp.MustCompile(`coverage:\s+([\d.]+)%`)
-
-func parseCoverage(output string) float64 {
-	m := coverageRe.FindStringSubmatch(output)
-	if len(m) < 2 {
-		return -1
-	}
-	v, err := strconv.ParseFloat(m[1], 64)
-	if err != nil {
-		return -1
-	}
-	return v
-}

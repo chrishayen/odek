@@ -3,6 +3,7 @@ package hydrator
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -92,7 +93,7 @@ func (h *Hydrator) Verify(_ context.Context, name string) (*VerifyResult, error)
 }
 
 // VerifyAll verifies all hydrated runes concurrently.
-func (h *Hydrator) VerifyAll(ctx context.Context, concurrency int, logOut fmt.Stringer) (*VerifyAllResult, error) {
+func (h *Hydrator) VerifyAll(ctx context.Context, concurrency int, logOut io.Writer) (*VerifyAllResult, error) {
 	runes, err := h.store.List()
 	if err != nil {
 		return nil, err

@@ -213,45 +213,6 @@ func renderGradientOnBg(text string, stops []colorful.Color, bg string, totalWid
 	return out.String()
 }
 
-func renderGradient(text string, stops []colorful.Color) string {
-	lines := strings.Split(text, "\n")
-
-	maxLen := 0
-	for _, line := range lines {
-		runes := []rune(line)
-		if len(runes) > maxLen {
-			maxLen = len(runes)
-		}
-	}
-	if maxLen == 0 {
-		return text
-	}
-
-	n := len(stops) - 1
-	var out strings.Builder
-	for i, line := range lines {
-		runes := []rune(line)
-		for j, r := range runes {
-			if r == ' ' {
-				out.WriteRune(r)
-				continue
-			}
-			t := float64(j) / float64(maxLen) * float64(n)
-			idx := int(t)
-			if idx >= n {
-				idx = n - 1
-			}
-			frac := t - float64(idx)
-			c := stops[idx].BlendLuv(stops[idx+1], frac)
-			out.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(c.Hex())).Bold(true).Render(string(r)))
-		}
-		if i < len(lines)-1 {
-			out.WriteRune('\n')
-		}
-	}
-	return out.String()
-}
-
 type Model struct {
 	width        int
 	height       int

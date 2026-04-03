@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/chrishayen/odek/internal/frontmatter"
 )
 
 type App struct {
@@ -84,7 +84,8 @@ func (s *Store) Get(name string) (*App, error) {
 		}
 		return nil, err
 	}
-	a := parseFrontmatter(string(data))
+	var a App
+	frontmatter.Parse(string(data), &a)
 	a.Name = name
 	a.Raw = string(data)
 	return &a, nil
@@ -136,7 +137,7 @@ func (s *Store) Update(a App) error {
 	if err != nil {
 		return err
 	}
-	body := stripFrontmatter(string(data))
+	body := frontmatter.Strip(string(data))
 
 	var sb strings.Builder
 	fmt.Fprintln(&sb, "---")
@@ -171,24 +172,3 @@ func (s *Store) Delete(name string) error {
 	return os.Remove(p)
 }
 
-func parseFrontmatter(content string) App {
-	var a App
-	if strings.HasPrefix(content, "---\n") {
-		end := strings.Index(content[4:], "\n---")
-		if end != -1 {
-			fm := content[4 : 4+end]
-			_ = yaml.Unmarshal([]byte(fm), &a)
-		}
-	}
-	return a
-}
-
-func stripFrontmatter(content string) string {
-	if strings.HasPrefix(content, "---\n") {
-		end := strings.Index(content[4:], "\n---")
-		if end != -1 {
-			return content[4+end+4:]
-		}
-	}
-	return content
-}

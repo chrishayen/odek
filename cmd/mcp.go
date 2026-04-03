@@ -149,7 +149,10 @@ var mcpCmd = &cobra.Command{
 }
 
 func toJSON(v any) string {
-	data, _ := json.MarshalIndent(v, "", "  ")
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("{\"error\": %q}", err.Error())
+	}
 	return string(data)
 }
 

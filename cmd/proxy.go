@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -101,16 +99,3 @@ func startProxy(quiet bool, skipModelCheck ...bool) (func(), error) {
 	return nil, fmt.Errorf("proxy started but models failed to load within 10s")
 }
 
-// startCallbackRelay forwards OAuth callbacks to the proxy.
-func startCallbackRelay(cfg *config.Config) {
-	target, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", cfg.Port))
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	mux := http.NewServeMux()
-	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		r.URL.Path = "/anthropic/callback"
-		proxy.ServeHTTP(w, r)
-	})
-	if err := http.ListenAndServe(":54545", mux); err != nil {
-		fmt.Fprintf(os.Stderr, "callback relay error: %v\n", err)
-	}
-}

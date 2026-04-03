@@ -25,7 +25,7 @@ func TestMissingConfig(t *testing.T) {
 }
 
 func TestMissingConfigNoEnv(t *testing.T) {
-	// Unset VALKYRIE_PROJECT_DIR and run from an empty temp dir
+	// Unset ODEK_PROJECT_DIR and run from an empty temp dir
 	tmp, err := os.MkdirTemp("", "odek-nohome-*")
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestMissingConfigNoEnv(t *testing.T) {
 	cmd.Dir = tmp
 	var env []string
 	for _, e := range os.Environ() {
-		if !strings.HasPrefix(e, "VALKYRIE_PROJECT_DIR=") {
+		if !strings.HasPrefix(e, "ODEK_PROJECT_DIR=") {
 			env = append(env, e)
 		}
 	}

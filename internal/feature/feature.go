@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/chrishayen/odek/internal/frontmatter"
 )
 
 type Feature struct {
@@ -83,7 +83,8 @@ func (s *Store) Get(name string) (*Feature, error) {
 		}
 		return nil, err
 	}
-	f := parseFrontmatter(string(data))
+	var f Feature
+	frontmatter.Parse(string(data), &f)
 	f.Name = name
 	f.Raw = string(data)
 	return &f, nil
@@ -137,7 +138,7 @@ func (s *Store) Update(f Feature) error {
 	if err != nil {
 		return err
 	}
-	body := stripFrontmatter(string(data))
+	body := frontmatter.Strip(string(data))
 
 	// Write new frontmatter + preserved body
 	var sb strings.Builder
@@ -160,26 +161,3 @@ func (s *Store) Delete(name string) error {
 	return os.Remove(p)
 }
 
-// parseFrontmatter extracts only YAML frontmatter fields into a Feature.
-func parseFrontmatter(content string) Feature {
-	var f Feature
-	if strings.HasPrefix(content, "---\n") {
-		end := strings.Index(content[4:], "\n---")
-		if end != -1 {
-			fm := content[4 : 4+end]
-			_ = yaml.Unmarshal([]byte(fm), &f)
-		}
-	}
-	return f
-}
-
-// stripFrontmatter returns everything after the closing --- delimiter.
-func stripFrontmatter(content string) string {
-	if strings.HasPrefix(content, "---\n") {
-		end := strings.Index(content[4:], "\n---")
-		if end != -1 {
-			return content[4+end+4:]
-		}
-	}
-	return content
-}

@@ -501,87 +501,19 @@ func (m *createFeatureModel) checkJob() tea.Cmd {
 }
 
 func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
+	// Handle non-key messages first.
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if m.state == stateIdle || m.state == stateError {
-			if msg.String() == "enter" {
-				return m.submit()
-			}
-		}
-		if m.state == stateRefining {
-			switch msg.String() {
-			case "esc":
-				m.state = stateDone
-				return nil
-			case "enter":
-				text := strings.TrimSpace(m.refineInput.Value())
-				if text == "" {
-					m.state = stateDone
-					return nil
-				}
-				switch m.inputMode {
-				case inputRefineFeature:
-					m.requirement = m.requirement + "\n\n" + text
-					m.runeList.Select(0)
-					return m.decompose(m.requirement)
-				case inputRefineRune:
-					name := m.selectedRuneName()
-					m.requirement = m.requirement + "\n\nFor " + name + ": " + text
-					m.runeList.Select(0)
-					return m.decompose(m.requirement)
-				}
-			}
-			var cmd tea.Cmd
-			m.refineInput, cmd = m.refineInput.Update(msg)
-			return cmd
-		}
-		if m.state == stateDone {
-			switch msg.String() {
-			case "enter":
-				if draft := m.toDraft(); draft != nil && m.draftStore != nil {
-					_ = m.draftStore.Save(*draft)
-				}
-				m.state = stateIdle
-				m.draftID = ""
-				m.result = nil
-				m.requirement = ""
-				m.runeList.SetItems(nil)
-				m.descInput.Reset()
-				m.descInput.Focus()
-				return nil
-			case "backspace":
-				return func() tea.Msg { return goBackMsg{} }
-			case "r":
-				return m.openRefine(inputRefineFeature, "Refine feature...")
-			case "t":
-				name := m.selectedRuneName()
-				return m.openRefine(inputRefineRune, "Refine rune "+name+"...")
-			}
-		}
-		if m.state == stateAuthError {
-			if msg.String() == "l" {
-				exe, _ := os.Executable()
-				c := exec.Command(exe, "login")
-				c.Stdin = os.Stdin
-				return tea.ExecProcess(c, func(err error) tea.Msg {
-					return loginDoneMsg{err: err}
-				})
-			}
-		}
-
 	case decomposeStartedMsg:
 		m.jobID = msg.jobID
 		return tea.Batch(m.spinner.Tick, m.pollJob())
-
 	case progressMsg:
 		m.progressText = msg.text
 		return m.pollJob()
-
 	case pollTickMsg:
 		if m.state == stateDecomposing {
 			return m.checkJob()
 		}
-
+		return nil
 	case decomposeDoneMsg:
 		m.state = stateDone
 		m.result = &msg.result
@@ -589,60 +521,143 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 		m.buildRuneListItems()
 		m.runeList.Select(0)
 		return nil
-
 	case decomposeErrorMsg:
-		if strings.Contains(msg.err.Error(), "auth error") || strings.Contains(msg.err.Error(), "token expired") {
-			m.state = stateAuthError
-			m.errMsg = msg.err.Error()
-			return nil
-		}
-		m.state = stateError
-		m.errMsg = msg.err.Error()
-		m.descInput.Focus()
-		return nil
-
+		return m.handleDecomposeError(msg)
 	case loginDoneMsg:
-		if msg.err != nil {
-			m.state = stateAuthError
-			m.errMsg = fmt.Sprintf("login failed: %v", msg.err)
-			return nil
-		}
-		m.state = stateIdle
-		m.errMsg = ""
-		m.authURL = ""
-		m.descInput.Focus()
-		return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return nil })
-
+		return m.handleLoginDone(msg)
 	case spinner.TickMsg:
 		if m.state == stateDecomposing {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return cmd
 		}
+		return nil
 	}
 
-	if m.state == stateIdle || m.state == stateError {
-		if km, ok := msg.(tea.KeyMsg); ok && km.String() == "esc" {
+	// Dispatch key messages by state.
+	switch m.state {
+	case stateIdle, stateError:
+		return m.updateFormState(msg)
+	case stateRefining:
+		return m.updateRefiningState(msg)
+	case stateDone:
+		return m.updateDoneState(msg)
+	case stateAuthError:
+		return m.updateAuthErrorState(msg)
+	}
+	return nil
+}
+
+func (m *createFeatureModel) updateFormState(msg tea.Msg) tea.Cmd {
+	if km, ok := msg.(tea.KeyMsg); ok {
+		switch km.String() {
+		case "enter":
+			return m.submit()
+		case "esc":
 			return func() tea.Msg { return goBackMsg{} }
 		}
-		var cmd tea.Cmd
-		m.descInput, cmd = m.descInput.Update(msg)
-		return cmd
 	}
+	var cmd tea.Cmd
+	m.descInput, cmd = m.descInput.Update(msg)
+	return cmd
+}
 
-	if m.state == stateRefining {
-		var cmd tea.Cmd
-		m.refineInput, cmd = m.refineInput.Update(msg)
-		return cmd
+func (m *createFeatureModel) updateRefiningState(msg tea.Msg) tea.Cmd {
+	if km, ok := msg.(tea.KeyMsg); ok {
+		switch km.String() {
+		case "esc":
+			m.state = stateDone
+			return nil
+		case "enter":
+			return m.submitRefine()
+		}
 	}
+	var cmd tea.Cmd
+	m.refineInput, cmd = m.refineInput.Update(msg)
+	return cmd
+}
 
-	if m.state == stateDone {
-		var cmd tea.Cmd
-		m.runeList, cmd = m.runeList.Update(msg)
-		return cmd
+func (m *createFeatureModel) submitRefine() tea.Cmd {
+	text := strings.TrimSpace(m.refineInput.Value())
+	if text == "" {
+		m.state = stateDone
+		return nil
 	}
+	if m.inputMode == inputRefineRune {
+		name := m.selectedRuneName()
+		m.requirement = m.requirement + "\n\nFor " + name + ": " + text
+	} else {
+		m.requirement = m.requirement + "\n\n" + text
+	}
+	m.runeList.Select(0)
+	return m.decompose(m.requirement)
+}
 
+func (m *createFeatureModel) updateDoneState(msg tea.Msg) tea.Cmd {
+	if km, ok := msg.(tea.KeyMsg); ok {
+		switch km.String() {
+		case "enter":
+			if draft := m.toDraft(); draft != nil && m.draftStore != nil {
+				_ = m.draftStore.Save(*draft)
+			}
+			m.state = stateIdle
+			m.draftID = ""
+			m.result = nil
+			m.requirement = ""
+			m.runeList.SetItems(nil)
+			m.descInput.Reset()
+			m.descInput.Focus()
+			return nil
+		case "backspace":
+			return func() tea.Msg { return goBackMsg{} }
+		case "r":
+			return m.openRefine(inputRefineFeature, "Refine feature...")
+		case "t":
+			name := m.selectedRuneName()
+			return m.openRefine(inputRefineRune, "Refine rune "+name+"...")
+		}
+	}
+	var cmd tea.Cmd
+	m.runeList, cmd = m.runeList.Update(msg)
+	return cmd
+}
+
+func (m *createFeatureModel) updateAuthErrorState(msg tea.Msg) tea.Cmd {
+	km, ok := msg.(tea.KeyMsg)
+	if !ok || km.String() != "l" {
+		return nil
+	}
+	exe, _ := os.Executable()
+	c := exec.Command(exe, "login")
+	c.Stdin = os.Stdin
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return loginDoneMsg{err: err}
+	})
+}
+
+func (m *createFeatureModel) handleDecomposeError(msg decomposeErrorMsg) tea.Cmd {
+	if strings.Contains(msg.err.Error(), "auth error") || strings.Contains(msg.err.Error(), "token expired") {
+		m.state = stateAuthError
+		m.errMsg = msg.err.Error()
+		return nil
+	}
+	m.state = stateError
+	m.errMsg = msg.err.Error()
+	m.descInput.Focus()
 	return nil
+}
+
+func (m *createFeatureModel) handleLoginDone(msg loginDoneMsg) tea.Cmd {
+	if msg.err != nil {
+		m.state = stateAuthError
+		m.errMsg = fmt.Sprintf("login failed: %v", msg.err)
+		return nil
+	}
+	m.state = stateIdle
+	m.errMsg = ""
+	m.authURL = ""
+	m.descInput.Focus()
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return nil })
 }
 
 func (m *createFeatureModel) view(width int) string {
