@@ -61,15 +61,17 @@ var (
 	keyCreate     = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "create"))
 	keyNewLine    = key.NewBinding(key.WithKeys("alt+enter"), key.WithHelp("alt+enter", "new line"))
 	keySubmit     = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "submit"))
-	keyNew        = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "new"))
 	keyCancel     = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel"))
 	keyBack       = key.NewBinding(key.WithKeys("backspace"), key.WithHelp("bksp", "back"))
 	keyQuit       = key.NewBinding(key.WithKeys("backspace"), key.WithHelp("bksp", "quit"))
-	keyNavigate   = key.NewBinding(key.WithKeys("j", "k"), key.WithHelp("j/k", "navigate"))
-	keyRefine     = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refine"))
-	keyRefineRune = key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "refine rune"))
-	keyLogin      = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "login"))
-	keyFeatures   = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "features"))
+	keyNavigate        = key.NewBinding(key.WithKeys("j", "k"), key.WithHelp("j/k", "navigate"))
+	keyCommentRune     = key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "comment rune"))
+	keyCommentFeature  = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "comment feature"))
+	keyApprove         = key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "approve"))
+	keySubmitRefine    = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "submit"))
+	keyHydrate         = key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "hydrate"))
+	keyLogin           = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "login"))
+	keyFeatures        = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "features"))
 )
 
 // Help keymaps per state
@@ -87,12 +89,24 @@ func (formKeyMap) ShortHelp() []key.Binding {
 }
 func (formKeyMap) FullHelp() [][]key.Binding { return nil }
 
-type doneKeyMap struct{}
+type doneKeyMap struct{ hasComments bool }
 
-func (doneKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{keyNavigate, keyRefine, keyRefineRune, keyNew, keyBack}
+func (k doneKeyMap) ShortHelp() []key.Binding {
+	bindings := []key.Binding{keyNavigate, keyCommentRune, keyCommentFeature, keyApprove}
+	if k.hasComments {
+		bindings = append(bindings, keySubmitRefine)
+	}
+	bindings = append(bindings, keyBack)
+	return bindings
 }
 func (doneKeyMap) FullHelp() [][]key.Binding { return nil }
+
+type approvedKeyMap struct{}
+
+func (approvedKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{keyHydrate, keyBack}
+}
+func (approvedKeyMap) FullHelp() [][]key.Binding { return nil }
 
 type refiningKeyMap struct{}
 
@@ -257,8 +271,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case goBackMsg:
 		switch m.screen {
 		case screenCreateFeature:
-			if draft := m.createForm.toDraft(); draft != nil {
-				_ = m.draftStore.Save(*draft)
+			if m.createForm.state != stateApproved {
+				if draft := m.createForm.toDraft(); draft != nil {
+					_ = m.draftStore.Save(*draft)
+				}
 			}
 			m.screen = screenSplash
 			return m, nil
@@ -355,11 +371,13 @@ func (m Model) viewSplash() string {
 func (m Model) createFeatureKeyMap() help.KeyMap {
 	switch m.createForm.state {
 	case stateDone:
-		return doneKeyMap{}
+		return doneKeyMap{hasComments: m.createForm.hasComments()}
 	case stateRefining:
 		return refiningKeyMap{}
-	case stateDecomposing:
+	case stateDecomposing, stateHydrating:
 		return decomposingKeyMap{}
+	case stateApproved:
+		return approvedKeyMap{}
 	case stateAuthError:
 		return authErrorKeyMap{}
 	default:

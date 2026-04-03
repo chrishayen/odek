@@ -276,7 +276,7 @@ func TestValidate(t *testing.T) {
 	}{
 		{"valid", Rune{Name: "auth.login", Description: "desc", Signature: "sig"}, true},
 		{"no name", Rune{Description: "desc", Signature: "sig"}, false},
-		{"no namespace", Rune{Name: "login", Description: "desc", Signature: "sig"}, false},
+		{"single-segment package", Rune{Name: "login", Description: "desc", Signature: "sig"}, true},
 		{"no desc", Rune{Name: "auth.login", Signature: "sig"}, false},
 		{"no sig", Rune{Name: "auth.login", Description: "desc"}, false},
 		{"bad path", Rune{Name: "HAS CAPS", Description: "desc", Signature: "sig"}, false},

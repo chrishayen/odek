@@ -33,6 +33,8 @@ const (
 	stateError
 	stateAuthError
 	stateRefining
+	stateApproved
+	stateHydrating
 )
 
 var (
@@ -54,7 +56,7 @@ var (
 				Foreground(dim).
 				Italic(true)
 
-	namespaceStyle = lipgloss.NewStyle().
+	pkgStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#6A9FD9")).
 			Bold(true)
 
@@ -87,12 +89,13 @@ var (
 
 // runeListItem is an item in the decomposition rune list.
 type runeListItem struct {
-	runeIdx    int    // index into NewRunes; -1 for non-rune items
-	name       string // display name
-	isHeader   bool   // namespace group header
-	isExisting bool   // existing rune section
-	count      int    // child count for namespace headers
-	covers     string // what existing rune covers
+	runeIdx      int    // index into NewRunes; -1 for non-rune items
+	name         string // display name
+	isHeader     bool   // top-level package header
+	isExisting   bool   // existing rune section
+	count        int    // child count for package headers
+	covers       string // what existing rune covers
+	hasComment   bool   // has a review comment
 }
 
 func (i runeListItem) Title() string       { return i.name }
@@ -147,26 +150,34 @@ func (d runeListDelegate) Render(w io.Writer, m list.Model, index int, item list
 		}
 	case ri.isHeader:
 		countStr := fmt.Sprintf(" (%d)", ri.count)
+		commentMarker := ""
+		if ri.hasComment {
+			commentMarker = " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623")).Render("●")
+		}
 		if selected {
 			str = selectedBorder.
 				Bold(true).
-				Render(ri.name + countStr)
+				Render(ri.name + countStr + commentMarker)
 		} else {
 			str = lipgloss.NewStyle().
 				Width(availWidth).
-				Render(" " + namespaceStyle.Render(ri.name) + runeSigStyle.Render(countStr))
+				Render(" " + pkgStyle.Render(ri.name) + runeSigStyle.Render(countStr) + commentMarker)
 		}
 	default:
 		name := ri.name
+		commentMarker := ""
+		if ri.hasComment {
+			commentMarker = " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623")).Render("●")
+		}
 		if len(name) > availWidth-6 {
 			name = name[:availWidth-7] + "~"
 		}
 		if selected {
 			str = selectedBorder.
 				Padding(0, 0, 0, 3).
-				Render(name)
+				Render(name + commentMarker)
 		} else {
-			str = runeLeafStyle.Width(availWidth).Render("    " + name)
+			str = runeLeafStyle.Width(availWidth).Render("    " + name + commentMarker)
 		}
 	}
 
@@ -253,6 +264,18 @@ type loginDoneMsg struct {
 
 type goBackMsg struct{}
 
+type commitDoneMsg struct {
+	feature string
+	created int
+}
+
+type commitErrorMsg struct {
+	err error
+}
+
+type hydrateDoneMsg struct{}
+type hydrateErrorMsg struct{ err error }
+
 type inputMode int
 
 const (
@@ -277,6 +300,10 @@ type createFeatureModel struct {
 	progressText string
 	runeList     list.Model
 	midVP        viewport.Model
+
+	// Review comments (ephemeral, not persisted to draft)
+	runeComments   map[int]string // rune index → comment
+	featureComment string
 
 	// Drafts
 	draftID    string
@@ -332,15 +359,16 @@ func newCreateFeatureModel(port, width, height int, draftStore *DraftStore) crea
 	midVP.KeyMap = viewport.KeyMap{}
 
 	return createFeatureModel{
-		descInput:  ta,
-		state:      stateIdle,
-		port:       port,
-		width:      width,
-		height:     height,
-		spinner:    s,
-		runeList:   rl,
-		midVP:      midVP,
-		draftStore: draftStore,
+		descInput:    ta,
+		state:        stateIdle,
+		port:         port,
+		width:        width,
+		height:       height,
+		spinner:      s,
+		runeList:     rl,
+		midVP:        midVP,
+		draftStore:   draftStore,
+		runeComments: map[int]string{},
 	}
 }
 
@@ -424,12 +452,38 @@ func (m *createFeatureModel) selectedRuneName() string {
 	return "rune"
 }
 
+func (m *createFeatureModel) hasComments() bool {
+	return len(m.runeComments) > 0 || m.featureComment != ""
+}
+
+func (m *createFeatureModel) commentCount() int {
+	n := len(m.runeComments)
+	if m.featureComment != "" {
+		n++
+	}
+	return n
+}
+
 func (m *createFeatureModel) openRefine(mode inputMode, placeholder string) tea.Cmd {
 	m.state = stateRefining
 	m.inputMode = mode
 	m.refineInput = textinput.New()
 	m.refineInput.Placeholder = placeholder
 	m.refineInput.Width = m.width - 4
+
+	// Pre-fill with existing comment if editing
+	if mode == inputRefineRune {
+		if item, ok := m.runeList.SelectedItem().(runeListItem); ok && item.runeIdx >= 0 {
+			if existing, ok := m.runeComments[item.runeIdx]; ok {
+				m.refineInput.SetValue(existing)
+			}
+		}
+	} else if mode == inputRefineFeature {
+		if m.featureComment != "" {
+			m.refineInput.SetValue(m.featureComment)
+		}
+	}
+
 	m.refineInput.Focus()
 	return m.refineInput.Cursor.BlinkCmd()
 }
@@ -471,9 +525,20 @@ func (m *createFeatureModel) pollJob() tea.Cmd {
 func (m *createFeatureModel) checkJob() tea.Cmd {
 	jobID := m.jobID
 	port := m.port
+	isHydrating := m.state == stateHydrating
+
+	// Pick the right status endpoint based on job type
+	endpoint := "decompose"
+	if isHydrating {
+		endpoint = "hydrate"
+	}
+
 	return func() tea.Msg {
-		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/api/decompose/%s", port, jobID))
+		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/api/%s/%s", port, endpoint, jobID))
 		if err != nil {
+			if isHydrating {
+				return hydrateErrorMsg{err: err}
+			}
 			return decomposeErrorMsg{err: err}
 		}
 		defer resp.Body.Close()
@@ -481,15 +546,24 @@ func (m *createFeatureModel) checkJob() tea.Cmd {
 		data, _ := io.ReadAll(resp.Body)
 		var job jobResponse
 		if err := json.Unmarshal(data, &job); err != nil {
+			if isHydrating {
+				return hydrateErrorMsg{err: err}
+			}
 			return decomposeErrorMsg{err: err}
 		}
 
 		switch job.Status {
 		case "completed":
+			if isHydrating {
+				return hydrateDoneMsg{}
+			}
 			var result decomposeResult
 			json.Unmarshal(job.Result, &result)
 			return decomposeDoneMsg{result: result}
 		case "failed":
+			if isHydrating {
+				return hydrateErrorMsg{err: fmt.Errorf("%s", job.Error)}
+			}
 			return decomposeErrorMsg{err: fmt.Errorf("%s", job.Error)}
 		default:
 			if job.Progress != "" {
@@ -510,23 +584,44 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 		m.progressText = msg.text
 		return m.pollJob()
 	case pollTickMsg:
-		if m.state == stateDecomposing {
+		if m.state == stateDecomposing || m.state == stateHydrating {
 			return m.checkJob()
 		}
 		return nil
 	case decomposeDoneMsg:
 		m.state = stateDone
 		m.result = &msg.result
+		m.runeComments = map[int]string{}
+		m.featureComment = ""
 		sortRunesStdLast(m.result.NewRunes)
 		m.buildRuneListItems()
 		m.runeList.Select(0)
+		return nil
+	case commitDoneMsg:
+		m.state = stateApproved
+		// Clean up draft
+		if m.draftID != "" && m.draftStore != nil {
+			_ = m.draftStore.Delete(m.draftID)
+			m.draftID = ""
+		}
+		return nil
+	case commitErrorMsg:
+		m.state = stateDone
+		m.errMsg = msg.err.Error()
+		return nil
+	case hydrateDoneMsg:
+		// Return to splash after hydration
+		return func() tea.Msg { return goBackMsg{} }
+	case hydrateErrorMsg:
+		m.state = stateError
+		m.errMsg = msg.err.Error()
 		return nil
 	case decomposeErrorMsg:
 		return m.handleDecomposeError(msg)
 	case loginDoneMsg:
 		return m.handleLoginDone(msg)
 	case spinner.TickMsg:
-		if m.state == stateDecomposing {
+		if m.state == stateDecomposing || m.state == stateHydrating {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return cmd
@@ -542,6 +637,8 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 		return m.updateRefiningState(msg)
 	case stateDone:
 		return m.updateDoneState(msg)
+	case stateApproved:
+		return m.updateApprovedState(msg)
 	case stateAuthError:
 		return m.updateAuthErrorState(msg)
 	}
@@ -579,16 +676,52 @@ func (m *createFeatureModel) updateRefiningState(msg tea.Msg) tea.Cmd {
 
 func (m *createFeatureModel) submitRefine() tea.Cmd {
 	text := strings.TrimSpace(m.refineInput.Value())
+	m.state = stateDone
+	sel := m.runeList.Index()
+
 	if text == "" {
-		m.state = stateDone
+		// Empty comment clears an existing comment
+		if m.inputMode == inputRefineRune {
+			if item, ok := m.runeList.SelectedItem().(runeListItem); ok && item.runeIdx >= 0 {
+				delete(m.runeComments, item.runeIdx)
+			}
+		} else {
+			m.featureComment = ""
+		}
+	} else if m.inputMode == inputRefineRune {
+		if item, ok := m.runeList.SelectedItem().(runeListItem); ok && item.runeIdx >= 0 {
+			m.runeComments[item.runeIdx] = text
+		}
+	} else {
+		m.featureComment = text
+	}
+
+	// Rebuild list to update comment markers
+	m.buildRuneListItems()
+	m.runeList.Select(sel)
+	return nil
+}
+
+func (m *createFeatureModel) submitAllRefinements() tea.Cmd {
+	if !m.hasComments() {
 		return nil
 	}
-	if m.inputMode == inputRefineRune {
-		name := m.selectedRuneName()
-		m.requirement = m.requirement + "\n\nFor " + name + ": " + text
-	} else {
-		m.requirement = m.requirement + "\n\n" + text
+
+	// Build refinement text from all collected comments
+	var parts []string
+	if m.featureComment != "" {
+		parts = append(parts, m.featureComment)
 	}
+	for idx, comment := range m.runeComments {
+		if idx >= 0 && idx < len(m.result.NewRunes) {
+			name := m.result.NewRunes[idx].Name
+			parts = append(parts, "For "+name+": "+comment)
+		}
+	}
+
+	m.requirement = m.requirement + "\n\n" + strings.Join(parts, "\n")
+	m.runeComments = map[int]string{}
+	m.featureComment = ""
 	m.runeList.Select(0)
 	return m.decompose(m.requirement)
 }
@@ -596,30 +729,34 @@ func (m *createFeatureModel) submitRefine() tea.Cmd {
 func (m *createFeatureModel) updateDoneState(msg tea.Msg) tea.Cmd {
 	if km, ok := msg.(tea.KeyMsg); ok {
 		switch km.String() {
+		case "c":
+			name := m.selectedRuneName()
+			return m.openRefine(inputRefineRune, "Comment on "+name+"...")
+		case "r":
+			return m.openRefine(inputRefineFeature, "Comment on feature...")
+		case "a":
+			return m.commitRunes()
 		case "enter":
-			if draft := m.toDraft(); draft != nil && m.draftStore != nil {
-				_ = m.draftStore.Save(*draft)
-			}
-			m.state = stateIdle
-			m.draftID = ""
-			m.result = nil
-			m.requirement = ""
-			m.runeList.SetItems(nil)
-			m.descInput.Reset()
-			m.descInput.Focus()
-			return nil
+			return m.submitAllRefinements()
 		case "backspace":
 			return func() tea.Msg { return goBackMsg{} }
-		case "r":
-			return m.openRefine(inputRefineFeature, "Refine feature...")
-		case "t":
-			name := m.selectedRuneName()
-			return m.openRefine(inputRefineRune, "Refine rune "+name+"...")
 		}
 	}
 	var cmd tea.Cmd
 	m.runeList, cmd = m.runeList.Update(msg)
 	return cmd
+}
+
+func (m *createFeatureModel) updateApprovedState(msg tea.Msg) tea.Cmd {
+	if km, ok := msg.(tea.KeyMsg); ok {
+		switch km.String() {
+		case "h":
+			return m.hydrateAll()
+		case "backspace":
+			return func() tea.Msg { return goBackMsg{} }
+		}
+	}
+	return nil
 }
 
 func (m *createFeatureModel) updateAuthErrorState(msg tea.Msg) tea.Cmd {
@@ -633,6 +770,90 @@ func (m *createFeatureModel) updateAuthErrorState(msg tea.Msg) tea.Cmd {
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return loginDoneMsg{err: err}
 	})
+}
+
+func (m *createFeatureModel) commitRunes() tea.Cmd {
+	if m.result == nil {
+		return nil
+	}
+	port := m.port
+	result := m.result
+	featureName := m.featureName()
+
+	type commitRune struct {
+		Name          string   `json:"name"`
+		Description   string   `json:"description"`
+		Signature     string   `json:"signature"`
+		PositiveTests []string `json:"positive_tests"`
+		NegativeTests []string `json:"negative_tests"`
+		Assumptions   []string `json:"assumptions,omitempty"`
+	}
+
+	runes := make([]commitRune, len(result.NewRunes))
+	for i, r := range result.NewRunes {
+		runes[i] = commitRune{
+			Name:          r.Name,
+			Description:   r.Description,
+			Signature:     r.Signature,
+			PositiveTests: r.PositiveTests,
+			NegativeTests: r.NegativeTests,
+			Assumptions:   r.Assumptions,
+		}
+	}
+
+	return func() tea.Msg {
+		body, _ := json.Marshal(map[string]any{
+			"feature_name": featureName,
+			"summary":      result.Summary,
+			"runes":        runes,
+		})
+		resp, err := http.Post(
+			fmt.Sprintf("http://localhost:%d/api/commit", port),
+			"application/json",
+			bytes.NewReader(body),
+		)
+		if err != nil {
+			return commitErrorMsg{err: err}
+		}
+		defer resp.Body.Close()
+
+		var res struct {
+			Feature string `json:"feature"`
+			Created int    `json:"created"`
+			Error   string `json:"error"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			return commitErrorMsg{err: err}
+		}
+		if res.Error != "" {
+			return commitErrorMsg{err: fmt.Errorf("%s", res.Error)}
+		}
+		return commitDoneMsg{feature: res.Feature, created: res.Created}
+	}
+}
+
+func (m *createFeatureModel) hydrateAll() tea.Cmd {
+	port := m.port
+	m.state = stateHydrating
+	m.progressText = ""
+	return func() tea.Msg {
+		body, _ := json.Marshal(map[string]any{"verify": true, "concurrency": 0})
+		resp, err := http.Post(
+			fmt.Sprintf("http://localhost:%d/api/hydrate", port),
+			"application/json",
+			bytes.NewReader(body),
+		)
+		if err != nil {
+			return hydrateErrorMsg{err: err}
+		}
+		defer resp.Body.Close()
+
+		var dr decomposeResponse
+		if err := json.NewDecoder(resp.Body).Decode(&dr); err != nil {
+			return hydrateErrorMsg{err: err}
+		}
+		return decomposeStartedMsg{jobID: dr.JobID}
+	}
 }
 
 func (m *createFeatureModel) handleDecomposeError(msg decomposeErrorMsg) tea.Cmd {
@@ -664,10 +885,14 @@ func (m *createFeatureModel) view(width int) string {
 	switch m.state {
 	case stateDecomposing:
 		return m.viewDecomposing()
+	case stateHydrating:
+		return m.viewHydrating()
 	case stateDone:
 		return m.viewResult(width)
 	case stateRefining:
 		return m.viewRefining(width)
+	case stateApproved:
+		return m.viewApproved(width)
 	case stateAuthError:
 		return m.viewAuthError()
 	default:
@@ -708,13 +933,79 @@ func (m *createFeatureModel) viewDecomposing() string {
 	return m.spinner.View() + " " + text
 }
 
+func (m *createFeatureModel) viewHydrating() string {
+	text := "Hydrating runes..."
+	if m.progressText != "" {
+		text = m.progressText
+	}
+	return m.spinner.View() + " " + text
+}
+
+func (m *createFeatureModel) viewApproved(width int) string {
+	if m.result == nil {
+		return ""
+	}
+
+	leftWidth := width / 3
+	midWidth := width - leftWidth - 3
+	if leftWidth < 20 {
+		leftWidth = 20
+	}
+	if midWidth < 20 {
+		midWidth = 20
+	}
+
+	availHeight := m.height - 6
+
+	// Left pane: feature header + committed count
+	var left strings.Builder
+	featureHdr := paneHeaderActive.Render("── feature ") + featureNameStyle.Render(m.featureName()) + " "
+	if remaining := leftWidth - lipgloss.Width(featureHdr); remaining > 0 {
+		featureHdr += paneHeaderActive.Render(strings.Repeat("─", remaining))
+	}
+	left.WriteString(featureHdr + "\n")
+	if m.result.Summary != "" {
+		left.WriteString(featureSummaryStyle.Width(leftWidth - 2).Render(m.result.Summary) + "\n")
+	}
+	left.WriteString("\n")
+	left.WriteString(statusOk.Render(fmt.Sprintf("  ✓ %d runes committed", len(m.result.NewRunes))) + "\n")
+
+	// Right pane: composition tree
+	var mid strings.Builder
+	treeHdr := paneHeaderInactive.Render("── composition ") + " "
+	if remaining := midWidth - lipgloss.Width(treeHdr); remaining > 0 {
+		treeHdr += paneHeaderInactive.Render(strings.Repeat("─", remaining))
+	}
+	mid.WriteString(treeHdr + "\n\n")
+	mid.WriteString(renderCompositionTree(m.result.NewRunes))
+
+	m.midVP.Width = midWidth
+	m.midVP.Height = availHeight
+	m.midVP.SetContent(mid.String())
+
+	sepChar := lipgloss.NewStyle().Foreground(border).Render("│")
+	sepLines := make([]string, availHeight)
+	for i := range sepLines {
+		sepLines[i] = " " + sepChar + " "
+	}
+
+	leftContent := lipgloss.NewStyle().Width(leftWidth).Height(availHeight).Render(left.String())
+	layout := lipgloss.JoinHorizontal(lipgloss.Top,
+		leftContent,
+		strings.Join(sepLines, "\n"),
+		m.midVP.View(),
+	)
+
+	return layout
+}
+
 func (m *createFeatureModel) viewRefining(width int) string {
 	var label string
 	switch m.inputMode {
 	case inputRefineFeature:
-		label = "Refine feature"
+		label = "Comment on feature"
 	case inputRefineRune:
-		label = "Refine rune " + m.selectedRuneName()
+		label = "Comment on " + m.selectedRuneName()
 	}
 	var b strings.Builder
 	b.WriteString(m.viewResult(width))
@@ -724,7 +1015,7 @@ func (m *createFeatureModel) viewRefining(width int) string {
 	return b.String()
 }
 
-// sortRunesStdLast reorders runes so std-namespace runes come after feature runes.
+// sortRunesStdLast reorders runes so std package runes come after feature runes.
 func sortRunesStdLast(runes []proposedRune) {
 	sort.SliceStable(runes, func(i, j int) bool {
 		ni, nj := runes[i].Name, runes[j].Name
@@ -744,14 +1035,14 @@ func sortRunesStdLast(runes []proposedRune) {
 	})
 }
 
-// runeGroup holds runes under a common namespace.
+// runeGroup holds runes under a common top-level package.
 type runeGroup struct {
-	namespace string
+	pkg string
 	indices   []int // indices into NewRunes
 }
 
-// groupRunesByNamespace groups runes by their top-level namespace (first dot segment).
-func groupRunesByNamespace(runes []proposedRune) []runeGroup {
+// groupRunesByPackage groups runes by their top-level package (first dot segment).
+func groupRunesByPackage(runes []proposedRune) []runeGroup {
 	order := []string{}
 	groups := map[string][]int{}
 	for i, r := range runes {
@@ -775,12 +1066,12 @@ func groupRunesByNamespace(runes []proposedRune) []runeGroup {
 	})
 	result := make([]runeGroup, len(order))
 	for i, ns := range order {
-		result[i] = runeGroup{namespace: ns, indices: groups[ns]}
+		result[i] = runeGroup{pkg: ns, indices: groups[ns]}
 	}
 	return result
 }
 
-// featureName returns the API-provided name or derives one from the rune namespaces.
+// featureName returns the API-provided name or derives one from the rune packages.
 func (m *createFeatureModel) featureName() string {
 	if m.result.FeatureName != "" {
 		return m.result.FeatureName
@@ -797,7 +1088,7 @@ func (m *createFeatureModel) featureName() string {
 	return "feature"
 }
 
-// leafName returns the part of a dot-path after the top-level namespace.
+// leafName returns the part of a dot-path after the top-level package.
 func leafName(fullPath string) string {
 	if dot := strings.IndexByte(fullPath, '.'); dot > 0 {
 		return fullPath[dot+1:]
@@ -812,32 +1103,36 @@ func (m *createFeatureModel) buildRuneListItems() {
 		return
 	}
 
-	groups := groupRunesByNamespace(m.result.NewRunes)
+	groups := groupRunesByPackage(m.result.NewRunes)
 	var items []list.Item
 
 	for _, g := range groups {
 		selfIdx := -1
 		for _, idx := range g.indices {
-			if leafName(m.result.NewRunes[idx].Name) == g.namespace {
+			if leafName(m.result.NewRunes[idx].Name) == g.pkg {
 				selfIdx = idx
 				break
 			}
 		}
 
+		_, selfHasComment := m.runeComments[selfIdx]
 		items = append(items, runeListItem{
-			runeIdx:  selfIdx,
-			name:     g.namespace,
-			isHeader: true,
-			count:    len(g.indices),
+			runeIdx:    selfIdx,
+			name:       g.pkg,
+			isHeader:   true,
+			count:      len(g.indices),
+			hasComment: selfHasComment,
 		})
 
 		for _, idx := range g.indices {
 			if idx == selfIdx {
 				continue
 			}
+			_, hasComment := m.runeComments[idx]
 			items = append(items, runeListItem{
-				runeIdx: idx,
-				name:    leafName(m.result.NewRunes[idx].Name),
+				runeIdx:    idx,
+				name:       leafName(m.result.NewRunes[idx].Name),
+				hasComment: hasComment,
 			})
 		}
 	}
@@ -943,7 +1238,7 @@ func renderNode(b *strings.Builder, path string, childrenMap map[string][]string
 	}
 
 	if depth == 0 {
-		b.WriteString(namespaceStyle.Render(leaf) + "\n")
+		b.WriteString(pkgStyle.Render(leaf) + "\n")
 	} else {
 		connector := "├── "
 		if isLast {
@@ -994,7 +1289,14 @@ func (m *createFeatureModel) viewResult(width int) string {
 		midWidth = 20
 	}
 
-	availHeight := m.height - 6
+	footerLines := 2 // status line + help bar
+	if m.featureComment != "" {
+		footerLines++
+	}
+	if m.commentCount() > 0 {
+		footerLines++
+	}
+	availHeight := m.height - 4 - footerLines
 	if m.state == stateRefining {
 		availHeight -= 2
 	}
@@ -1045,7 +1347,7 @@ func (m *createFeatureModel) viewResult(width int) string {
 
 		if isPackage(r.Name, m.result.NewRunes) {
 			// Package view
-			pkgHdr := paneHeaderInactive.Render("── package ") + namespaceStyle.Render(r.Name) + " "
+			pkgHdr := paneHeaderInactive.Render("── package ") + pkgStyle.Render(r.Name) + " "
 			if remaining := midWidth - lipgloss.Width(pkgHdr); remaining > 0 {
 				pkgHdr += paneHeaderInactive.Render(strings.Repeat("─", remaining))
 			}
@@ -1085,6 +1387,16 @@ func (m *createFeatureModel) viewResult(width int) string {
 					mid.WriteString(assumptionStyle.Render("? ") + lipgloss.NewStyle().Width(midWidth-4).Render(a) + "\n")
 				}
 			}
+
+			// Show comment if present
+			if comment, ok := m.runeComments[selectedRuneIdx]; ok {
+				commentHdr := "\n" + paneHeaderInactive.Render("── your comment ") + " "
+				if remaining := midWidth - lipgloss.Width(commentHdr); remaining > 0 {
+					commentHdr += paneHeaderInactive.Render(strings.Repeat("─", remaining))
+				}
+				mid.WriteString(commentHdr + "\n")
+				mid.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623")).Width(midWidth-2).Render(comment) + "\n")
+			}
 		} else {
 			// Rune view
 			runeHdr := paneHeaderInactive.Render("── rune ") + runeNameStyle.Render(r.Name) + " "
@@ -1116,6 +1428,16 @@ func (m *createFeatureModel) viewResult(width int) string {
 				for _, a := range r.Assumptions {
 					mid.WriteString(assumptionStyle.Render("? ") + lipgloss.NewStyle().Width(midWidth-4).Render(a) + "\n")
 				}
+			}
+
+			// Show comment if present
+			if comment, ok := m.runeComments[selectedRuneIdx]; ok {
+				commentHdr := "\n" + paneHeaderInactive.Render("── your comment ") + " "
+				if remaining := midWidth - lipgloss.Width(commentHdr); remaining > 0 {
+					commentHdr += paneHeaderInactive.Render(strings.Repeat("─", remaining))
+				}
+				mid.WriteString(commentHdr + "\n")
+				mid.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623")).Width(midWidth-2).Render(comment) + "\n")
 			}
 		}
 	} else if selectedExisting != nil {
@@ -1150,5 +1472,24 @@ func (m *createFeatureModel) viewResult(width int) string {
 		m.midVP.View(),
 	)
 
-	return layout + "\n\n" + statusOk.Render(fmt.Sprintf("%d runes proposed", len(m.result.NewRunes)))
+	// Footer with status and comments
+	var footer strings.Builder
+	if m.errMsg != "" {
+		footer.WriteString(statusErr.Render(m.errMsg))
+		m.errMsg = ""
+	} else {
+		footer.WriteString(statusOk.Render(fmt.Sprintf("%d runes proposed", len(m.result.NewRunes))))
+	}
+
+	if m.featureComment != "" {
+		footer.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623")).Render("Feature: ") +
+			lipgloss.NewStyle().Foreground(dim).Width(width-12).Render(m.featureComment))
+	}
+
+	if count := m.commentCount(); count > 0 {
+		footer.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623")).Render(
+			fmt.Sprintf("%d comment%s pending", count, map[bool]string{true: "", false: "s"}[count == 1])))
+	}
+
+	return layout + "\n\n" + footer.String()
 }

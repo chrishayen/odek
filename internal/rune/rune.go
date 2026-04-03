@@ -422,9 +422,6 @@ func validate(r Rune) error {
 	if !IsDotPath(r.Name) {
 		return fmt.Errorf("name must be a dot-separated path (e.g. auth.validate_email)")
 	}
-	if !strings.Contains(r.Name, ".") {
-		return fmt.Errorf("name must include a namespace (e.g. auth.validate_email)")
-	}
 	if r.Description == "" {
 		return fmt.Errorf("description is required")
 	}
