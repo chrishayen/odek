@@ -24,7 +24,7 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("load proxy config: %w", err)
 		}
 
-		cancelProxy, err := startProxy(false)
+		cancelProxy, err := startProxy(false, true)
 		if err != nil {
 			return fmt.Errorf("proxy: %w", err)
 		}

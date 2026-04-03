@@ -20,7 +20,7 @@ import (
 
 // startProxy embeds CLIProxyAPI and runs it in-process.
 // When quiet is true, proxy logs are suppressed.
-func startProxy(quiet bool) (func(), error) {
+func startProxy(quiet bool, skipModelCheck ...bool) (func(), error) {
 	configPath := os.Getenv("CLIPROXY_CONFIG")
 	if configPath == "" {
 		configPath = "config.yaml"
@@ -74,6 +74,10 @@ func startProxy(quiet bool) (func(), error) {
 	}
 	if os.Getenv("ANTHROPIC_API_KEY") == "" {
 		os.Setenv("ANTHROPIC_API_KEY", "sk-local-proxy")
+	}
+
+	if len(skipModelCheck) > 0 && skipModelCheck[0] {
+		return cancel, nil
 	}
 
 	// Wait for models to load.

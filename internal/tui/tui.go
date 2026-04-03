@@ -52,6 +52,8 @@ var (
 			Foreground(dim)
 
 	helpBarStyle = lipgloss.NewStyle()
+
+	viewPadX = 1
 )
 
 // Key bindings
@@ -281,12 +283,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.help.Width = msg.Width
+		innerWidth := msg.Width - viewPadX*2
+		m.help.Width = innerWidth
 		if m.screen == screenCreateFeature {
-			m.createForm.resize(msg.Width, msg.Height)
+			m.createForm.resize(innerWidth, msg.Height)
 		}
 		if m.screen == screenFeatureList {
-			m.featureList.list.SetSize(msg.Width, msg.Height-3)
+			m.featureList.list.SetSize(innerWidth, msg.Height-3)
 		}
 		return m, nil
 
@@ -304,7 +307,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case draftSelectedMsg:
-		m.createForm = newCreateFeatureModelFromDraft(m.port, m.width, m.height, m.draftStore, msg.draft)
+		m.createForm = newCreateFeatureModelFromDraft(m.port, m.width-viewPadX*2, m.height, m.draftStore, msg.draft)
 		m.screen = screenCreateFeature
 		if m.createForm.state == stateDone {
 			return m, nil
@@ -316,7 +319,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case newFeatureMsg:
-		m.createForm = newCreateFeatureModel(m.port, m.width, m.height, m.draftStore)
+		m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.draftStore)
 		m.screen = screenCreateFeature
 		return m, m.createForm.descInput.Focus()
 
@@ -330,13 +333,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "l":
 			if m.screen == screenSplash {
-				m.featureList = newFeatureListModel(m.draftStore, m.featureStore, m.width, m.height)
+				m.featureList = newFeatureListModel(m.draftStore, m.featureStore, m.width-viewPadX*2, m.height)
 				m.screen = screenFeatureList
 				return m, nil
 			}
 		case "enter":
 			if m.screen == screenSplash {
-				m.createForm = newCreateFeatureModel(m.port, m.width, m.height, m.draftStore)
+				m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.draftStore)
 				m.screen = screenCreateFeature
 				return m, m.createForm.descInput.Focus()
 			}
@@ -404,20 +407,23 @@ func (m Model) createFeatureKeyMap() help.KeyMap {
 }
 
 func (m Model) viewCreateFeature() string {
-	header := renderGradientOnBg(" "+logoSmall, gradStops, "#1A1A1A", m.width)
-	form := m.createForm.view(m.width)
+	innerWidth := m.width - viewPadX*2
+	header := renderGradientOnBg(" "+logoSmall, gradStops, "#1A1A1A", innerWidth)
+	form := m.createForm.view(innerWidth)
 	helpBar := helpBarStyle.Render(m.help.View(m.createFeatureKeyMap()))
 
 	body := header + "\n\n" + form
 	bodyBlock := lipgloss.NewStyle().Height(m.height - 1).Render(body)
 
-	return bodyBlock + "\n" + helpBar
+	content := bodyBlock + "\n" + helpBar
+	return lipgloss.NewStyle().PaddingLeft(viewPadX).PaddingRight(viewPadX).Render(content)
 }
 
 func (m Model) viewFeatureList() string {
-	header := renderGradientOnBg(" "+logoSmall, gradStops, "#1A1A1A", m.width)
+	innerWidth := m.width - viewPadX*2
+	header := renderGradientOnBg(" "+logoSmall, gradStops, "#1A1A1A", innerWidth)
 	content := m.featureList.view()
 
 	body := header + "\n\n" + content
-	return lipgloss.NewStyle().Height(m.height).Render(body)
+	return lipgloss.NewStyle().PaddingLeft(viewPadX).PaddingRight(viewPadX).Height(m.height).Render(body)
 }
