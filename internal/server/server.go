@@ -10,7 +10,6 @@ import (
 	"github.com/chrishayen/odek/config"
 	"github.com/chrishayen/odek/internal/app"
 	"github.com/chrishayen/odek/internal/decomposer"
-	"github.com/chrishayen/odek/internal/feature"
 	"github.com/chrishayen/odek/internal/hydrator"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 	"github.com/chrishayen/odek/internal/server/jobs"
@@ -18,27 +17,25 @@ import (
 
 // Server is the Odek HTTP API server.
 type Server struct {
-	cfg          *config.Config
-	runeStore    *runepkg.Store
-	featureStore *feature.Store
-	appStore     *app.Store
-	dec          *decomposer.Decomposer
-	hyd          *hydrator.Hydrator
-	jobs         *jobs.Manager
-	mux          *http.ServeMux
+	cfg       *config.Config
+	runeStore *runepkg.Store
+	appStore  *app.Store
+	dec       *decomposer.Decomposer
+	hyd       *hydrator.Hydrator
+	jobs      *jobs.Manager
+	mux       *http.ServeMux
 }
 
 // New creates a new Server.
-func New(cfg *config.Config, runeStore *runepkg.Store, featureStore *feature.Store, appStore *app.Store, dec *decomposer.Decomposer, hyd *hydrator.Hydrator) *Server {
+func New(cfg *config.Config, runeStore *runepkg.Store, appStore *app.Store, dec *decomposer.Decomposer, hyd *hydrator.Hydrator) *Server {
 	s := &Server{
-		cfg:          cfg,
-		runeStore:    runeStore,
-		featureStore: featureStore,
-		appStore:     appStore,
-		dec:          dec,
-		hyd:          hyd,
-		jobs:         &jobs.Manager{},
-		mux:          http.NewServeMux(),
+		cfg:       cfg,
+		runeStore: runeStore,
+		appStore:  appStore,
+		dec:       dec,
+		hyd:       hyd,
+		jobs:      &jobs.Manager{},
+		mux:       http.NewServeMux(),
 	}
 	s.routes()
 	return s
@@ -243,22 +240,22 @@ func (s *Server) handleJobStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFeaturesList(w http.ResponseWriter, r *http.Request) {
-	features, err := s.featureStore.List()
+	pkgs, err := s.runeStore.TopLevelPackages()
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	jsonResponse(w, http.StatusOK, features)
+	jsonResponse(w, http.StatusOK, pkgs)
 }
 
 func (s *Server) handleFeaturesGet(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	f, err := s.featureStore.Get(name)
+	rn, err := s.runeStore.Get(name)
 	if err != nil {
 		jsonError(w, http.StatusNotFound, fmt.Sprintf("feature %q not found", name))
 		return
 	}
-	jsonResponse(w, http.StatusOK, f)
+	jsonResponse(w, http.StatusOK, rn)
 }
 
 func (s *Server) handleAppsList(w http.ResponseWriter, r *http.Request) {

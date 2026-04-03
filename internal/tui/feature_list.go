@@ -11,24 +11,24 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/chrishayen/odek/internal/draft"
-	"github.com/chrishayen/odek/internal/feature"
+	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
 type draftSelectedMsg struct{ draft draft.Draft }
-type featureSelectedMsg struct{ feature feature.Feature }
+type featureSelectedMsg struct{ name string }
 type newFeatureMsg struct{}
 
-// listItem wraps either a Draft or Feature for bubbles/list.
+// listItem wraps either a Draft or a top-level Rune for bubbles/list.
 type listItem struct {
-	draft   *draft.Draft
-	feature *feature.Feature
+	draft *draft.Draft
+	rune  *runepkg.Rune
 }
 
 func (i listItem) FilterValue() string {
 	if i.draft != nil {
 		return i.draft.FeatureName
 	}
-	return i.feature.Name
+	return i.rune.Name
 }
 
 func (i listItem) isDraft() bool { return i.draft != nil }
@@ -96,20 +96,17 @@ func (d featureDelegate) Render(w io.Writer, m list.Model, index int, item list.
 		}
 		desc += "  " + fdTimeStyle.Render(timeAgo(li.draft.UpdatedAt))
 	} else {
-		f := li.feature
+		r := li.rune
 		if selected {
-			title = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true).Render(f.Name)
+			title = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true).Render(r.Name)
 		} else {
-			title = fdNameStyle.Render(f.Name)
+			title = fdNameStyle.Render(r.Name)
 		}
 
-		status := f.Status
-		if status == "" {
-			status = "unknown"
-		}
-		version := f.Version
-		if version == "" {
-			version = "-"
+		version := r.Version.String()
+		status := "pending"
+		if r.Hydrated {
+			status = "hydrated"
 		}
 		desc = fdStatusStyle.Render(status + "  " + version)
 	}
@@ -135,15 +132,15 @@ func (d featureDelegate) Render(w io.Writer, m list.Model, index int, item list.
 
 // featureListModel wraps bubbles/list.
 type featureListModel struct {
-	list         list.Model
-	draftStore   *draft.Store
-	featureStore *feature.Store
-	drafts       []draft.Draft
-	features     []feature.Feature
-	err          string
+	list       list.Model
+	draftStore *draft.Store
+	runeStore  *runepkg.Store
+	drafts     []draft.Draft
+	packages   []runepkg.Rune
+	err        string
 }
 
-func newFeatureListModel(draftStore *draft.Store, featureStore *feature.Store, width, height int) featureListModel {
+func newFeatureListModel(draftStore *draft.Store, runeStore *runepkg.Store, width, height int) featureListModel {
 	l := list.New(nil, featureDelegate{}, width, height)
 	l.Title = "features"
 	l.Styles.Title = lipgloss.NewStyle().
@@ -163,9 +160,9 @@ func newFeatureListModel(draftStore *draft.Store, featureStore *feature.Store, w
 	}
 
 	m := featureListModel{
-		list:         l,
-		draftStore:   draftStore,
-		featureStore: featureStore,
+		list:       l,
+		draftStore: draftStore,
+		runeStore:  runeStore,
 	}
 	m.reload()
 	return m
@@ -179,28 +176,26 @@ func (m *featureListModel) reload() {
 	}
 	m.drafts = drafts
 
-	if m.featureStore != nil {
-		features, err := m.featureStore.List()
-		if err != nil {
-			m.err = err.Error()
-			return
-		}
-		m.features = features
+	pkgs, err := m.runeStore.TopLevelPackages()
+	if err != nil {
+		m.err = err.Error()
+		return
 	}
+	m.packages = pkgs
 
 	m.err = ""
-	items := make([]list.Item, 0, len(m.drafts)+len(m.features))
+	items := make([]list.Item, 0, len(m.drafts)+len(m.packages))
 	for i := range m.drafts {
 		items = append(items, listItem{draft: &m.drafts[i]})
 	}
-	for i := range m.features {
-		items = append(items, listItem{feature: &m.features[i]})
+	for i := range m.packages {
+		items = append(items, listItem{rune: &m.packages[i]})
 	}
 	m.list.SetItems(items)
 }
 
 func (m *featureListModel) totalItems() int {
-	return len(m.drafts) + len(m.features)
+	return len(m.drafts) + len(m.packages)
 }
 
 func (m *featureListModel) update(msg tea.Msg) tea.Cmd {
@@ -212,7 +207,7 @@ func (m *featureListModel) update(msg tea.Msg) tea.Cmd {
 				if item.isDraft() {
 					return func() tea.Msg { return draftSelectedMsg{draft: *item.draft} }
 				}
-				return func() tea.Msg { return featureSelectedMsg{feature: *item.feature} }
+				return func() tea.Msg { return featureSelectedMsg{name: item.rune.Name} }
 			}
 		case "n":
 			return func() tea.Msg { return newFeatureMsg{} }

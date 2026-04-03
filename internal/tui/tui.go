@@ -10,7 +10,7 @@ import (
 	"github.com/lucasb-eyer/go-colorful"
 
 	"github.com/chrishayen/odek/internal/draft"
-	"github.com/chrishayen/odek/internal/feature"
+	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
 type screen int
@@ -72,7 +72,7 @@ var (
 	keySubmitRefine    = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "submit"))
 	keyHydrate         = key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "hydrate"))
 	keyLogin           = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "login"))
-	keyFeatures        = key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "features"))
+	keyFeatures        = key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "features"))
 )
 
 // Help keymaps per state
@@ -235,19 +235,19 @@ type Model struct {
 	port         int
 	registryPath string
 	draftStore   *draft.Store
-	featureStore *feature.Store
+	runeStore    *runepkg.Store
 	createForm   createFeatureModel
 	featureList  featureListModel
 	help         help.Model
 }
 
-func New(port int, registryPath string, featureStore *feature.Store, draftStore *draft.Store) Model {
+func New(port int, registryPath string, runeStore *runepkg.Store, draftStore *draft.Store) Model {
 	return Model{
 		screen:       screenSplash,
 		port:         port,
 		registryPath: registryPath,
 		draftStore:   draftStore,
-		featureStore: featureStore,
+		runeStore:    runeStore,
 		help:         newHelpModel(),
 	}
 }
@@ -295,7 +295,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.draftStore)
 		m.screen = screenCreateFeature
 		// Load runes directly — featureLoadedMsg will set stateApproved
-		return m, loadFeatureRunes(msg.feature.Name, m.port)
+		return m, loadFeatureRunes(msg.name, m.port)
 
 	case newFeatureMsg:
 		m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.draftStore)
@@ -310,9 +310,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.screen == screenSplash {
 				return m, tea.Quit
 			}
-		case "l":
+		case "f":
 			if m.screen == screenSplash {
-				m.featureList = newFeatureListModel(m.draftStore, m.featureStore, m.width-viewPadX*2, m.height)
+				m.featureList = newFeatureListModel(m.draftStore, m.runeStore, m.width-viewPadX*2, m.height)
 				m.screen = screenFeatureList
 				return m, nil
 			}

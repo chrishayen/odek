@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/chrishayen/odek/config"
 	"github.com/chrishayen/odek/internal/app"
@@ -39,13 +40,13 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("config: %w", err)
 		}
-		store = runepkg.NewStore(cfg.RegistryPath, cfg.OutputPath)
-		featureStore = feature.NewStore(cfg.RegistryPath, cfg.OutputPath)
+		store = runepkg.NewStore(filepath.Join(cfg.RegistryPath, "runes"), cfg.OutputPath)
+		featureStore = feature.NewStore(store, cfg.OutputPath)
 		appStore = app.NewStore(cfg.RegistryPath, cfg.OutputPath)
 		client = claude.New(cfg.Agent.Model, cfg.Agent.ResolveToken(), cfg.Agent.Mock)
 		hyd = hydrator.New(store, client, cfg.Language)
-		dec = decomposer.New(store, client, cfg.Project)
-		comp = composer.New(featureStore, store, client, cfg.Language)
+		dec = decomposer.New(store, client)
+		comp = composer.New(store, client, cfg.Language)
 		return nil
 	},
 }

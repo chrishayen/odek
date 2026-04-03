@@ -53,9 +53,6 @@ mock = true
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Project != "mytest" {
-		t.Errorf("Project = %q", cfg.Project)
-	}
 	if cfg.Language != "go" {
 		t.Errorf("Language = %q", cfg.Language)
 	}
@@ -67,17 +64,6 @@ mock = true
 	}
 	if !cfg.Agent.Mock {
 		t.Error("expected Agent.Mock = true")
-	}
-}
-
-func TestLoadMissingProject(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "odek.toml"), []byte(`language = "go"`), 0644)
-	t.Setenv("ODEK_PROJECT_DIR", dir)
-
-	_, err := Load()
-	if err == nil {
-		t.Error("expected error for missing project")
 	}
 }
 

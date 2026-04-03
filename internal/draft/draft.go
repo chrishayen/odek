@@ -11,13 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chrishayen/odek/internal/feature"
 	"github.com/chrishayen/odek/internal/frontmatter"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
 // Draft represents an in-progress feature decomposition stored as a folder
-// under draft/ in the registry, containing a feature.md and rune files.
+// under runes/draft/ in the registry, containing a feature.md and rune files.
 type Draft struct {
 	ID          string    // folder name, e.g. "hello_world_a8f3b2"
 	FeatureName string    // from feature.md
@@ -29,9 +28,9 @@ type Draft struct {
 	UpdatedAt   time.Time // feature.md mod time
 }
 
-// Store manages draft folders inside registry/draft/.
+// Store manages draft folders inside runes/draft/.
 type Store struct {
-	dir          string // registry/draft/
+	dir          string // runes/draft/
 	registryPath string // registry root (for merge target)
 	outputPath   string // code output root
 }
@@ -39,7 +38,7 @@ type Store struct {
 // NewStore creates a draft store. registryPath is the registry root.
 func NewStore(registryPath, outputPath string) *Store {
 	return &Store{
-		dir:          filepath.Join(registryPath, "draft"),
+		dir:          filepath.Join(registryPath, "runes", "draft"),
 		registryPath: registryPath,
 		outputPath:   outputPath,
 	}
@@ -247,10 +246,10 @@ func (s *Store) ListRunes(id string) ([]runepkg.Rune, error) {
 	return rs.List()
 }
 
-// Merge moves a draft's runes into the main registry and creates the feature.
+// Merge moves a draft's runes into the main registry.
 // The draft folder is deleted after a successful merge.
 func (s *Store) Merge(id string) error {
-	d, err := s.Get(id)
+	_, err := s.Get(id)
 	if err != nil {
 		return err
 	}
@@ -261,21 +260,13 @@ func (s *Store) Merge(id string) error {
 	}
 
 	// Create runes in the main registry
-	mainRuneStore := runepkg.NewStore(s.registryPath, s.outputPath)
+	mainRuneStore := runepkg.NewStore(filepath.Join(s.registryPath, "runes"), s.outputPath)
 	for _, r := range runes {
 		if err := mainRuneStore.Create(r); err != nil {
 			if strings.Contains(err.Error(), "already exists") {
 				continue
 			}
 			return fmt.Errorf("merging rune %q: %w", r.Name, err)
-		}
-	}
-
-	// Create the feature in the main registry
-	featureStore := feature.NewStore(s.registryPath, s.outputPath)
-	if err := featureStore.Create(d.FeatureName, d.Summary); err != nil {
-		if !strings.Contains(err.Error(), "already exists") {
-			return fmt.Errorf("creating feature: %w", err)
 		}
 	}
 
@@ -304,19 +295,4 @@ func shortID() string {
 	b := make([]byte, 3)
 	rand.Read(b)
 	return hex.EncodeToString(b)
-}
-
-// SkipDir is used by rune.Store.ScanAll to skip the draft directory.
-// The draft folder name.
-const DirName = "draft"
-
-// IsDraftDir returns true if the given directory name is the draft directory.
-func IsDraftDir(name string) bool {
-	return name == DirName
-}
-
-// WalkFilter can be used to check if a path is within the draft directory.
-func WalkFilter(registryPath, path string) bool {
-	draftDir := filepath.Join(registryPath, DirName)
-	return strings.HasPrefix(path, draftDir)
 }

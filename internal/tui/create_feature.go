@@ -408,6 +408,7 @@ func runesToResult(featureName, summary string, runes []runepkg.Rune) *decompose
 			PositiveTests: r.PositiveTests,
 			NegativeTests: r.NegativeTests,
 			Assumptions:   r.Assumptions,
+			Refs:          r.Dependencies,
 		}
 	}
 	return &decomposeResult{
@@ -457,6 +458,7 @@ func (m *createFeatureModel) saveDraft() string {
 				PositiveTests: pr.PositiveTests,
 				NegativeTests: pr.NegativeTests,
 				Assumptions:   pr.Assumptions,
+				Dependencies:  pr.Refs,
 			}
 		}
 		_ = m.draftStore.SaveRunes(m.draftID, runes)
@@ -908,12 +910,16 @@ func loadFeatureRunes(featureName string, port int) tea.Cmd {
 
 		// Filter runes belonging to this feature (matching top-level package)
 		var matched []proposedRune
+		var summary string
 		for _, r := range allRunes {
 			pkg := r.Name
 			if dot := strings.IndexByte(pkg, '.'); dot > 0 {
 				pkg = pkg[:dot]
 			}
 			if pkg == featureName {
+				if r.Name == featureName {
+					summary = r.Description
+				}
 				matched = append(matched, proposedRune{
 					Name:          r.Name,
 					Description:   r.Description,
@@ -922,25 +928,6 @@ func loadFeatureRunes(featureName string, port int) tea.Cmd {
 					NegativeTests: r.NegativeTests,
 					Assumptions:   r.Assumptions,
 				})
-			}
-		}
-
-		// Also load the feature summary
-		var summary string
-		fResp, err := http.Get(fmt.Sprintf("http://localhost:%d/api/features/%s", port, featureName))
-		if err == nil {
-			defer fResp.Body.Close()
-			var feat struct {
-				Raw string `json:"raw"`
-			}
-			json.NewDecoder(fResp.Body).Decode(&feat)
-			// Extract summary from body after frontmatter
-			if idx := strings.Index(feat.Raw, "\n---\n"); idx >= 0 {
-				body := strings.TrimSpace(feat.Raw[idx+5:])
-				// Skip # heading line
-				if nl := strings.Index(body, "\n"); nl >= 0 {
-					summary = strings.TrimSpace(body[nl+1:])
-				}
 			}
 		}
 
@@ -1500,6 +1487,19 @@ func (m *createFeatureModel) viewResult(width int) string {
 				}
 			}
 
+			// Aggregate links from package and all children
+			var allRefs []string
+			allRefs = append(allRefs, r.Refs...)
+			for _, child := range children {
+				allRefs = append(allRefs, child.Refs...)
+			}
+			if len(allRefs) > 0 {
+				mid.WriteString("\n" + runeSigStyle.Render("dependencies:") + "\n")
+				for _, ref := range allRefs {
+					mid.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#6A9FD9")).Render("-> ") + lipgloss.NewStyle().Foreground(dim).Width(midWidth-4).Render(ref) + "\n")
+				}
+			}
+
 			// Show comment if present
 			if comment, ok := m.runeComments[selectedRuneIdx]; ok {
 				commentHdr := "\n" + paneHeaderInactive.Render("── your comment ") + " "
@@ -1539,6 +1539,13 @@ func (m *createFeatureModel) viewResult(width int) string {
 				mid.WriteString("\n" + runeSigStyle.Render("assumes:") + "\n")
 				for _, a := range r.Assumptions {
 					mid.WriteString(assumptionStyle.Render("? ") + lipgloss.NewStyle().Width(midWidth-4).Render(a) + "\n")
+				}
+			}
+
+			if len(r.Refs) > 0 {
+				mid.WriteString("\n" + runeSigStyle.Render("dependencies:") + "\n")
+				for _, ref := range r.Refs {
+					mid.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#6A9FD9")).Render("-> ") + lipgloss.NewStyle().Foreground(dim).Width(midWidth-4).Render(ref) + "\n")
 				}
 			}
 

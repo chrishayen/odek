@@ -209,12 +209,12 @@ type Rune struct {
 
 // Store manages rune specs on disk using dot-path directories with semver-named files.
 type Store struct {
-	registryPath string
-	outputPath   string
+	runesPath  string
+	outputPath string
 }
 
-func NewStore(registryPath, outputPath string) *Store {
-	return &Store{registryPath: registryPath, outputPath: outputPath}
+func NewStore(runesPath, outputPath string) *Store {
+	return &Store{runesPath: runesPath, outputPath: outputPath}
 }
 
 // OutputPath returns the root output directory for generated code.
@@ -222,7 +222,7 @@ func (s *Store) OutputPath() string { return s.outputPath }
 
 // runeDir returns the directory for a dot-path rune name.
 func (s *Store) runeDir(name string) string {
-	return filepath.Join(s.registryPath, "runes", strings.ReplaceAll(name, ".", string(filepath.Separator)))
+	return filepath.Join(s.runesPath, strings.ReplaceAll(name, ".", string(filepath.Separator)))
 }
 
 // CodeDir returns the directory where generated code for a rune is stored.
@@ -286,6 +286,23 @@ func (s *Store) List() ([]Rune, error) {
 	return runes, nil
 }
 
+// TopLevelPackages returns the latest rune for each top-level directory under runes/.
+// These represent "features" — packages with no dot in their name that have
+// a signature (not empty structural packages).
+func (s *Store) TopLevelPackages() ([]Rune, error) {
+	runes, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	var pkgs []Rune
+	for _, r := range runes {
+		if !strings.Contains(r.Name, ".") && r.Signature != "" {
+			pkgs = append(pkgs, r)
+		}
+	}
+	return pkgs, nil
+}
+
 func (s *Store) Update(r Rune) error {
 	if err := validate(r); err != nil {
 		return err
@@ -307,7 +324,7 @@ func (s *Store) Delete(name string) error {
 
 // ScanAll walks the registry and returns ALL rune versions found.
 func (s *Store) ScanAll() ([]Rune, error) {
-	base := filepath.Join(s.registryPath, "runes")
+	base := s.runesPath
 	if _, err := os.Stat(base); os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -317,6 +334,9 @@ func (s *Store) ScanAll() ([]Rune, error) {
 			return err
 		}
 		if d.IsDir() {
+			if d.Name() == "draft" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !strings.HasSuffix(d.Name(), ".md") {

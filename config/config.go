@@ -100,10 +100,6 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("reading config %s: %w", path, err)
 	}
 
-	if cfg.Project == "" {
-		return nil, fmt.Errorf("project name is required in %s", path)
-	}
-
 	if cfg.Language == "" {
 		cfg.Language = "go"
 	}

@@ -22,11 +22,11 @@ var tuiCmd = &cobra.Command{
 		defer cancelProxy()
 
 		port := cfg.Server.Port
-		s := server.New(cfg, store, featureStore, appStore, dec, hyd)
+		s := server.New(cfg, store, appStore, dec, hyd)
 		go http.ListenAndServe(fmt.Sprintf(":%d", port), s)
 
 		draftStore := draft.NewStore(cfg.RegistryPath, cfg.OutputPath)
-		p := tea.NewProgram(tui.New(port, cfg.RegistryPath, featureStore, draftStore), tea.WithAltScreen())
+		p := tea.NewProgram(tui.New(port, cfg.RegistryPath, store, draftStore), tea.WithAltScreen())
 		_, err = p.Run()
 		return err
 	},

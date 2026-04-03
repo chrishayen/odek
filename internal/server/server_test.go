@@ -11,7 +11,6 @@ import (
 	"github.com/chrishayen/odek/internal/app"
 	"github.com/chrishayen/odek/internal/claude"
 	"github.com/chrishayen/odek/internal/decomposer"
-	"github.com/chrishayen/odek/internal/feature"
 	"github.com/chrishayen/odek/internal/hydrator"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 )
@@ -30,12 +29,11 @@ func newTestServer(t *testing.T) (*Server, string) {
 		Server:       config.Server{Port: 0},
 	}
 	rs := runepkg.NewStore(dir, outPath)
-	fs := feature.NewStore(dir, outPath)
 	as := app.NewStore(dir, outPath)
 	client := claude.New("", "", true)
-	dec := decomposer.New(rs, client, "test")
+	dec := decomposer.New(rs, client)
 	hyd := hydrator.New(rs, client, "go")
-	s := New(cfg, rs, fs, as, dec, hyd)
+	s := New(cfg, rs, as, dec, hyd)
 	return s, dir
 }
 

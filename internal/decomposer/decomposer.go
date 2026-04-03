@@ -59,14 +59,13 @@ type Result struct {
 
 // Decomposer decomposes requirements into runes.
 type Decomposer struct {
-	store   *runepkg.Store
-	client  *claude.Client
-	project string
+	store  *runepkg.Store
+	client *claude.Client
 }
 
 // New creates a Decomposer backed by the given store and client.
-func New(store *runepkg.Store, client *claude.Client, project string) *Decomposer {
-	return &Decomposer{store: store, client: client, project: project}
+func New(store *runepkg.Store, client *claude.Client) *Decomposer {
+	return &Decomposer{store: store, client: client}
 }
 
 const metaSystemPrompt = `You name features. Given a requirement, respond with exactly this JSON and nothing else:
@@ -89,28 +88,25 @@ func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecompositio
 		output string
 		err    error
 	}
-	type metaOut struct {
-		name    string
-		summary string
-		err     error
-	}
 	type flowOut struct {
 		diagram string
 		err     error
 	}
 
+	// Generate feature name first so the tree prompt uses it
+	featureName, summary, metaErr := d.generateMeta(requirements)
+	if metaErr != nil {
+		featureName = "project_name"
+	}
+
+	prompt := strings.ReplaceAll(systemPrompt, "project_name", featureName)
+
 	treeCh := make(chan treeOut, 1)
-	metaCh := make(chan metaOut, 1)
 	flowCh := make(chan flowOut, 1)
 
-	prompt := strings.ReplaceAll(systemPrompt, "project_name", d.project)
 	go func() {
 		output, err := d.client.Call(prompt, userPrompt)
 		treeCh <- treeOut{output, err}
-	}()
-	go func() {
-		name, summary, err := d.generateMeta(requirements)
-		metaCh <- metaOut{name, summary, err}
 	}()
 	go func() {
 		diagram, err := d.client.Call(flowSystemPrompt, requirements)
@@ -131,10 +127,9 @@ func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecompositio
 
 	d.generatePackageSummaries(result, logOut)
 
-	mr := <-metaCh
-	if mr.err == nil {
-		result.FeatureName = mr.name
-		result.Summary = mr.summary
+	if metaErr == nil {
+		result.FeatureName = featureName
+		result.Summary = summary
 	}
 
 	fr := <-flowCh
@@ -247,7 +242,7 @@ func (d *Decomposer) buildPrompt(requirements, prevDecomposition string) (string
 	}
 
 	if prevDecomposition != "" {
-		b.WriteString("Your previous output (to be refined — output the COMPLETE updated trees including all std and project units, not just changes):\n")
+		b.WriteString("Your previous output (to be refined — output the COMPLETE updated trees including all std and feature units, not just changes):\n")
 		b.WriteString(prevDecomposition)
 		b.WriteString("\n\nThe user wants to refine the above. Apply this change and re-output both complete trees:\n")
 	}
@@ -296,3 +291,4 @@ func (d *Decomposer) parseResult(output string) (*Result, error) {
 
 	return result, nil
 }
+

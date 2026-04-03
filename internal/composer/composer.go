@@ -10,7 +10,6 @@ import (
 	"github.com/chrishayen/odek/framework"
 	"github.com/chrishayen/odek/internal/claude"
 	"github.com/chrishayen/odek/internal/codegen"
-	"github.com/chrishayen/odek/internal/feature"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
@@ -27,21 +26,20 @@ type Result struct {
 
 // Composer generates dispatcher and wiring code for a feature.
 type Composer struct {
-	featureStore *feature.Store
-	runeStore    *runepkg.Store
-	client       *claude.Client
-	language     string
+	runeStore *runepkg.Store
+	client    *claude.Client
+	language  string
 }
 
-func New(featureStore *feature.Store, runeStore *runepkg.Store, client *claude.Client, language string) *Composer {
-	return &Composer{featureStore: featureStore, runeStore: runeStore, client: client, language: language}
+func New(runeStore *runepkg.Store, client *claude.Client, language string) *Composer {
+	return &Composer{runeStore: runeStore, client: client, language: language}
 }
 
 // Compose generates wiring code for the named feature.
 func (c *Composer) Compose(_ context.Context, name string) (*Result, error) {
-	raw, err := c.featureStore.ReadRaw(name)
+	topRune, err := c.runeStore.Get(name)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("feature %q not found", name)
 	}
 
 	runes, err := c.runeStore.List()
@@ -49,13 +47,13 @@ func (c *Composer) Compose(_ context.Context, name string) (*Result, error) {
 		return nil, fmt.Errorf("listing runes: %w", err)
 	}
 
-	prompt := buildPrompt(raw, runes, c.language)
+	prompt := buildPrompt(*topRune, runes, c.language)
 
-	if err := framework.EnsureDispatch(c.featureStore.OutputPath()); err != nil {
+	if err := framework.EnsureDispatch(c.runeStore.OutputPath()); err != nil {
 		return nil, fmt.Errorf("ensuring dispatch framework: %w", err)
 	}
 
-	codeDir := c.featureStore.CodeDir(name)
+	codeDir := c.runeStore.CodeDir(name)
 	if err := os.MkdirAll(codeDir, 0755); err != nil {
 		return nil, fmt.Errorf("creating code dir: %w", err)
 	}
@@ -71,14 +69,10 @@ func (c *Composer) Compose(_ context.Context, name string) (*Result, error) {
 
 	coverage, testsRan := codegen.RunTests(codeDir, c.language)
 
-	feat, err := c.featureStore.Get(name)
-	if err != nil {
-		return nil, fmt.Errorf("reading feature for update: %w", err)
-	}
-	feat.Hydrated = true
-	feat.Coverage = coverage
-	if err := c.featureStore.Update(*feat); err != nil {
-		return nil, fmt.Errorf("updating feature: %w", err)
+	topRune.Hydrated = true
+	topRune.Coverage = coverage
+	if err := c.runeStore.Update(*topRune); err != nil {
+		return nil, fmt.Errorf("updating rune: %w", err)
 	}
 
 	return &Result{
@@ -89,14 +83,14 @@ func (c *Composer) Compose(_ context.Context, name string) (*Result, error) {
 	}, nil
 }
 
-func buildPrompt(rawFeature string, runes []runepkg.Rune, language string) string {
+func buildPrompt(topRune runepkg.Rune, runes []runepkg.Rune, language string) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "Write all code in %s.\n", language)
 	b.WriteString("\n---\n\n")
 
 	b.WriteString("## Feature spec\n\n")
-	b.WriteString(rawFeature)
+	fmt.Fprintf(&b, "**%s**: `%s` — %s\n", topRune.Name, topRune.Signature, topRune.Description)
 	b.WriteString("\n\n---\n\n")
 
 	if len(runes) > 0 {
@@ -108,4 +102,3 @@ func buildPrompt(rawFeature string, runes []runepkg.Rune, language string) strin
 
 	return b.String()
 }
-

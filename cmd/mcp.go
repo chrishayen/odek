@@ -7,7 +7,6 @@ import (
 
 	"github.com/chrishayen/odek/internal/app"
 	"github.com/chrishayen/odek/internal/decomposer"
-	"github.com/chrishayen/odek/internal/feature"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -85,31 +84,13 @@ var mcpCmd = &cobra.Command{
 		), handleRunesVerify)
 
 		s.AddTool(mcp.NewTool("features_list",
-			mcp.WithDescription("List all features in the registry."),
+			mcp.WithDescription("List all features (top-level rune packages)."),
 		), handleFeaturesList)
-
-		s.AddTool(mcp.NewTool("features_create",
-			mcp.WithDescription("Create a new feature in the registry."),
-			mcp.WithString("name", mcp.Description("Feature name as a single slug"), mcp.Required()),
-			mcp.WithString("body", mcp.Description("The full feature content in markdown"), mcp.Required()),
-		), handleFeaturesCreate)
 
 		s.AddTool(mcp.NewTool("features_get",
 			mcp.WithDescription("Retrieve a single feature by name."),
 			mcp.WithString("name", mcp.Description("Feature name"), mcp.Required()),
 		), handleFeaturesGet)
-
-		s.AddTool(mcp.NewTool("features_update",
-			mcp.WithDescription("Update a feature's version or status."),
-			mcp.WithString("name", mcp.Description("Feature name"), mcp.Required()),
-			mcp.WithString("version", mcp.Description("New semantic version")),
-			mcp.WithString("status", mcp.Description("New status: draft, reviewed, or stable")),
-		), handleFeaturesUpdate)
-
-		s.AddTool(mcp.NewTool("features_delete",
-			mcp.WithDescription("Delete a feature from the registry."),
-			mcp.WithString("name", mcp.Description("Feature name"), mcp.Required()),
-		), handleFeaturesDelete)
 
 		s.AddTool(mcp.NewTool("features_compose",
 			mcp.WithDescription("Generate dispatcher and wiring code for a feature."),
@@ -334,24 +315,7 @@ func handleFeaturesList(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallTool
 	if err != nil {
 		return errResult(err), nil
 	}
-	if features == nil {
-		features = []feature.Feature{}
-	}
 	return textResult(toJSON(features)), nil
-}
-
-func handleFeaturesCreate(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := req.GetArguments()
-	name, _ := args["name"].(string)
-	body, _ := args["body"].(string)
-	if err := featureStore.Create(name, body); err != nil {
-		return errResult(err), nil
-	}
-	created, err := featureStore.Get(name)
-	if err != nil {
-		return errResult(err), nil
-	}
-	return textResult(toJSON(created)), nil
 }
 
 func handleFeaturesGet(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -361,43 +325,6 @@ func handleFeaturesGet(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 		return errResult(err), nil
 	}
 	return textResult(toJSON(f)), nil
-}
-
-func handleFeaturesUpdate(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := req.GetArguments()
-	name, _ := args["name"].(string)
-	f, err := featureStore.Get(name)
-	if err != nil {
-		return errResult(err), nil
-	}
-	changed := false
-	if ver, ok := args["version"].(string); ok && ver != "" {
-		f.Version = ver
-		changed = true
-	}
-	if status, ok := args["status"].(string); ok && status != "" {
-		f.Status = status
-		changed = true
-	}
-	if !changed {
-		return errResult(fmt.Errorf("at least one of version or status is required")), nil
-	}
-	if err := featureStore.Update(*f); err != nil {
-		return errResult(err), nil
-	}
-	updated, err := featureStore.Get(name)
-	if err != nil {
-		return errResult(err), nil
-	}
-	return textResult(toJSON(updated)), nil
-}
-
-func handleFeaturesDelete(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	name, _ := req.GetArguments()["name"].(string)
-	if err := featureStore.Delete(name); err != nil {
-		return errResult(err), nil
-	}
-	return textResult(fmt.Sprintf("feature %q deleted", name)), nil
 }
 
 func handleFeaturesCompose(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
