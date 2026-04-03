@@ -70,13 +70,13 @@ func New(store *runepkg.Store, client *claude.Client) *Decomposer {
 
 const metaSystemPrompt = `You name features. Given a requirement, respond with exactly this JSON and nothing else:
 {"name":"snake_case_slug","summary":"One sentence summary."}
-The name is a short slug (e.g. auth, payment, http_serve). The summary describes what the feature does.`
+The name must reflect what the feature specifically does, not an abstract category. Use the user's own words when possible. Examples: "writes bing bong" → "write_bing_bong", "validate email" → "validate_email", "payment processing" → "payment". The summary describes what the feature does.`
 
 const flowSystemPrompt = `You draw flow diagrams for software features using box-drawing characters. Given a requirement, show how the components connect to deliver the feature's functionality. Use arrows (──>, <──) to show data/control flow between boxes drawn with ┌─┐│└─┘ characters. Label arrows with what flows between components. Keep it compact — fit within 80 columns. Show the happy path top-to-bottom. No prose, just the diagram.`
 
 // Decompose sends requirements to Claude and returns the decomposition.
 // If prevDecomposition is non-empty, it is included as context so the LLM can iterate.
-func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecomposition string, logOut io.Writer) (*Result, error) {
+func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecomposition string, logOut io.Writer, prevFeatureName, prevSummary string) (*Result, error) {
 	userPrompt, err := d.buildPrompt(requirements, prevDecomposition)
 	if err != nil {
 		return nil, err
@@ -93,10 +93,21 @@ func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecompositio
 		err     error
 	}
 
-	// Generate feature name first so the tree prompt uses it
-	featureName, summary, metaErr := d.generateMeta(requirements)
-	if metaErr != nil {
-		featureName = "project_name"
+	isRefinement := prevFeatureName != ""
+
+	// For initial decompositions, generate name/summary from requirements up front
+	// so the tree prompt can use the feature name.
+	// For refinements, reuse the previous name for the tree prompt and regenerate
+	// the summary from the tree output afterward.
+	var featureName, initialSummary string
+	if isRefinement {
+		featureName = prevFeatureName
+	} else {
+		var metaErr error
+		featureName, initialSummary, metaErr = d.generateMeta(requirements)
+		if metaErr != nil {
+			featureName = "project_name"
+		}
 	}
 
 	prompt := strings.ReplaceAll(systemPrompt, "project_name", featureName)
@@ -127,9 +138,23 @@ func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecompositio
 
 	d.generatePackageSummaries(result, logOut)
 
-	if metaErr == nil {
-		result.FeatureName = featureName
-		result.Summary = summary
+	if isRefinement {
+		// Regenerate name/summary from the tree output, which reflects the actual
+		// feature after refinement — not the raw requirements with comments appended.
+		metaName, metaSummary, metaErr := d.generateMeta(tr.output)
+		if metaErr == nil {
+			result.FeatureName = metaName
+			result.Summary = metaSummary
+		} else {
+			result.FeatureName = prevFeatureName
+			result.Summary = prevSummary
+		}
+	} else {
+		// For initial decompositions, use the name/summary already generated above.
+		if featureName != "project_name" {
+			result.FeatureName = featureName
+			result.Summary = initialSummary
+		}
 	}
 
 	fr := <-flowCh
@@ -244,7 +269,7 @@ func (d *Decomposer) buildPrompt(requirements, prevDecomposition string) (string
 	if prevDecomposition != "" {
 		b.WriteString("Your previous output (to be refined — output the COMPLETE updated trees including all std and feature units, not just changes):\n")
 		b.WriteString(prevDecomposition)
-		b.WriteString("\n\nThe user wants to refine the above. Apply this change and re-output both complete trees:\n")
+		b.WriteString("\n\nThe user wants to refine the above. Apply this change and re-output both complete trees. If the feedback changes what the feature does or what it represents, rename the feature root and all its children to match the new behavior — names must always reflect what the code actually does:\n")
 	}
 
 	b.WriteString(requirements)

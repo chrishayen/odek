@@ -111,8 +111,10 @@ func (s *Server) handleRunesGet(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDecompose(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Requirement  string `json:"requirement"`
+		Requirement   string `json:"requirement"`
 		Decomposition string `json:"decomposition,omitempty"`
+		FeatureName   string `json:"feature_name,omitempty"`
+		Summary       string `json:"summary,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -127,7 +129,7 @@ func (s *Server) handleDecompose(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		s.jobs.SetRunning(j.ID)
 		pw := &progressWriter{jobs: s.jobs, jobID: j.ID}
-		result, err := s.dec.Decompose(context.Background(), req.Requirement, req.Decomposition, pw)
+		result, err := s.dec.Decompose(context.Background(), req.Requirement, req.Decomposition, pw, req.FeatureName, req.Summary)
 		if err != nil {
 			s.jobs.SetFailed(j.ID, err)
 			return

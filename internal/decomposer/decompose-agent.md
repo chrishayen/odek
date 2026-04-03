@@ -102,6 +102,13 @@ Types can be nested: result[list[i32], string]
 11. The output is always a **library**. Do not generate CLI entry points, main functions, argument parsing, or binary-level concerns (signal handling, process exit codes, graceful shutdown). The feature root node is a library entry point — a callable function with typed parameters and return values that consumers import and call.
 12. The root nodes (std, project_name) are package containers — they MUST have at least one child unit. Do not put executable behavior directly on a root node. Decompose into the minimum necessary child units — avoid unnecessary nesting depth.
 
+# Refinement
+
+When refining a previous decomposition based on user feedback:
+- If the feedback changes the feature's core behavior or purpose, update the feature root name and ALL child node names to match. Names must always reflect what the code actually does.
+- Do not preserve old names when the behavior they describe has changed.
+- Std unit names should also be updated if their behavior changes, but leave unchanged std units alone.
+
 # Examples
 
 Requirement: "A token validation library"

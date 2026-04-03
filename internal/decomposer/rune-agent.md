@@ -190,6 +190,8 @@ If the request is non-trivial, end your proposal by asking: **"Refine, or commit
 
 **If the user wants to refine:** Enter a Q&A loop. Review your proposal and identify every assumption you made. Ask targeted questions, one or two at a time. After each answer, update your mental model. Keep going until confident or the user says to proceed.
 
+**Naming during refinement:** If feedback changes what a rune or feature does or represents, rename it and all its children to match the new behavior. Names must always reflect what the code actually does — do not preserve old names when the behavior they describe has changed.
+
 Wait for user approval before proceeding. Do not call `runes_create` or `runes_create_batch` until the user approves.
 
 ### Step 5 — Create approved runes

@@ -66,8 +66,7 @@ var (
 	keyBack       = key.NewBinding(key.WithKeys("backspace"), key.WithHelp("bksp", "back"))
 	keyQuit       = key.NewBinding(key.WithKeys("backspace"), key.WithHelp("bksp", "quit"))
 	keyNavigate        = key.NewBinding(key.WithKeys("j", "k"), key.WithHelp("j/k", "navigate"))
-	keyCommentRune     = key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "comment rune"))
-	keyCommentFeature  = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "comment feature"))
+	keyComment         = key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "comment"))
 	keyApprove         = key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "approve"))
 	keySubmitRefine    = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "submit"))
 	keyHydrate         = key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "hydrate"))
@@ -93,7 +92,7 @@ func (formKeyMap) FullHelp() [][]key.Binding { return nil }
 type doneKeyMap struct{ hasComments bool }
 
 func (k doneKeyMap) ShortHelp() []key.Binding {
-	bindings := []key.Binding{keyCommentFeature, keyCommentRune, keyApprove}
+	bindings := []key.Binding{keyComment, keyApprove}
 	if k.hasComments {
 		bindings = append(bindings, keySubmitRefine)
 	}

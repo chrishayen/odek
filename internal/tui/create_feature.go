@@ -94,6 +94,7 @@ type runeListItem struct {
 	name         string // display name
 	isHeader     bool   // top-level package header
 	isExisting   bool   // existing rune section
+	isSpacer     bool   // empty visual separator between groups
 	count        int    // child count for package headers
 	covers       string // what existing rune covers
 	hasComment   bool   // has a review comment
@@ -113,6 +114,10 @@ func (d runeListDelegate) Update(_ tea.Msg, _ *list.Model) tea.Cmd { return nil 
 func (d runeListDelegate) Render(w io.Writer, m list.Model, index int, item list.Item) {
 	ri, ok := item.(runeListItem)
 	if !ok {
+		return
+	}
+	if ri.isSpacer {
+		fmt.Fprint(w, strings.Repeat(" ", m.Width()))
 		return
 	}
 
@@ -552,11 +557,15 @@ func (m *createFeatureModel) decompose(req string) tea.Cmd {
 	m.progressText = ""
 	port := m.port
 	prevDecomp := ""
+	prevName := ""
+	prevSummary := ""
 	if m.result != nil {
 		prevDecomp = m.result.TreeOutput
+		prevName = m.result.FeatureName
+		prevSummary = m.result.Summary
 	}
 	return func() tea.Msg {
-		body, _ := json.Marshal(map[string]string{"requirement": req, "decomposition": prevDecomp})
+		body, _ := json.Marshal(map[string]string{"requirement": req, "decomposition": prevDecomp, "feature_name": prevName, "summary": prevSummary})
 		resp, err := http.Post(
 			fmt.Sprintf("http://localhost:%d/api/decompose", port),
 			"application/json",
@@ -746,7 +755,14 @@ func (m *createFeatureModel) updateRefiningState(msg tea.Msg) tea.Cmd {
 func (m *createFeatureModel) submitRefine() tea.Cmd {
 	text := strings.TrimSpace(m.refineInput.Value())
 	m.state = stateDone
-	sel := m.runeList.Index()
+
+	// Save identity of selected item (not raw index, which shifts with spacers)
+	var savedRuneIdx int = -999
+	var savedName string
+	if item, ok := m.runeList.SelectedItem().(runeListItem); ok {
+		savedRuneIdx = item.runeIdx
+		savedName = item.name
+	}
 
 	if text == "" {
 		// Empty comment clears an existing comment
@@ -767,7 +783,13 @@ func (m *createFeatureModel) submitRefine() tea.Cmd {
 
 	// Rebuild list to update comment markers
 	m.buildRuneListItems()
-	m.runeList.Select(sel)
+	// Restore selection by identity
+	for i, item := range m.runeList.Items() {
+		if ri, ok := item.(runeListItem); ok && ri.runeIdx == savedRuneIdx && ri.name == savedName {
+			m.runeList.Select(i)
+			break
+		}
+	}
 	return nil
 }
 
@@ -799,10 +821,11 @@ func (m *createFeatureModel) updateDoneState(msg tea.Msg) tea.Cmd {
 	if km, ok := msg.(tea.KeyMsg); ok {
 		switch km.String() {
 		case "c":
+			if item, ok := m.runeList.SelectedItem().(runeListItem); ok && item.isHeader {
+				return m.openRefine(inputRefineFeature, "Comment on feature...")
+			}
 			name := m.selectedRuneName()
 			return m.openRefine(inputRefineRune, "Comment on "+name+"...")
-		case "r":
-			return m.openRefine(inputRefineFeature, "Comment on feature...")
 		case "a":
 			return m.commitRunes()
 		case "enter":
@@ -811,9 +834,37 @@ func (m *createFeatureModel) updateDoneState(msg tea.Msg) tea.Cmd {
 			return func() tea.Msg { return goBackMsg{} }
 		}
 	}
+	prevIdx := m.runeList.Index()
 	var cmd tea.Cmd
 	m.runeList, cmd = m.runeList.Update(msg)
+	m.skipSpacers(prevIdx)
 	return cmd
+}
+
+// skipSpacers nudges the cursor off spacer items after navigation.
+func (m *createFeatureModel) skipSpacers(prevIdx int) {
+	items := m.runeList.Items()
+	idx := m.runeList.Index()
+	if idx < 0 || idx >= len(items) {
+		return
+	}
+	ri, ok := items[idx].(runeListItem)
+	if !ok || !ri.isSpacer {
+		return
+	}
+	if idx >= prevIdx {
+		if idx+1 < len(items) {
+			m.runeList.Select(idx + 1)
+		} else if idx-1 >= 0 {
+			m.runeList.Select(idx - 1)
+		}
+	} else {
+		if idx-1 >= 0 {
+			m.runeList.Select(idx - 1)
+		} else if idx+1 < len(items) {
+			m.runeList.Select(idx + 1)
+		}
+	}
 }
 
 func (m *createFeatureModel) updateApprovedState(msg tea.Msg) tea.Cmd {
@@ -1185,7 +1236,10 @@ func (m *createFeatureModel) buildRuneListItems() {
 	groups := groupRunesByPackage(m.result.NewRunes)
 	var items []list.Item
 
-	for _, g := range groups {
+	for gi, g := range groups {
+		if gi > 0 {
+			items = append(items, runeListItem{isSpacer: true, runeIdx: -1})
+		}
 		selfIdx := -1
 		for _, idx := range g.indices {
 			if leafName(m.result.NewRunes[idx].Name) == g.pkg {
@@ -1234,6 +1288,9 @@ func (m *createFeatureModel) buildRuneListItems() {
 	}
 
 	if len(m.result.ExistingRunes) > 0 {
+		if len(items) > 0 {
+			items = append(items, runeListItem{isSpacer: true, runeIdx: -1})
+		}
 		items = append(items, runeListItem{
 			name:       "existing",
 			isHeader:   true,
@@ -1386,12 +1443,6 @@ func (m *createFeatureModel) viewResult(width int) string {
 	}
 
 	footerLines := 2 // status line + help bar
-	if m.featureComment != "" {
-		footerLines++
-	}
-	if m.commentCount() > 0 {
-		footerLines++
-	}
 	availHeight := m.height - 4 - footerLines
 	if m.state == stateRefining {
 		availHeight -= 2
@@ -1572,7 +1623,21 @@ func (m *createFeatureModel) viewResult(width int) string {
 		mid.WriteString(renderPaneHeader("rune", midWidth, false) + "\n")
 	}
 
-	// Update mid viewport
+	// Feature-level comment and pending count (shown in description pane)
+	if m.featureComment != "" {
+		featureCommentHdr := "\n" + paneHeaderInactive.Render("── feature comment ") + " "
+		if remaining := midWidth - lipgloss.Width(featureCommentHdr); remaining > 0 {
+			featureCommentHdr += paneHeaderInactive.Render(strings.Repeat("─", remaining))
+		}
+		mid.WriteString(featureCommentHdr + "\n")
+		mid.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623")).Width(midWidth-2).Render(m.featureComment) + "\n")
+	}
+	if count := m.commentCount(); count > 0 {
+		mid.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623")).Render(
+			fmt.Sprintf("%d comment%s pending", count, map[bool]string{true: "", false: "s"}[count == 1])) + "\n")
+	}
+
+	// Update description pane viewport
 	m.midVP.Width = midWidth
 	m.midVP.Height = availHeight
 	m.midVP.SetContent(mid.String())
@@ -1598,16 +1663,6 @@ func (m *createFeatureModel) viewResult(width int) string {
 		m.errMsg = ""
 	} else {
 		footer.WriteString(statusOk.Render(fmt.Sprintf("%d runes proposed", len(m.result.NewRunes))))
-	}
-
-	if m.featureComment != "" {
-		footer.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623")).Render("Feature: ") +
-			lipgloss.NewStyle().Foreground(dim).Width(width-12).Render(m.featureComment))
-	}
-
-	if count := m.commentCount(); count > 0 {
-		footer.WriteString("\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623")).Render(
-			fmt.Sprintf("%d comment%s pending", count, map[bool]string{true: "", false: "s"}[count == 1])))
 	}
 
 	return layout + "\n\n" + footer.String()
