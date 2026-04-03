@@ -93,7 +93,7 @@ func (formKeyMap) FullHelp() [][]key.Binding { return nil }
 type doneKeyMap struct{ hasComments bool }
 
 func (k doneKeyMap) ShortHelp() []key.Binding {
-	bindings := []key.Binding{keyNavigate, keyCommentRune, keyCommentFeature, keyApprove}
+	bindings := []key.Binding{keyCommentFeature, keyCommentRune, keyApprove}
 	if k.hasComments {
 		bindings = append(bindings, keySubmitRefine)
 	}
