@@ -143,8 +143,11 @@ type runeListItem struct {
 	name         string // display name
 	isHeader     bool   // top-level package header
 	isExisting   bool   // existing rune section
+	isRef        bool   // std reference (not a new rune)
+	refName      string // full dot-path of referenced rune (e.g., "std.io.write_stdout")
 	isSpacer     bool   // empty visual separator between groups
 	count        int    // child count for package headers
+	refCount     int    // ref child count for package headers
 	covers       string // what existing rune covers
 	hasComment   bool   // has a review comment
 }
@@ -204,7 +207,14 @@ func (d runeListDelegate) Render(w io.Writer, m list.Model, index int, item list
 				Render("    " + name)
 		}
 	case ri.isHeader:
-		countStr := fmt.Sprintf(" (%d)", ri.count)
+		var countStr string
+		if ri.count > 0 && ri.refCount > 0 {
+			countStr = fmt.Sprintf(" (%d, %d refs)", ri.count, ri.refCount)
+		} else if ri.count > 0 {
+			countStr = fmt.Sprintf(" (%d)", ri.count)
+		} else if ri.refCount > 0 {
+			countStr = fmt.Sprintf(" (%d refs)", ri.refCount)
+		}
 		commentMarker := ""
 		if ri.hasComment {
 			commentMarker = " " + lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623")).Render("●")
@@ -217,6 +227,21 @@ func (d runeListDelegate) Render(w io.Writer, m list.Model, index int, item list
 			str = lipgloss.NewStyle().
 				Width(availWidth).
 				Render(" " + pkgStyle.Render(ri.name) + runeSigStyle.Render(countStr) + commentMarker)
+		}
+	case ri.isRef:
+		refTag := lipgloss.NewStyle().Foreground(lipgloss.Color("#6A9FD9")).Faint(true).Italic(true).Render(" ref")
+		name := ri.name
+		if len(name) > availWidth-12 {
+			name = name[:availWidth-13] + "~"
+		}
+		if selected {
+			str = selectedBorder.
+				Padding(0, 0, 0, 3).
+				Render(name + refTag)
+		} else {
+			str = lipgloss.NewStyle().
+				Width(availWidth).
+				Render("    " + runeLeafStyle.Render(name) + refTag)
 		}
 	default:
 		name := ri.name
@@ -364,6 +389,9 @@ type createFeatureModel struct {
 	// Review comments (ephemeral, not persisted to draft)
 	runeComments   map[int]string // rune index → comment
 	featureComment string
+
+	// Std references (derived from Refs, not persisted)
+	stdRefs []stdRef
 
 	// Drafts
 	draftName   string // top-level suffixed rune name for this draft (empty = new)
@@ -898,8 +926,13 @@ func (m *createFeatureModel) updateDoneState(msg tea.Msg) tea.Cmd {
 	if km, ok := msg.(tea.KeyMsg); ok {
 		switch km.String() {
 		case "c":
-			if item, ok := m.runeList.SelectedItem().(runeListItem); ok && item.isHeader {
-				return m.openRefine(inputRefineFeature, "Comment on feature...")
+			if item, ok := m.runeList.SelectedItem().(runeListItem); ok {
+				if item.isRef || item.isExisting {
+					return nil
+				}
+				if item.isHeader {
+					return m.openRefine(inputRefineFeature, "Comment on feature...")
+				}
 			}
 			name := m.selectedRuneName()
 			return m.openRefine(inputRefineRune, "Comment on "+name+"...")
@@ -1263,6 +1296,50 @@ func sortRunesStdLast(runes []proposedRune) {
 	})
 }
 
+// stdRef holds a collected std reference and which runes use it.
+type stdRef struct {
+	refPath      string   // e.g., "std.io.write_stdout"
+	fullRef      string   // e.g., "std.io.write_stdout@1"
+	referencedBy []string // names of runes that reference this
+}
+
+// collectStdRefs scans rune Refs for std.* references not already in NewRunes.
+func collectStdRefs(runes []proposedRune) []stdRef {
+	newNames := map[string]bool{}
+	for _, r := range runes {
+		newNames[r.Name] = true
+	}
+
+	refMap := map[string]*stdRef{}
+	var order []string
+	for _, r := range runes {
+		// Skip std runes — only collect refs FROM feature runes
+		if strings.HasPrefix(r.Name, "std.") || r.Name == "std" {
+			continue
+		}
+		for _, ref := range r.Refs {
+			path, _ := runepkg.ParseRef(ref)
+			if path == "" || !strings.HasPrefix(path, "std.") {
+				continue
+			}
+			if newNames[path] {
+				continue
+			}
+			if _, ok := refMap[path]; !ok {
+				refMap[path] = &stdRef{refPath: path, fullRef: ref}
+				order = append(order, path)
+			}
+			refMap[path].referencedBy = append(refMap[path].referencedBy, r.Name)
+		}
+	}
+
+	result := make([]stdRef, len(order))
+	for i, p := range order {
+		result[i] = *refMap[p]
+	}
+	return result
+}
+
 // runeGroup holds runes under a common top-level package.
 type runeGroup struct {
 	pkg string
@@ -1331,6 +1408,18 @@ func (m *createFeatureModel) buildRuneListItems() {
 		return
 	}
 
+	m.stdRefs = collectStdRefs(m.result.NewRunes)
+
+	// Group std refs by top-level package
+	stdRefsByPkg := map[string][]stdRef{}
+	for _, sr := range m.stdRefs {
+		pkg := sr.refPath
+		if dot := strings.IndexByte(pkg, '.'); dot > 0 {
+			pkg = pkg[:dot]
+		}
+		stdRefsByPkg[pkg] = append(stdRefsByPkg[pkg], sr)
+	}
+
 	groups := groupRunesByPackage(m.result.NewRunes)
 	var items []list.Item
 
@@ -1346,6 +1435,8 @@ func (m *createFeatureModel) buildRuneListItems() {
 			}
 		}
 
+		isStdPkg := g.pkg == "std"
+
 		// Count visible children (non-empty runes)
 		visibleCount := 0
 		for _, idx := range g.indices {
@@ -1358,12 +1449,22 @@ func (m *createFeatureModel) buildRuneListItems() {
 			}
 		}
 
+		extraRefCount := len(stdRefsByPkg[g.pkg])
+		headerRefCount := extraRefCount
+		headerCount := visibleCount
+		if isStdPkg {
+			// Std children are all refs — count them as refs, not new runes
+			headerRefCount += visibleCount
+			headerCount = 0
+		}
+
 		_, selfHasComment := m.runeComments[selfIdx]
 		items = append(items, runeListItem{
 			runeIdx:    selfIdx,
 			name:       g.pkg,
 			isHeader:   true,
-			count:      visibleCount,
+			count:      headerCount,
+			refCount:   headerRefCount,
 			hasComment: selfHasComment,
 		})
 
@@ -1380,7 +1481,43 @@ func (m *createFeatureModel) buildRuneListItems() {
 			items = append(items, runeListItem{
 				runeIdx:    idx,
 				name:       leafName(r.Name),
+				isRef:      isStdPkg,
+				refName:    r.Name,
 				hasComment: hasComment,
+			})
+		}
+
+		// Append ref items for this package (refs not in NewRunes)
+		if refs, ok := stdRefsByPkg[g.pkg]; ok {
+			for _, sr := range refs {
+				items = append(items, runeListItem{
+					runeIdx: -1,
+					name:    leafName(sr.refPath),
+					isRef:   true,
+					refName: sr.refPath,
+				})
+			}
+			delete(stdRefsByPkg, g.pkg)
+		}
+	}
+
+	// Create groups for std refs whose package had no new runes
+	for pkg, refs := range stdRefsByPkg {
+		if len(items) > 0 {
+			items = append(items, runeListItem{isSpacer: true, runeIdx: -1})
+		}
+		items = append(items, runeListItem{
+			runeIdx:  -1,
+			name:     pkg,
+			isHeader: true,
+			refCount: len(refs),
+		})
+		for _, sr := range refs {
+			items = append(items, runeListItem{
+				runeIdx: -1,
+				name:    leafName(sr.refPath),
+				isRef:   true,
+				refName: sr.refPath,
 			})
 		}
 	}
@@ -1573,10 +1710,23 @@ func (m *createFeatureModel) viewResult(width int) string {
 	var mid strings.Builder
 
 	selectedRuneIdx := -1
+	selectedIsRef := false
 	var selectedExisting *existingMatch
+	var selectedRef *stdRef
+	var selectedRefHeader bool
 	if item, ok := m.runeList.SelectedItem().(runeListItem); ok {
 		if item.runeIdx >= 0 && item.runeIdx < len(m.result.NewRunes) {
 			selectedRuneIdx = item.runeIdx
+			selectedIsRef = item.isRef
+		} else if item.isRef {
+			for i := range m.stdRefs {
+				if m.stdRefs[i].refPath == item.refName {
+					selectedRef = &m.stdRefs[i]
+					break
+				}
+			}
+		} else if item.isHeader && !item.isExisting && item.runeIdx == -1 && item.refCount > 0 {
+			selectedRefHeader = true
 		} else if item.isExisting && !item.isHeader {
 			for i := range m.result.ExistingRunes {
 				if m.result.ExistingRunes[i].Name == item.name {
@@ -1660,7 +1810,13 @@ func (m *createFeatureModel) viewResult(width int) string {
 			}
 		} else {
 			// Rune view
-			runeHdr := paneHeaderInactive.Render("── rune ") + runeNameStyle.Render(r.Name) + " "
+			hdrLabel := "── rune "
+			nameStyle := runeNameStyle
+			if selectedIsRef {
+				hdrLabel = "── ref "
+				nameStyle = treeRefStyle
+			}
+			runeHdr := paneHeaderInactive.Render(hdrLabel) + nameStyle.Render(r.Name) + " "
 			if remaining := midWidth - lipgloss.Width(runeHdr); remaining > 0 {
 				runeHdr += paneHeaderInactive.Render(strings.Repeat("─", remaining))
 			}
@@ -1698,6 +1854,29 @@ func (m *createFeatureModel) viewResult(width int) string {
 				}
 			}
 
+			// Show "referenced by" for std runes
+			if selectedIsRef {
+				var referencedBy []string
+				for _, other := range m.result.NewRunes {
+					if other.Name == r.Name || strings.HasPrefix(other.Name, "std.") || other.Name == "std" {
+						continue
+					}
+					for _, ref := range other.Refs {
+						path, _ := runepkg.ParseRef(ref)
+						if path == r.Name {
+							referencedBy = append(referencedBy, other.Name)
+							break
+						}
+					}
+				}
+				if len(referencedBy) > 0 {
+					mid.WriteString("\n" + runeSigStyle.Render("referenced by:") + "\n")
+					for _, name := range referencedBy {
+						mid.WriteString(runeNameStyle.Render("  "+name) + "\n")
+					}
+				}
+			}
+
 			// Show comment if present
 			if comment, ok := m.runeComments[selectedRuneIdx]; ok {
 				commentHdr := "\n" + paneHeaderInactive.Render("── your comment ") + " "
@@ -1707,6 +1886,32 @@ func (m *createFeatureModel) viewResult(width int) string {
 				mid.WriteString(commentHdr + "\n")
 				mid.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#F5A623")).Width(midWidth-2).Render(comment) + "\n")
 			}
+		}
+	} else if selectedRef != nil {
+		hdr := paneHeaderInactive.Render("── ref ") + treeRefStyle.Render(selectedRef.refPath) + " "
+		if remaining := midWidth - lipgloss.Width(hdr); remaining > 0 {
+			hdr += paneHeaderInactive.Render(strings.Repeat("─", remaining))
+		}
+		mid.WriteString(hdr + "\n")
+		mid.WriteString("\n" + lipgloss.NewStyle().Foreground(dim).Render(selectedRef.fullRef) + "\n")
+		if len(selectedRef.referencedBy) > 0 {
+			mid.WriteString("\n" + runeSigStyle.Render("referenced by:") + "\n")
+			for _, name := range selectedRef.referencedBy {
+				mid.WriteString(runeNameStyle.Render("  "+name) + "\n")
+			}
+		}
+	} else if selectedRefHeader {
+		hdr := paneHeaderInactive.Render("── package ") + pkgStyle.Render("std") + " "
+		if remaining := midWidth - lipgloss.Width(hdr); remaining > 0 {
+			hdr += paneHeaderInactive.Render(strings.Repeat("─", remaining))
+		}
+		mid.WriteString(hdr + "\n\n")
+		for _, sr := range m.stdRefs {
+			mid.WriteString(treeRefStyle.Render("-> "+sr.refPath) + "\n")
+			for _, name := range sr.referencedBy {
+				mid.WriteString(lipgloss.NewStyle().Foreground(dim).PaddingLeft(4).Render(name) + "\n")
+			}
+			mid.WriteString("\n")
 		}
 	} else if selectedExisting != nil {
 		hdr := paneHeaderInactive.Render("── existing ") + lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).Render(selectedExisting.Name) + " "
