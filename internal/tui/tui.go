@@ -9,7 +9,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lucasb-eyer/go-colorful"
 
-	"github.com/chrishayen/odek/internal/draft"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
@@ -233,19 +232,17 @@ type Model struct {
 	screen       screen
 	port         int
 	registryPath string
-	draftStore   *draft.Store
 	runeStore    *runepkg.Store
 	createForm   createFeatureModel
 	featureList  featureListModel
 	help         help.Model
 }
 
-func New(port int, registryPath string, runeStore *runepkg.Store, draftStore *draft.Store) Model {
+func New(port int, registryPath string, runeStore *runepkg.Store) Model {
 	return Model{
 		screen:       screenSplash,
 		port:         port,
 		registryPath: registryPath,
-		draftStore:   draftStore,
 		runeStore:    runeStore,
 		help:         newHelpModel(),
 	}
@@ -282,7 +279,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case draftSelectedMsg:
-		m.createForm = newCreateFeatureModelFromDraft(m.port, m.width-viewPadX*2, m.height, m.draftStore, msg.draft)
+		m.createForm = newCreateFeatureModelFromDraft(m.port, m.width-viewPadX*2, m.height, m.runeStore, msg.rune)
 
 		m.screen = screenCreateFeature
 		if m.createForm.state == stateDone {
@@ -291,13 +288,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.createForm.descInput.Focus()
 
 	case featureSelectedMsg:
-		m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.draftStore)
+		m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.runeStore)
 		m.screen = screenCreateFeature
 		// Load runes directly — featureLoadedMsg will set stateApproved
 		return m, loadFeatureRunes(msg.name, m.port)
 
 	case newFeatureMsg:
-		m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.draftStore)
+		m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.runeStore)
 		m.screen = screenCreateFeature
 		return m, m.createForm.descInput.Focus()
 
@@ -311,13 +308,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "f":
 			if m.screen == screenSplash {
-				m.featureList = newFeatureListModel(m.draftStore, m.runeStore, m.width-viewPadX*2, m.height)
+				m.featureList = newFeatureListModel(m.runeStore, m.width-viewPadX*2, m.height)
 				m.screen = screenFeatureList
 				return m, nil
 			}
 		case "enter":
 			if m.screen == screenSplash {
-				m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.draftStore)
+				m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.runeStore)
 				m.screen = screenCreateFeature
 				return m, m.createForm.descInput.Focus()
 			}

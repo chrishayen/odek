@@ -10,28 +10,23 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/chrishayen/odek/internal/draft"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
-type draftSelectedMsg struct{ draft draft.Draft }
+type draftSelectedMsg struct{ rune runepkg.Rune }
 type featureSelectedMsg struct{ name string }
 type newFeatureMsg struct{}
 
-// listItem wraps either a Draft or a top-level Rune for bubbles/list.
+// listItem wraps a Rune for bubbles/list. isDraft checks status.
 type listItem struct {
-	draft *draft.Draft
-	rune  *runepkg.Rune
+	rune *runepkg.Rune
 }
 
 func (i listItem) FilterValue() string {
-	if i.draft != nil {
-		return i.draft.FeatureName
-	}
 	return i.rune.Name
 }
 
-func (i listItem) isDraft() bool { return i.draft != nil }
+func (i listItem) isDraft() bool { return i.rune.Status == "draft" }
 
 // featureDelegate renders items in the feature list with color-coded drafts and features.
 type featureDelegate struct{}
@@ -77,24 +72,25 @@ func (d featureDelegate) Render(w io.Writer, m list.Model, index int, item list.
 	var title, desc string
 
 	if li.isDraft() {
-		name := li.draft.FeatureName
+		r := li.rune
+		// Display name without draft suffix
+		name := r.Name
+		if sfx := extractDraftSuffix(name); sfx != "" {
+			name = removeDraftSuffix(name, sfx)
+		}
 		if name == "" {
 			name = "untitled"
 		}
 		if selected {
-			title = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true).Render(name) +
-				"  " + fdIDStyle.Render(li.draft.ID)
+			title = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Bold(true).Render(name)
 		} else {
-			title = fdNameStyle.Render(name) + "  " + fdIDStyle.Render(li.draft.ID)
+			title = fdNameStyle.Render(name)
 		}
 
 		desc = fdDraftTagStyle.Render("draft")
-		if li.draft.Summary != "" {
-			desc += "  " + fdDescStyle.Render(li.draft.Summary)
-		} else if li.draft.Requirement != "" {
-			desc += "  " + fdDescStyle.Render(li.draft.Requirement)
+		if r.Description != "" {
+			desc += "  " + fdDescStyle.Render(r.Description)
 		}
-		desc += "  " + fdTimeStyle.Render(timeAgo(li.draft.UpdatedAt))
 	} else {
 		r := li.rune
 		if selected {
@@ -132,15 +128,14 @@ func (d featureDelegate) Render(w io.Writer, m list.Model, index int, item list.
 
 // featureListModel wraps bubbles/list.
 type featureListModel struct {
-	list       list.Model
-	draftStore *draft.Store
-	runeStore  *runepkg.Store
-	drafts     []draft.Draft
-	packages   []runepkg.Rune
-	err        string
+	list      list.Model
+	runeStore *runepkg.Store
+	drafts    []runepkg.Rune
+	packages  []runepkg.Rune
+	err       string
 }
 
-func newFeatureListModel(draftStore *draft.Store, runeStore *runepkg.Store, width, height int) featureListModel {
+func newFeatureListModel(runeStore *runepkg.Store, width, height int) featureListModel {
 	l := list.New(nil, featureDelegate{}, width, height)
 	l.Title = "features"
 	l.Styles.Title = lipgloss.NewStyle().
@@ -160,19 +155,29 @@ func newFeatureListModel(draftStore *draft.Store, runeStore *runepkg.Store, widt
 	}
 
 	m := featureListModel{
-		list:       l,
-		draftStore: draftStore,
-		runeStore:  runeStore,
+		list:      l,
+		runeStore: runeStore,
 	}
 	m.reload()
 	return m
 }
 
 func (m *featureListModel) reload() {
-	drafts, err := m.draftStore.List()
+	allDrafts, err := m.runeStore.TopLevelDrafts()
 	if err != nil {
 		m.err = err.Error()
 		return
+	}
+	// Filter out std drafts — only show the feature entry per suffix
+	var drafts []runepkg.Rune
+	for _, r := range allDrafts {
+		clean := r.Name
+		if sfx := extractDraftSuffix(clean); sfx != "" {
+			clean = removeDraftSuffix(clean, sfx)
+		}
+		if clean != "std" {
+			drafts = append(drafts, r)
+		}
 	}
 	m.drafts = drafts
 
@@ -186,7 +191,7 @@ func (m *featureListModel) reload() {
 	m.err = ""
 	items := make([]list.Item, 0, len(m.drafts)+len(m.packages))
 	for i := range m.drafts {
-		items = append(items, listItem{draft: &m.drafts[i]})
+		items = append(items, listItem{rune: &m.drafts[i]})
 	}
 	for i := range m.packages {
 		items = append(items, listItem{rune: &m.packages[i]})
@@ -205,7 +210,8 @@ func (m *featureListModel) update(msg tea.Msg) tea.Cmd {
 		case "enter":
 			if item, ok := m.list.SelectedItem().(listItem); ok {
 				if item.isDraft() {
-					return func() tea.Msg { return draftSelectedMsg{draft: *item.draft} }
+					r := *item.rune
+					return func() tea.Msg { return draftSelectedMsg{rune: r} }
 				}
 				return func() tea.Msg { return featureSelectedMsg{name: item.rune.Name} }
 			}
@@ -213,7 +219,17 @@ func (m *featureListModel) update(msg tea.Msg) tea.Cmd {
 			return func() tea.Msg { return newFeatureMsg{} }
 		case "d", "x":
 			if item, ok := m.list.SelectedItem().(listItem); ok && item.isDraft() {
-				_ = m.draftStore.Delete(item.draft.ID)
+				if sfx := extractDraftSuffix(item.rune.Name); sfx != "" {
+					// Delete all runes belonging to this draft (same suffix)
+					allDrafts, _ := m.runeStore.ListByStatus("draft")
+					for _, r := range allDrafts {
+						if hasDraftSuffix(r.Name, sfx) {
+							_ = m.runeStore.Delete(r.Name)
+						}
+					}
+				} else {
+					_ = m.runeStore.DeleteByPrefix(item.rune.Name)
+				}
 				m.reload()
 				return nil
 			}

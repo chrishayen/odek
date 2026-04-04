@@ -2,6 +2,8 @@ package tui
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,7 +23,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/chrishayen/odek/internal/draft"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
@@ -87,6 +88,54 @@ var (
 	paneHeaderInactive = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#555555"))
 )
+
+// --- draft suffix helpers ---
+
+// shortID returns 6 random hex chars for draft uniqueness.
+func shortID() string {
+	b := make([]byte, 3)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// addDraftSuffix appends "_suffix" to the top-level segment of a dot-path.
+// e.g. addDraftSuffix("write_bing_bong.write", "a8f3b2") → "write_bing_bong_a8f3b2.write"
+func addDraftSuffix(name, suffix string) string {
+	parts := strings.SplitN(name, ".", 2)
+	parts[0] = parts[0] + "_" + suffix
+	return strings.Join(parts, ".")
+}
+
+// removeDraftSuffix strips "_suffix" from the top-level segment of a dot-path.
+func removeDraftSuffix(name, suffix string) string {
+	parts := strings.SplitN(name, ".", 2)
+	parts[0] = strings.TrimSuffix(parts[0], "_"+suffix)
+	return strings.Join(parts, ".")
+}
+
+// extractDraftSuffix returns the 6-char hex suffix from a name like "foo_a8f3b2", or "".
+func extractDraftSuffix(name string) string {
+	top := strings.SplitN(name, ".", 2)[0]
+	if len(top) < 8 { // minimum: "x_a8f3b2"
+		return ""
+	}
+	if top[len(top)-7] != '_' {
+		return ""
+	}
+	suffix := top[len(top)-6:]
+	for _, c := range suffix {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return ""
+		}
+	}
+	return suffix
+}
+
+// hasDraftSuffix checks if a rune name's top-level segment ends with "_" + suffix.
+func hasDraftSuffix(name, suffix string) bool {
+	top := strings.SplitN(name, ".", 2)[0]
+	return strings.HasSuffix(top, "_"+suffix)
+}
 
 // runeListItem is an item in the decomposition rune list.
 type runeListItem struct {
@@ -317,11 +366,12 @@ type createFeatureModel struct {
 	featureComment string
 
 	// Drafts
-	draftID    string
-	draftStore *draft.Store
+	draftName   string // top-level suffixed rune name for this draft (empty = new)
+	draftSuffix string // 6-char hex suffix shared by all runes in this draft
+	runeStore   *runepkg.Store
 }
 
-func newCreateFeatureModel(port, width, height int, draftStore *draft.Store) createFeatureModel {
+func newCreateFeatureModel(port, width, height int, runeStore *runepkg.Store) createFeatureModel {
 	ta := textarea.New()
 	ta.Placeholder = "Describe the feature..."
 	ta.ShowLineNumbers = false
@@ -378,24 +428,39 @@ func newCreateFeatureModel(port, width, height int, draftStore *draft.Store) cre
 		spinner:      s,
 		runeList:     rl,
 		midVP:        midVP,
-		draftStore:   draftStore,
+		runeStore:    runeStore,
 		runeComments: map[int]string{},
 	}
 }
 
-func newCreateFeatureModelFromDraft(port, width, height int, draftStore *draft.Store, d draft.Draft) createFeatureModel {
-	m := newCreateFeatureModel(port, width, height, draftStore)
-	m.draftID = d.ID
-	m.requirement = d.Requirement
+func newCreateFeatureModelFromDraft(port, width, height int, runeStore *runepkg.Store, r runepkg.Rune) createFeatureModel {
+	m := newCreateFeatureModel(port, width, height, runeStore)
+	m.draftName = r.Name
+	m.draftSuffix = extractDraftSuffix(r.Name)
+	m.requirement = r.Description
 
-	// Load runes from the draft folder
-	runes, err := draftStore.ListRunes(d.ID)
-	if err == nil && len(runes) > 0 {
-		m.result = runesToResult(d.FeatureName, d.Summary, runes)
-		sortRunesStdLast(m.result.NewRunes)
-		m.buildRuneListItems()
-		m.state = stateDone
-		m.descInput.Blur()
+	// Load all runes belonging to this draft (same suffix)
+	allDrafts, err := runeStore.ListByStatus("draft")
+	if err == nil {
+		var draftRunes []runepkg.Rune
+		for _, dr := range allDrafts {
+			if m.draftSuffix != "" && hasDraftSuffix(dr.Name, m.draftSuffix) {
+				// Strip suffix for display
+				stripped := dr
+				stripped.Name = removeDraftSuffix(dr.Name, m.draftSuffix)
+				draftRunes = append(draftRunes, stripped)
+			}
+		}
+		if len(draftRunes) > 0 {
+			featureName := removeDraftSuffix(r.Name, m.draftSuffix)
+			m.result = runesToResult(featureName, r.Description, draftRunes)
+			sortRunesStdLast(m.result.NewRunes)
+			m.buildRuneListItems()
+			m.state = stateDone
+			m.descInput.Blur()
+		} else if m.requirement != "" {
+			m.descInput.SetValue(m.requirement)
+		}
 	} else if m.requirement != "" {
 		m.descInput.SetValue(m.requirement)
 	}
@@ -423,53 +488,64 @@ func runesToResult(featureName, summary string, runes []runepkg.Rune) *decompose
 	}
 }
 
-// saveDraft persists the current state to the draft store.
-// Returns the draft ID (may be newly generated).
+// saveDraft persists the current state as draft runes with suffixed names.
+// Returns the draft name (top-level suffixed rune name).
 func (m *createFeatureModel) saveDraft() string {
-	if m.draftStore == nil || (m.requirement == "" && m.result == nil) {
-		return m.draftID
+	if m.runeStore == nil || (m.requirement == "" && m.result == nil) {
+		return m.draftName
 	}
 
-	name := ""
-	summary := ""
-	if m.result != nil {
-		name = m.result.FeatureName
-		summary = m.result.Summary
+	if m.result == nil || len(m.result.NewRunes) == 0 {
+		return m.draftName
 	}
 
-	if m.draftID == "" {
-		// Create a new draft
-		d, err := m.draftStore.Create(name, m.requirement, summary)
-		if err != nil {
-			return ""
+	name := m.result.FeatureName
+	if name == "" {
+		return m.draftName
+	}
+
+	// Generate suffix once per draft
+	if m.draftSuffix == "" {
+		m.draftSuffix = shortID()
+	}
+
+	// Clean up old draft runes (same suffix)
+	m.deleteDraftRunes()
+
+	suffixedName := addDraftSuffix(name, m.draftSuffix)
+
+	for _, pr := range m.result.NewRunes {
+		r := runepkg.Rune{
+			Name:          addDraftSuffix(pr.Name, m.draftSuffix),
+			Description:   pr.Description,
+			Signature:     pr.Signature,
+			PositiveTests: pr.PositiveTests,
+			NegativeTests: pr.NegativeTests,
+			Assumptions:   pr.Assumptions,
+			Dependencies:  pr.Refs,
+			Status:        "draft",
 		}
-		m.draftID = d.ID
-	} else {
-		// Update existing draft
-		if name == "" {
-			name = "untitled"
-		}
-		_ = m.draftStore.Update(m.draftID, name, m.requirement, summary)
+		_ = m.runeStore.Create(r)
 	}
 
-	// Save runes if we have a decomposition result
-	if m.result != nil && len(m.result.NewRunes) > 0 {
-		runes := make([]runepkg.Rune, len(m.result.NewRunes))
-		for i, pr := range m.result.NewRunes {
-			runes[i] = runepkg.Rune{
-				Name:          pr.Name,
-				Description:   pr.Description,
-				Signature:     pr.Signature,
-				PositiveTests: pr.PositiveTests,
-				NegativeTests: pr.NegativeTests,
-				Assumptions:   pr.Assumptions,
-				Dependencies:  pr.Refs,
-			}
-		}
-		_ = m.draftStore.SaveRunes(m.draftID, runes)
-	}
+	m.draftName = suffixedName
+	return m.draftName
+}
 
-	return m.draftID
+// deleteDraftRunes removes all runes belonging to the current draft (by suffix).
+func (m *createFeatureModel) deleteDraftRunes() {
+	if m.draftSuffix == "" || m.runeStore == nil {
+		return
+	}
+	allDrafts, err := m.runeStore.ListByStatus("draft")
+	if err != nil {
+		return
+	}
+	for _, r := range allDrafts {
+		if hasDraftSuffix(r.Name, m.draftSuffix) {
+			_ = m.runeStore.Delete(r.Name)
+		}
+	}
 }
 
 func (m *createFeatureModel) resize(width, height int) {
@@ -664,10 +740,11 @@ func (m *createFeatureModel) update(msg tea.Msg) tea.Cmd {
 		sortRunesStdLast(m.result.NewRunes)
 		m.buildRuneListItems()
 		m.runeList.Select(0)
+		m.saveDraft()
 		return nil
 	case commitDoneMsg:
 		m.state = stateApproved
-		m.draftID = ""
+		m.draftName = ""
 		return nil
 	case commitErrorMsg:
 		m.state = stateDone
@@ -893,23 +970,44 @@ func (m *createFeatureModel) updateAuthErrorState(msg tea.Msg) tea.Cmd {
 }
 
 func (m *createFeatureModel) commitRunes() tea.Cmd {
-	if m.result == nil || m.draftStore == nil {
+	if m.result == nil || m.runeStore == nil {
 		return nil
 	}
 
 	// Ensure draft is saved first
 	m.saveDraft()
-	if m.draftID == "" {
+	if m.draftSuffix == "" {
 		return func() tea.Msg {
 			return commitErrorMsg{err: fmt.Errorf("no draft to commit")}
 		}
 	}
 
-	draftID := m.draftID
-	draftStore := m.draftStore
+	suffix := m.draftSuffix
+	runeStore := m.runeStore
 	return func() tea.Msg {
-		if err := draftStore.Merge(draftID); err != nil {
+		// Find all runes with this draft suffix
+		allDrafts, err := runeStore.ListByStatus("draft")
+		if err != nil {
 			return commitErrorMsg{err: err}
+		}
+		for _, r := range allDrafts {
+			if !hasDraftSuffix(r.Name, suffix) {
+				continue
+			}
+			// Create the rune with the clean name (no suffix, no draft status)
+			clean := r
+			clean.Name = removeDraftSuffix(r.Name, suffix)
+			clean.Status = ""
+			// Delete existing if present, then create
+			_ = runeStore.Delete(clean.Name)
+			if err := runeStore.Create(clean); err != nil {
+				// Skip if already exists (e.g. shared std rune)
+				if !strings.Contains(err.Error(), "already exists") {
+					return commitErrorMsg{err: err}
+				}
+			}
+			// Delete the suffixed draft version
+			_ = runeStore.Delete(r.Name)
 		}
 		return commitDoneMsg{}
 	}

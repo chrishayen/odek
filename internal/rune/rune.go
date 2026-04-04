@@ -202,6 +202,7 @@ type Rune struct {
 	NegativeTests []string `json:"negative_tests,omitempty" yaml:"-"`
 	Assumptions   []string `json:"assumptions,omitempty"    yaml:"-"`
 	Version       Semver   `json:"version"                  yaml:"version"`
+	Status        string   `json:"status,omitempty"         yaml:"status"`
 	Hydrated      bool     `json:"hydrated"                 yaml:"hydrated"`
 	Coverage      float64  `json:"coverage"                 yaml:"coverage"`
 	Dependencies  []string `json:"dependencies,omitempty"   yaml:"dependencies"`
@@ -288,7 +289,7 @@ func (s *Store) List() ([]Rune, error) {
 
 // TopLevelPackages returns the latest rune for each top-level directory under runes/.
 // These represent "features" — packages with no dot in their name that have
-// a signature (not empty structural packages).
+// a signature (not empty structural packages). Excludes drafts.
 func (s *Store) TopLevelPackages() ([]Rune, error) {
 	runes, err := s.List()
 	if err != nil {
@@ -296,11 +297,81 @@ func (s *Store) TopLevelPackages() ([]Rune, error) {
 	}
 	var pkgs []Rune
 	for _, r := range runes {
-		if !strings.Contains(r.Name, ".") && r.Signature != "" {
+		if !strings.Contains(r.Name, ".") && r.Signature != "" && r.Status != "draft" {
 			pkgs = append(pkgs, r)
 		}
 	}
 	return pkgs, nil
+}
+
+// TopLevelDrafts returns top-level packages where status == "draft".
+func (s *Store) TopLevelDrafts() ([]Rune, error) {
+	runes, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	var drafts []Rune
+	for _, r := range runes {
+		if !strings.Contains(r.Name, ".") && r.Status == "draft" {
+			drafts = append(drafts, r)
+		}
+	}
+	return drafts, nil
+}
+
+// ListByStatus returns all runes matching the given status.
+func (s *Store) ListByStatus(status string) ([]Rune, error) {
+	runes, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	var filtered []Rune
+	for _, r := range runes {
+		if r.Status == status {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered, nil
+}
+
+// SetStatus reads a rune, changes its status, and writes it back.
+func (s *Store) SetStatus(name, status string) error {
+	r, err := s.Get(name)
+	if err != nil {
+		return err
+	}
+	r.Status = status
+	return s.Update(*r)
+}
+
+// ListByPrefix returns all runes whose name starts with the given prefix.
+func (s *Store) ListByPrefix(prefix string) ([]Rune, error) {
+	runes, err := s.List()
+	if err != nil {
+		return nil, err
+	}
+	var filtered []Rune
+	for _, r := range runes {
+		if strings.HasPrefix(r.Name, prefix) {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered, nil
+}
+
+// DeleteByPrefix deletes all runes whose name starts with the given prefix,
+// plus the rune with exactly that name.
+func (s *Store) DeleteByPrefix(prefix string) error {
+	runes, err := s.List()
+	if err != nil {
+		return err
+	}
+	for _, r := range runes {
+		if r.Name == prefix || strings.HasPrefix(r.Name, prefix+".") {
+			_ = s.Delete(r.Name)
+		}
+	}
+	return nil
 }
 
 func (s *Store) Update(r Rune) error {
@@ -334,9 +405,6 @@ func (s *Store) ScanAll() ([]Rune, error) {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == "draft" {
-				return filepath.SkipDir
-			}
 			return nil
 		}
 		if !strings.HasSuffix(d.Name(), ".md") {
@@ -444,6 +512,9 @@ func write(path string, r Rune) error {
 
 	fmt.Fprintln(f, "---")
 	fmt.Fprintf(f, "version: %s\n", r.Version)
+	if r.Status != "" {
+		fmt.Fprintf(f, "status: %s\n", r.Status)
+	}
 	fmt.Fprintf(f, "hydrated: %v\n", r.Hydrated)
 	fmt.Fprintf(f, "coverage: %v\n", r.Coverage)
 	if r.Signature != "" {
