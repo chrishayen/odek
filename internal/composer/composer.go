@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/chrishayen/odek/framework"
-	"github.com/chrishayen/odek/internal/claude"
+	"github.com/chrishayen/odek/internal/llm"
 	"github.com/chrishayen/odek/internal/codegen"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 )
@@ -27,11 +27,11 @@ type Result struct {
 // Composer generates dispatcher and wiring code for a feature.
 type Composer struct {
 	runeStore *runepkg.Store
-	client    *claude.Client
+	client    *llm.Client
 	language  string
 }
 
-func New(runeStore *runepkg.Store, client *claude.Client, language string) *Composer {
+func New(runeStore *runepkg.Store, client *llm.Client, language string) *Composer {
 	return &Composer{runeStore: runeStore, client: client, language: language}
 }
 

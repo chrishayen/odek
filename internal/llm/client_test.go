@@ -1,4 +1,4 @@
-package claude
+package llm
 
 import "testing"
 
@@ -23,7 +23,7 @@ func TestStripCodeFences(t *testing.T) {
 }
 
 func TestMockResponse(t *testing.T) {
-	c := New("", "", true)
+	c := New("", "", true, "", "", 0)
 
 	// Decompose
 	resp, err := c.Call("decompose composition tree", "test requirements")

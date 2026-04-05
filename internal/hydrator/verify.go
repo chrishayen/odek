@@ -46,13 +46,17 @@ func (h *Hydrator) Verify(_ context.Context, name string) (*VerifyResult, error)
 	}
 
 	codeDir := h.store.CodeDir(name)
+	shortName := runepkg.ShortName(name)
 	var implContent strings.Builder
 	entries, err := os.ReadDir(codeDir)
 	if err != nil {
 		return nil, fmt.Errorf("reading code dir: %w", err)
 	}
 	for _, e := range entries {
-		if e.IsDir() || strings.HasSuffix(e.Name(), "_test.go") || strings.HasSuffix(e.Name(), ".test.ts") || strings.HasSuffix(e.Name(), "test.py") {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), shortName) {
+			continue
+		}
+		if strings.HasSuffix(e.Name(), "_test.go") || strings.HasSuffix(e.Name(), ".test.ts") || strings.HasSuffix(e.Name(), "test.py") {
 			continue
 		}
 		data, err := os.ReadFile(codeDir + "/" + e.Name())

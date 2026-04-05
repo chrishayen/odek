@@ -7,7 +7,7 @@ import (
 
 	"github.com/chrishayen/odek/config"
 	"github.com/chrishayen/odek/internal/app"
-	"github.com/chrishayen/odek/internal/claude"
+	"github.com/chrishayen/odek/internal/llm"
 	"github.com/chrishayen/odek/internal/composer"
 	"github.com/chrishayen/odek/internal/decomposer"
 	"github.com/chrishayen/odek/internal/feature"
@@ -21,7 +21,7 @@ var (
 	store        *runepkg.Store
 	featureStore *feature.Store
 	appStore     *app.Store
-	client       *claude.Client
+	client       *llm.Client
 	hyd          *hydrator.Hydrator
 	dec          *decomposer.Decomposer
 	comp         *composer.Composer
@@ -40,10 +40,17 @@ var rootCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("config: %w", err)
 		}
+
+		providerName, _ := cmd.Flags().GetString("provider")
+		prov, err := cfg.ResolveProvider(providerName)
+		if err != nil {
+			return err
+		}
+
 		store = runepkg.NewStore(filepath.Join(cfg.RegistryPath, "runes"), cfg.OutputPath)
 		featureStore = feature.NewStore(store, cfg.OutputPath)
 		appStore = app.NewStore(cfg.RegistryPath, cfg.OutputPath)
-		client = claude.New(cfg.Agent.Model, cfg.Agent.ResolveToken(), cfg.Agent.Mock)
+		client = llm.New(prov.Model, cfg.Agent.ResolveToken(), cfg.Agent.Mock, prov.Format, prov.BaseURL, prov.MaxTokens)
 		hyd = hydrator.New(store, client, cfg.Language)
 		dec = decomposer.New(store, client)
 		comp = composer.New(store, client, cfg.Language)
@@ -59,6 +66,8 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.PersistentFlags().String("provider", "", "Named provider from [providers] in odek.toml")
+
 	rootCmd.AddCommand(runesCmd)
 	rootCmd.AddCommand(featuresCmd)
 	rootCmd.AddCommand(appsCmd)

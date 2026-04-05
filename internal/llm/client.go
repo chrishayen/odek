@@ -1,4 +1,4 @@
-package claude
+package llm
 
 import (
 	"bytes"
@@ -6,29 +6,43 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
 
-// Client calls the Anthropic API directly.
+// Client calls the LLM API through the local proxy.
 type Client struct {
-	Model   string
-	Token   string
-	BaseURL string
-	Mock    bool
-	http    *http.Client
+	Model     string
+	Token     string
+	BaseURL   string
+	Format    string // "anthropic" or "openai"
+	MaxTokens int
+	Mock      bool
+	http      *http.Client
 }
 
 // New creates a Client from config fields.
-func New(model, token string, mock bool) *Client {
+func New(model, token string, mock bool, format string, baseURL string, maxTokens int) *Client {
 	if model == "" {
 		model = "claude-sonnet-4-6"
 	}
+	if format == "" {
+		format = "anthropic"
+	}
+	if baseURL == "" {
+		baseURL = "http://127.0.0.1:8317"
+	}
+	if maxTokens == 0 {
+		maxTokens = 16384
+	}
 	return &Client{
-		Model:   model,
-		Token:   "sk-local-proxy",
-		BaseURL: "http://127.0.0.1:8317",
-		Mock:    mock,
+		Model:     model,
+		Token:     "sk-local-proxy",
+		BaseURL:   baseURL,
+		Format:    format,
+		MaxTokens: maxTokens,
+		Mock:      mock,
 		http: &http.Client{
 			Timeout: 120 * time.Second,
 			Transport: &http.Transport{
@@ -50,7 +64,7 @@ func (c *Client) Call(systemPrompt, userPrompt string) (string, error) {
 	return c.CallMessages(systemPrompt, []ChatMessage{{Role: "user", Content: userPrompt}})
 }
 
-// CallMessages sends a multi-turn conversation to the Anthropic API.
+// CallMessages sends a multi-turn conversation to the LLM API.
 func (c *Client) CallMessages(systemPrompt string, messages []ChatMessage) (string, error) {
 	if c.Mock {
 		last := ""
@@ -62,9 +76,16 @@ func (c *Client) CallMessages(systemPrompt string, messages []ChatMessage) (stri
 		return mockResponse(systemPrompt, last), nil
 	}
 
+	if c.Format == "openai" {
+		return c.callOpenAI(systemPrompt, messages)
+	}
+	return c.callAnthropic(systemPrompt, messages)
+}
+
+func (c *Client) callAnthropic(systemPrompt string, messages []ChatMessage) (string, error) {
 	jsonBody, err := json.Marshal(map[string]any{
 		"model":      c.Model,
-		"max_tokens": 16384,
+		"max_tokens": c.MaxTokens,
 		"system":     systemPrompt,
 		"messages":   messages,
 	})
@@ -109,6 +130,62 @@ func (c *Client) CallMessages(systemPrompt string, messages []ChatMessage) (stri
 	return result.Content[0].Text, nil
 }
 
+func (c *Client) callOpenAI(systemPrompt string, messages []ChatMessage) (string, error) {
+	msgs := make([]map[string]string, 0, len(messages)+1)
+	if systemPrompt != "" {
+		msgs = append(msgs, map[string]string{"role": "system", "content": systemPrompt})
+	}
+	for _, m := range messages {
+		msgs = append(msgs, map[string]string{"role": m.Role, "content": m.Content})
+	}
+
+	jsonBody, err := json.Marshal(map[string]any{
+		"model":      c.Model,
+		"max_tokens": c.MaxTokens,
+		"messages":   msgs,
+	})
+	if err != nil {
+		return "", fmt.Errorf("marshal: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", c.BaseURL+"/v1/chat/completions", bytes.NewReader(jsonBody))
+	if err != nil {
+		return "", fmt.Errorf("request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read body: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return "", classifyError(resp.StatusCode, respBody)
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("unmarshal: %w", err)
+	}
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("empty response")
+	}
+	return StripThinkingTags(result.Choices[0].Message.Content), nil
+}
+
 func classifyError(statusCode int, body []byte) error {
 	bodyStr := strings.ToLower(string(body))
 	if statusCode == 401 || statusCode == 403 ||
@@ -126,9 +203,16 @@ func classifyError(statusCode int, body []byte) error {
 	return fmt.Errorf("api error %d: %s", statusCode, snippet)
 }
 
-// StripCodeFences removes markdown code fences from Claude output.
+var thinkingTagRe = regexp.MustCompile(`(?s)<think>.*?</think>`)
+
+// StripThinkingTags removes <think>...</think> blocks from model output.
+func StripThinkingTags(s string) string {
+	return strings.TrimSpace(thinkingTagRe.ReplaceAllString(s, ""))
+}
+
+// StripCodeFences removes markdown code fences and thinking tags from model output.
 func StripCodeFences(s string) string {
-	s = strings.TrimSpace(s)
+	s = StripThinkingTags(s)
 	for _, fence := range []string{"```typescript\n", "```ts\n", "```go\n", "```python\n", "```\n"} {
 		s = strings.ReplaceAll(s, fence, "")
 	}

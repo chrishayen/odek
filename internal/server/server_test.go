@@ -9,7 +9,7 @@ import (
 
 	"github.com/chrishayen/odek/config"
 	"github.com/chrishayen/odek/internal/app"
-	"github.com/chrishayen/odek/internal/claude"
+	"github.com/chrishayen/odek/internal/llm"
 	"github.com/chrishayen/odek/internal/decomposer"
 	"github.com/chrishayen/odek/internal/hydrator"
 	runepkg "github.com/chrishayen/odek/internal/rune"
@@ -30,7 +30,7 @@ func newTestServer(t *testing.T) (*Server, string) {
 	}
 	rs := runepkg.NewStore(dir, outPath)
 	as := app.NewStore(dir, outPath)
-	client := claude.New("", "", true)
+	client := llm.New("", "", true, "", "", 0)
 	dec := decomposer.New(rs, client)
 	hyd := hydrator.New(rs, client, "go")
 	s := New(cfg, rs, as, dec, hyd)

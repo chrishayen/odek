@@ -226,9 +226,21 @@ func (s *Store) runeDir(name string) string {
 	return filepath.Join(s.runesPath, strings.ReplaceAll(name, ".", string(filepath.Separator)))
 }
 
-// CodeDir returns the directory where generated code for a rune is stored.
+// CodeDir returns the package directory where a rune's generated code lives.
+// For "app.auth.login" it returns "<outputPath>/app/auth" — the rune's files
+// sit directly in the package directory, named after the short rune name.
 func (s *Store) CodeDir(name string) string {
-	return filepath.Join(s.outputPath, strings.ReplaceAll(name, ".", string(filepath.Separator)))
+	parts := strings.Split(name, ".")
+	if len(parts) <= 1 {
+		return s.outputPath
+	}
+	return filepath.Join(s.outputPath, filepath.Join(parts[:len(parts)-1]...))
+}
+
+// ShortName returns the last segment of a dot-path rune name.
+func ShortName(name string) string {
+	parts := strings.Split(name, ".")
+	return parts[len(parts)-1]
 }
 
 func (s *Store) Create(r Rune) error {

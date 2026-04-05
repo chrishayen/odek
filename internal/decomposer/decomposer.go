@@ -8,7 +8,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/chrishayen/odek/internal/claude"
+	"github.com/chrishayen/odek/internal/llm"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
@@ -60,11 +60,11 @@ type Result struct {
 // Decomposer decomposes requirements into runes.
 type Decomposer struct {
 	store  *runepkg.Store
-	client *claude.Client
+	client *llm.Client
 }
 
 // New creates a Decomposer backed by the given store and client.
-func New(store *runepkg.Store, client *claude.Client) *Decomposer {
+func New(store *runepkg.Store, client *llm.Client) *Decomposer {
 	return &Decomposer{store: store, client: client}
 }
 
@@ -234,7 +234,7 @@ func (d *Decomposer) generateMeta(requirements string) (string, string, error) {
 		Name    string `json:"name"`
 		Summary string `json:"summary"`
 	}
-	if err := json.Unmarshal([]byte(claude.StripCodeFences(output)), &meta); err != nil {
+	if err := json.Unmarshal([]byte(llm.StripCodeFences(output)), &meta); err != nil {
 		return "", "", fmt.Errorf("meta parse: %w", err)
 	}
 	return meta.Name, meta.Summary, nil

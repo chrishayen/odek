@@ -16,18 +16,46 @@ type Agent struct {
 	Mock     bool   `toml:"mock,omitempty"`
 }
 
+type Provider struct {
+	BaseURL   string `toml:"base_url,omitempty"`
+	Model     string `toml:"model"`
+	Format    string `toml:"format,omitempty"`     // "anthropic" (default) or "openai"
+	MaxTokens int    `toml:"max_tokens,omitempty"` // max output tokens (default 16384)
+}
+
 type Server struct {
 	Port int `toml:"port,omitempty"`
 }
 
 type Config struct {
-	Project      string `toml:"project"`
-	Language     string `toml:"language"`
-	RegistryPath string `toml:"registry_path"`
-	OutputPath   string `toml:"output_path"`
-	Concurrency  int    `toml:"concurrency,omitempty"`
-	Agent        Agent  `toml:"agent"`
-	Server       Server `toml:"server"`
+	Project      string              `toml:"project"`
+	Language     string              `toml:"language"`
+	RegistryPath string              `toml:"registry_path"`
+	OutputPath   string              `toml:"output_path"`
+	Concurrency  int                 `toml:"concurrency,omitempty"`
+	Agent        Agent               `toml:"agent"`
+	Providers    map[string]Provider `toml:"providers"`
+	Server       Server              `toml:"server"`
+}
+
+// ResolveProvider returns the provider config for a named provider.
+// If name is empty, it returns a default Anthropic provider using agent.model.
+func (c *Config) ResolveProvider(name string) (Provider, error) {
+	if name == "" {
+		return Provider{Model: c.Agent.Model, Format: "anthropic"}, nil
+	}
+	p, ok := c.Providers[name]
+	if !ok {
+		available := make([]string, 0, len(c.Providers))
+		for k := range c.Providers {
+			available = append(available, k)
+		}
+		return Provider{}, fmt.Errorf("unknown provider %q (available: %v)", name, available)
+	}
+	if p.Format == "" {
+		p.Format = "anthropic"
+	}
+	return p, nil
 }
 
 var supportedLanguages = map[string]bool{

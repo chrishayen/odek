@@ -3,7 +3,7 @@ CONFIG     ?= odek.toml
 DEV_DIR    := .dev
 PORT       := 8319
 
-.PHONY: build install run tui decompose hydrate generate serve test test-e2e dev clean help
+.PHONY: build install run tui tui-llama-cpp tui-anthropic decompose hydrate generate serve test test-e2e dev clean help
 
 ## build: compile the binary
 build:
@@ -15,6 +15,14 @@ install:
 
 ## tui: install and launch the TUI
 tui: install
+	@odek tui
+
+## tui llama-cpp: install and launch the TUI with llama-cpp provider
+tui-llama-cpp: install
+	@odek --provider llama-cpp tui
+
+## tui anthropic: install and launch the TUI with default Anthropic provider
+tui-anthropic: install
 	@odek tui
 
 ## run: build and run with ARGS

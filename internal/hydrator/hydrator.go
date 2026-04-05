@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/chrishayen/odek/framework"
-	"github.com/chrishayen/odek/internal/claude"
+	"github.com/chrishayen/odek/internal/llm"
 	"github.com/chrishayen/odek/internal/codegen"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 )
@@ -39,11 +39,11 @@ type HydrateAllResult struct {
 // Hydrator runs agents to generate code for runes.
 type Hydrator struct {
 	store    *runepkg.Store
-	client   *claude.Client
+	client   *llm.Client
 	language string
 }
 
-func New(store *runepkg.Store, client *claude.Client, language string) *Hydrator {
+func New(store *runepkg.Store, client *llm.Client, language string) *Hydrator {
 	return &Hydrator{store: store, client: client, language: language}
 }
 
@@ -279,6 +279,7 @@ func keys(m map[string]bool) []string {
 
 func buildPrompt(r *runepkg.Rune, language string) string {
 	var sb strings.Builder
+	shortName := runepkg.ShortName(r.Name)
 
 	fmt.Fprintf(&sb, `You are implementing a single, isolated library function called "%s".
 Write all code in %s. This is a library component meant to be imported and called by consumers — not an executable entry point. Do not generate main() functions or CLI scaffolding.
@@ -306,7 +307,7 @@ Signature: %s
 		}
 	}
 
-	sb.WriteString(`
+	fmt.Fprintf(&sb, `
 Instructions:
 1. This component must be isolated from other runes.
    - Do NOT import or call any other runes directly.
@@ -314,14 +315,20 @@ Instructions:
 2. Implement the component as described above, covering all specified behavior.
 3. Write tests that verify every positive and negative test case listed above.
    Each test case should be its own test function with a clear name.
-4. Output each file using this format exactly:
+4. Do NOT generate package.json, tsconfig.json, vitest.config.ts, or any project
+   configuration files. Only output source (.ts, .js, .go, .py) and test files.
+   The build and test infrastructure is managed externally.
+5. Name your files using ONLY the short name "%s" — for example "%s.ts" and
+   "%s.test.ts". Do NOT create subdirectories or nest files under src/ or any
+   other folder. All files must be plain filenames with no path separators.
+6. Output each file using this format exactly:
 
 === FILE: <filename> ===
 <file contents>
 === END FILE ===
 
 Keep the implementation minimal and focused on the described behavior.
-Do not include explanations outside of file blocks.`)
+Do not include explanations outside of file blocks.`, shortName, shortName, shortName)
 
 	return sb.String()
 }
