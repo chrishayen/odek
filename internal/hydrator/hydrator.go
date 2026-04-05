@@ -10,17 +10,19 @@ import (
 	"sync"
 
 	"github.com/chrishayen/odek/framework"
-	"github.com/chrishayen/odek/internal/llm"
 	"github.com/chrishayen/odek/internal/codegen"
+	"github.com/chrishayen/odek/internal/llm"
 	runepkg "github.com/chrishayen/odek/internal/rune"
+	"github.com/chrishayen/odek/internal/validator"
 )
 
 // Result holds the outcome of hydrating a rune.
 type Result struct {
-	RuneName string  `json:"rune_name"`
-	Output   string  `json:"output"`
-	Coverage float64 `json:"coverage"`
-	TestsRan bool    `json:"tests_ran"`
+	RuneName         string   `json:"rune_name"`
+	Output           string   `json:"output"`
+	Coverage         float64  `json:"coverage"`
+	TestsRan         bool     `json:"tests_ran"`
+	ValidationIssues []string `json:"validation_issues,omitempty"`
 }
 
 // HydrationSpec contains everything a sub-agent needs to hydrate a rune.
@@ -38,13 +40,15 @@ type HydrateAllResult struct {
 
 // Hydrator runs agents to generate code for runes.
 type Hydrator struct {
-	store    *runepkg.Store
-	client   *llm.Client
-	language string
+	store     *runepkg.Store
+	client    *llm.Client
+	language  string
+	validator *validator.Validator
+	logOut    io.Writer
 }
 
-func New(store *runepkg.Store, client *llm.Client, language string) *Hydrator {
-	return &Hydrator{store: store, client: client, language: language}
+func New(store *runepkg.Store, client *llm.Client, language string, v *validator.Validator) *Hydrator {
+	return &Hydrator{store: store, client: client, language: language, validator: v}
 }
 
 // GetHydrationSpec returns the prompt for a rune.
@@ -79,7 +83,14 @@ func (h *Hydrator) FinalizeHydration(name, output string) (*Result, error) {
 		return nil, fmt.Errorf("creating code dir: %w", err)
 	}
 
-	if err := codegen.ExtractFiles(codeDir, output); err != nil {
+	var validationIssues []string
+	if h.validator != nil {
+		if vr, verr := h.validator.ValidateHydration(r, output, h.language); verr == nil && !vr.Passed {
+			validationIssues = vr.Issues
+		}
+	}
+
+	if err := codegen.ExtractFilesFlat(codeDir, output); err != nil {
 		return nil, fmt.Errorf("extracting files: %w", err)
 	}
 
@@ -92,10 +103,11 @@ func (h *Hydrator) FinalizeHydration(name, output string) (*Result, error) {
 	}
 
 	return &Result{
-		RuneName: name,
-		Output:   output,
-		Coverage: coverage,
-		TestsRan: testsRan,
+		RuneName:         name,
+		Output:           output,
+		Coverage:         coverage,
+		TestsRan:         testsRan,
+		ValidationIssues: validationIssues,
 	}, nil
 }
 
@@ -122,7 +134,37 @@ func (h *Hydrator) Hydrate(_ context.Context, name string) (*Result, error) {
 		return nil, fmt.Errorf("claude call failed: %w", err)
 	}
 
-	if err := codegen.ExtractFiles(codeDir, output); err != nil {
+	var validationIssues []string
+	if h.validator != nil {
+		for attempt := 1; attempt <= h.validator.MaxRetries(); attempt++ {
+			vr, verr := h.validator.ValidateHydration(rn, output, h.language)
+			if verr != nil {
+				logProgress(h.logOut, "  VALIDATE %s: error: %v\n", name, verr)
+				break
+			}
+			if vr.Passed {
+				logProgress(h.logOut, "  VALIDATE %s: passed\n", name)
+				break
+			}
+			logProgress(h.logOut, "  VALIDATE %s: failed (attempt %d/%d)\n", name, attempt, h.validator.MaxRetries())
+			for _, issue := range vr.Issues {
+				logProgress(h.logOut, "    - %s\n", issue)
+			}
+			if attempt == h.validator.MaxRetries() {
+				validationIssues = vr.Issues
+				break
+			}
+			msgs := h.validator.BuildRetryMessages(prompt, output, vr.Issues)
+			retried, rerr := h.client.CallMessages("", msgs)
+			if rerr != nil {
+				validationIssues = vr.Issues
+				break
+			}
+			output = retried
+		}
+	}
+
+	if err := codegen.ExtractFilesFlat(codeDir, output); err != nil {
 		return nil, fmt.Errorf("extracting files: %w", err)
 	}
 
@@ -135,23 +177,29 @@ func (h *Hydrator) Hydrate(_ context.Context, name string) (*Result, error) {
 	}
 
 	return &Result{
-		RuneName: name,
-		Output:   output,
-		Coverage: coverage,
-		TestsRan: testsRan,
+		RuneName:         name,
+		Output:           output,
+		Coverage:         coverage,
+		TestsRan:         testsRan,
+		ValidationIssues: validationIssues,
 	}, nil
 }
 
 // HydrateAll orchestrates parallel hydration of all un-hydrated runes.
 func (h *Hydrator) HydrateAll(ctx context.Context, concurrency int, verify bool, logOut io.Writer) (*HydrateAllResult, error) {
+	h.logOut = logOut
 	runes, err := h.store.List()
 	if err != nil {
 		return nil, fmt.Errorf("listing runes: %w", err)
 	}
 
+	allNames := make([]string, len(runes))
+	for i, rn := range runes {
+		allNames[i] = rn.Name
+	}
 	var targets []runepkg.Rune
 	for _, rn := range runes {
-		if !rn.Hydrated {
+		if !rn.Hydrated && runepkg.IsLeaf(rn.Name, allNames) {
 			targets = append(targets, rn)
 		}
 	}

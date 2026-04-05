@@ -243,6 +243,17 @@ func ShortName(name string) string {
 	return parts[len(parts)-1]
 }
 
+// IsLeaf returns true if name is not a parent of any other name in the set.
+func IsLeaf(name string, allNames []string) bool {
+	prefix := name + "."
+	for _, n := range allNames {
+		if strings.HasPrefix(n, prefix) {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Store) Create(r Rune) error {
 	if err := validate(r); err != nil {
 		return err

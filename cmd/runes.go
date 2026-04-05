@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/chrishayen/odek/config"
+	"github.com/chrishayen/odek/internal/codegen"
 	"github.com/chrishayen/odek/internal/decomposer"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 	"github.com/spf13/cobra"
@@ -47,6 +49,9 @@ var runesCreateCmd = &cobra.Command{
 		}
 		if err := store.Create(r); err != nil {
 			return err
+		}
+		if runepkg.IsLeaf(name, storeRuneNames()) {
+			codegen.ScaffoldFiles(store.CodeDir(name), runepkg.ShortName(name), config.LangExtension(cfg.Language))
 		}
 		created, err := store.Get(name)
 		if err != nil {
@@ -180,11 +185,19 @@ var runesDecomposeCmd = &cobra.Command{
 			}
 		}
 
+		ext := config.LangExtension(cfg.Language)
+		allNames := storeRuneNames()
+		for _, p := range result.NewRunes {
+			allNames = append(allNames, p.Name)
+		}
 		for _, p := range result.NewRunes {
 			r := p.ToRune()
 			if err := store.Create(r); err != nil {
 				fmt.Fprintf(os.Stderr, "failed to create rune %q: %v\n", p.Name, err)
 				continue
+			}
+			if runepkg.IsLeaf(p.Name, allNames) {
+				codegen.ScaffoldFiles(store.CodeDir(p.Name), runepkg.ShortName(p.Name), ext)
 			}
 			fmt.Printf("created rune %q\n", p.Name)
 		}

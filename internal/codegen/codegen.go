@@ -33,6 +33,33 @@ func ExtractFiles(dir, output string) error {
 	return nil
 }
 
+// sourceExts lists extensions treated as source code by ExtractFilesFlat.
+var sourceExts = map[string]bool{
+	".go": true, ".ts": true, ".js": true, ".py": true,
+	".tsx": true, ".jsx": true, ".mjs": true, ".cjs": true,
+}
+
+// ExtractFilesFlat is like ExtractFiles but enforces a flat layout:
+// directory prefixes are stripped from filenames and non-source files
+// (e.g. package.json, tsconfig.json) are skipped.
+func ExtractFilesFlat(dir, output string) error {
+	matches := fileBlockRe.FindAllStringSubmatch(output, -1)
+	if len(matches) == 0 {
+		return os.WriteFile(filepath.Join(dir, "main.go"), []byte(output), 0644)
+	}
+	for _, m := range matches {
+		filename := filepath.Base(strings.TrimSpace(m[1]))
+		ext := filepath.Ext(filename)
+		if !sourceExts[ext] {
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(dir, filename), []byte(m[2]), 0644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // RunTests executes the language-appropriate test runner in dir and returns
 // the parsed coverage percentage and whether tests actually ran.
 func RunTests(dir, language string) (coverage float64, ran bool) {

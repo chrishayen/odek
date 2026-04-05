@@ -13,6 +13,7 @@ import (
 	"github.com/chrishayen/odek/internal/decomposer"
 	"github.com/chrishayen/odek/internal/hydrator"
 	runepkg "github.com/chrishayen/odek/internal/rune"
+	"github.com/chrishayen/odek/internal/validator"
 )
 
 func newTestServer(t *testing.T) (*Server, string) {
@@ -31,8 +32,9 @@ func newTestServer(t *testing.T) (*Server, string) {
 	rs := runepkg.NewStore(dir, outPath)
 	as := app.NewStore(dir, outPath)
 	client := llm.New("", "", true, "", "", 0)
-	dec := decomposer.New(rs, client)
-	hyd := hydrator.New(rs, client, "go")
+	val := validator.New(client, 2)
+	dec := decomposer.New(rs, client, val)
+	hyd := hydrator.New(rs, client, "go", val)
 	s := New(cfg, rs, as, dec, hyd)
 	return s, dir
 }

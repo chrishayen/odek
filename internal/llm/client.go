@@ -234,6 +234,9 @@ func mockResponse(systemPrompt, userPrompt string) string {
 	if strings.Contains(systemPrompt, "decompose") || strings.Contains(systemPrompt, "composition tree") {
 		return mockDecomposeResponse()
 	}
+	if strings.Contains(systemPrompt, "You validate") {
+		return "RESULT: PASS"
+	}
 	if strings.Contains(systemPrompt, "RESULT: ALL PASS") || strings.Contains(systemPrompt, "verify") {
 		return "PASS + test case 1 — implementation matches\nRESULT: ALL PASS"
 	}

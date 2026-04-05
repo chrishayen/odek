@@ -13,6 +13,7 @@ import (
 	"github.com/chrishayen/odek/internal/feature"
 	"github.com/chrishayen/odek/internal/hydrator"
 	runepkg "github.com/chrishayen/odek/internal/rune"
+	"github.com/chrishayen/odek/internal/validator"
 	"github.com/spf13/cobra"
 )
 
@@ -51,8 +52,9 @@ var rootCmd = &cobra.Command{
 		featureStore = feature.NewStore(store, cfg.OutputPath)
 		appStore = app.NewStore(cfg.RegistryPath, cfg.OutputPath)
 		client = llm.New(prov.Model, cfg.Agent.ResolveToken(), cfg.Agent.Mock, prov.Format, prov.BaseURL, prov.MaxTokens)
-		hyd = hydrator.New(store, client, cfg.Language)
-		dec = decomposer.New(store, client)
+		val := validator.New(client, cfg.MaxRetries)
+		hyd = hydrator.New(store, client, cfg.Language, val)
+		dec = decomposer.New(store, client, val)
 		comp = composer.New(store, client, cfg.Language)
 		return nil
 	},

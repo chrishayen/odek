@@ -33,6 +33,7 @@ type Config struct {
 	RegistryPath string              `toml:"registry_path"`
 	OutputPath   string              `toml:"output_path"`
 	Concurrency  int                 `toml:"concurrency,omitempty"`
+	MaxRetries   int                 `toml:"max_retries,omitempty"`
 	Agent        Agent               `toml:"agent"`
 	Providers    map[string]Provider `toml:"providers"`
 	Server       Server              `toml:"server"`
@@ -120,6 +121,7 @@ func Load() (*Config, error) {
 		RegistryPath: root,
 		OutputPath:   filepath.Join(root, "src"),
 		Concurrency:  50,
+		MaxRetries:   2,
 		Server: Server{
 			Port: 8319,
 		},

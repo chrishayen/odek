@@ -232,17 +232,19 @@ type Model struct {
 	screen       screen
 	port         int
 	registryPath string
+	language     string
 	runeStore    *runepkg.Store
 	createForm   createFeatureModel
 	featureList  featureListModel
 	help         help.Model
 }
 
-func New(port int, registryPath string, runeStore *runepkg.Store) Model {
+func New(port int, registryPath, language string, runeStore *runepkg.Store) Model {
 	return Model{
 		screen:       screenSplash,
 		port:         port,
 		registryPath: registryPath,
+		language:     language,
 		runeStore:    runeStore,
 		help:         newHelpModel(),
 	}
@@ -279,7 +281,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case draftSelectedMsg:
-		m.createForm = newCreateFeatureModelFromDraft(m.port, m.width-viewPadX*2, m.height, m.runeStore, msg.rune)
+		m.createForm = newCreateFeatureModelFromDraft(m.port, m.width-viewPadX*2, m.height, m.language, m.runeStore, msg.rune)
 
 		m.screen = screenCreateFeature
 		if m.createForm.state == stateDone {
@@ -288,13 +290,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.createForm.descInput.Focus()
 
 	case featureSelectedMsg:
-		m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.runeStore)
+		m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.language, m.runeStore)
 		m.screen = screenCreateFeature
 		// Load runes directly — featureLoadedMsg will set stateApproved
 		return m, loadFeatureRunes(msg.name, m.port)
 
 	case newFeatureMsg:
-		m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.runeStore)
+		m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.language, m.runeStore)
 		m.screen = screenCreateFeature
 		return m, m.createForm.descInput.Focus()
 
@@ -314,7 +316,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			if m.screen == screenSplash {
-				m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.runeStore)
+				m.createForm = newCreateFeatureModel(m.port, m.width-viewPadX*2, m.height, m.language, m.runeStore)
 				m.screen = screenCreateFeature
 				return m, m.createForm.descInput.Focus()
 			}

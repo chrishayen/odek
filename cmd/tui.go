@@ -24,7 +24,7 @@ var tuiCmd = &cobra.Command{
 		s := server.New(cfg, store, appStore, dec, hyd)
 		go http.ListenAndServe(fmt.Sprintf(":%d", port), s)
 
-		p := tea.NewProgram(tui.New(port, cfg.RegistryPath, store), tea.WithAltScreen())
+		p := tea.NewProgram(tui.New(port, cfg.RegistryPath, cfg.Language, store), tea.WithAltScreen())
 		_, err = p.Run()
 		return err
 	},

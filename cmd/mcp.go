@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/chrishayen/odek/config"
 	"github.com/chrishayen/odek/internal/app"
+	"github.com/chrishayen/odek/internal/codegen"
 	"github.com/chrishayen/odek/internal/decomposer"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -145,6 +147,19 @@ func errResult(err error) *mcp.CallToolResult {
 	return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{mcp.NewTextContent(err.Error())}}
 }
 
+// storeRuneNames returns a slice of all rune names currently in the store.
+func storeRuneNames() []string {
+	runes, err := store.List()
+	if err != nil {
+		return nil
+	}
+	names := make([]string, len(runes))
+	for i, r := range runes {
+		names[i] = r.Name
+	}
+	return names
+}
+
 func handleRunesList(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	runes, err := store.List()
 	if err != nil {
@@ -182,6 +197,9 @@ func handleRunesCreate(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	}
 	if err := store.Create(r); err != nil {
 		return errResult(err), nil
+	}
+	if runepkg.IsLeaf(name, storeRuneNames()) {
+		codegen.ScaffoldFiles(store.CodeDir(name), runepkg.ShortName(name), config.LangExtension(cfg.Language))
 	}
 	created, err := store.Get(name)
 	if err != nil {
@@ -246,12 +264,20 @@ func handleRunesDecompose(ctx context.Context, req mcp.CallToolRequest) (*mcp.Ca
 	if err != nil {
 		return errResult(err), nil
 	}
+	ext := config.LangExtension(cfg.Language)
+	allNames := storeRuneNames()
+	for _, p := range result.NewRunes {
+		allNames = append(allNames, p.Name)
+	}
 	var created []string
 	for _, p := range result.NewRunes {
 		r := p.ToRune()
 		if err := store.Create(r); err != nil {
 			created = append(created, fmt.Sprintf("FAILED %s: %v", p.Name, err))
 			continue
+		}
+		if runepkg.IsLeaf(p.Name, allNames) {
+			codegen.ScaffoldFiles(store.CodeDir(p.Name), runepkg.ShortName(p.Name), ext)
 		}
 		created = append(created, fmt.Sprintf("created %s", p.Name))
 	}
@@ -414,6 +440,11 @@ func handleAppsDelete(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 func handleRunesCreateBatch(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	tree, _ := req.GetArguments()["tree"].(string)
 	nodes := runepkg.ParseTree(tree)
+	allNames := storeRuneNames()
+	for _, n := range nodes {
+		allNames = append(allNames, n.Path)
+	}
+	ext := config.LangExtension(cfg.Language)
 	var results []string
 	for _, n := range nodes {
 		// Skip reference-only nodes (-> refs with no own signature/tests)
@@ -433,6 +464,9 @@ func handleRunesCreateBatch(_ context.Context, req mcp.CallToolRequest) (*mcp.Ca
 		if err := store.Create(r); err != nil {
 			results = append(results, fmt.Sprintf("FAILED %s: %v", r.Name, err))
 			continue
+		}
+		if runepkg.IsLeaf(r.Name, allNames) {
+			codegen.ScaffoldFiles(store.CodeDir(r.Name), runepkg.ShortName(r.Name), ext)
 		}
 		results = append(results, fmt.Sprintf("created %s", r.Name))
 	}

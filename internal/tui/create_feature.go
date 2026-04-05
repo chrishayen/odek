@@ -23,6 +23,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/chrishayen/odek/config"
+	"github.com/chrishayen/odek/internal/codegen"
 	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
@@ -397,9 +399,10 @@ type createFeatureModel struct {
 	draftName   string // top-level suffixed rune name for this draft (empty = new)
 	draftSuffix string // 6-char hex suffix shared by all runes in this draft
 	runeStore   *runepkg.Store
+	language    string
 }
 
-func newCreateFeatureModel(port, width, height int, runeStore *runepkg.Store) createFeatureModel {
+func newCreateFeatureModel(port, width, height int, language string, runeStore *runepkg.Store) createFeatureModel {
 	ta := textarea.New()
 	ta.Placeholder = "Describe the feature..."
 	ta.ShowLineNumbers = false
@@ -457,12 +460,13 @@ func newCreateFeatureModel(port, width, height int, runeStore *runepkg.Store) cr
 		runeList:     rl,
 		midVP:        midVP,
 		runeStore:    runeStore,
+		language:     language,
 		runeComments: map[int]string{},
 	}
 }
 
-func newCreateFeatureModelFromDraft(port, width, height int, runeStore *runepkg.Store, r runepkg.Rune) createFeatureModel {
-	m := newCreateFeatureModel(port, width, height, runeStore)
+func newCreateFeatureModelFromDraft(port, width, height int, language string, runeStore *runepkg.Store, r runepkg.Rune) createFeatureModel {
+	m := newCreateFeatureModel(port, width, height, language, runeStore)
 	m.draftName = r.Name
 	m.draftSuffix = extractDraftSuffix(r.Name)
 	m.requirement = r.Description
@@ -1017,12 +1021,27 @@ func (m *createFeatureModel) commitRunes() tea.Cmd {
 
 	suffix := m.draftSuffix
 	runeStore := m.runeStore
+	lang := m.language
 	return func() tea.Msg {
 		// Find all runes with this draft suffix
 		allDrafts, err := runeStore.ListByStatus("draft")
 		if err != nil {
 			return commitErrorMsg{err: err}
 		}
+
+		// Collect all names (store + batch) for leaf detection
+		allRunes, _ := runeStore.List()
+		allNames := make([]string, 0, len(allRunes)+len(allDrafts))
+		for _, r := range allRunes {
+			allNames = append(allNames, r.Name)
+		}
+		for _, r := range allDrafts {
+			if hasDraftSuffix(r.Name, suffix) {
+				allNames = append(allNames, removeDraftSuffix(r.Name, suffix))
+			}
+		}
+		ext := config.LangExtension(lang)
+
 		for _, r := range allDrafts {
 			if !hasDraftSuffix(r.Name, suffix) {
 				continue
@@ -1038,6 +1057,10 @@ func (m *createFeatureModel) commitRunes() tea.Cmd {
 				if !strings.Contains(err.Error(), "already exists") {
 					return commitErrorMsg{err: err}
 				}
+			}
+			// Scaffold empty source + test files for leaf runes
+			if runepkg.IsLeaf(clean.Name, allNames) {
+				codegen.ScaffoldFiles(runeStore.CodeDir(clean.Name), runepkg.ShortName(clean.Name), ext)
 			}
 			// Delete the suffixed draft version
 			_ = runeStore.Delete(r.Name)
@@ -1965,7 +1988,13 @@ func (m *createFeatureModel) viewResult(width int) string {
 		footer.WriteString(statusErr.Render(m.errMsg))
 		m.errMsg = ""
 	} else {
-		footer.WriteString(statusOk.Render(fmt.Sprintf("%d runes proposed", len(m.result.NewRunes))))
+		visibleRunes := 0
+		for _, r := range m.result.NewRunes {
+			if r.Description != "" || r.Signature != "" || len(r.Assumptions) > 0 {
+				visibleRunes++
+			}
+		}
+		footer.WriteString(statusOk.Render(fmt.Sprintf("%d runes proposed", visibleRunes)))
 	}
 
 	return layout + "\n\n" + footer.String()

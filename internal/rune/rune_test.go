@@ -365,6 +365,155 @@ func TestStoreGetNotFound(t *testing.T) {
 	}
 }
 
+func TestShortName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"hello_world.greet", "greet"},
+		{"std.io.write_stdout", "write_stdout"},
+		{"std", "std"},
+		{"a.b.c.d", "d"},
+	}
+	for _, tt := range tests {
+		if got := ShortName(tt.input); got != tt.want {
+			t.Errorf("ShortName(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestCodeDir(t *testing.T) {
+	s := NewStore("/runes", "/out")
+	tests := []struct {
+		name string
+		want string
+	}{
+		{"hello_world.greet", "/out/hello_world"},
+		{"std.io.write_stdout", "/out/std/io"},
+		{"std", "/out"},
+		{"a.b", "/out/a"},
+	}
+	for _, tt := range tests {
+		if got := s.CodeDir(tt.name); got != tt.want {
+			t.Errorf("CodeDir(%q) = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestIsLeaf(t *testing.T) {
+	allNames := []string{
+		"hello_world",
+		"hello_world.greet",
+		"std",
+		"std.io",
+		"std.io.write_stdout",
+	}
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"hello_world", false},       // has child hello_world.greet
+		{"hello_world.greet", true},  // leaf
+		{"std", false},               // has child std.io
+		{"std.io", false},            // has child std.io.write_stdout
+		{"std.io.write_stdout", true}, // leaf
+		{"unrelated", true},          // not in tree at all
+	}
+	for _, tt := range tests {
+		if got := IsLeaf(tt.name, allNames); got != tt.want {
+			t.Errorf("IsLeaf(%q) = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestIsLeafWithDraftSuffixedNames(t *testing.T) {
+	// Simulates the TUI commit scenario where allNames includes
+	// both store names (suffixed drafts) and cleaned names
+	allNames := []string{
+		// Cleaned names (what commit adds)
+		"hello_world",
+		"hello_world.greet",
+		"std",
+		"std.io",
+		"std.io.write_stdout",
+		// Suffixed drafts still in store during commit
+		"hello_world_a8f3b2",
+		"hello_world_a8f3b2.greet",
+		"std_a8f3b2",
+		"std_a8f3b2.io",
+		"std_a8f3b2.io.write_stdout",
+	}
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"hello_world", false},
+		{"hello_world.greet", true},
+		{"std", false},
+		{"std.io", false},
+		{"std.io.write_stdout", true},
+	}
+	for _, tt := range tests {
+		if got := IsLeaf(tt.name, allNames); got != tt.want {
+			t.Errorf("IsLeaf(%q) = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestScaffoldOnlyLeaves(t *testing.T) {
+	// End-to-end: create runes in a store, then scaffold only leaves
+	dir := t.TempDir()
+	s := NewStore(filepath.Join(dir, "runes"), filepath.Join(dir, "src"))
+
+	names := []string{
+		"hello_world",
+		"hello_world.greet",
+		"std",
+		"std.io",
+		"std.io.write_stdout",
+	}
+
+	for _, name := range names {
+		r := Rune{Name: name, Description: "test"}
+		if err := s.Create(r); err != nil {
+			t.Fatalf("Create(%q): %v", name, err)
+		}
+	}
+
+	// Verify IsLeaf against the store
+	runes, err := s.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	allNames := make([]string, len(runes))
+	for i, r := range runes {
+		allNames[i] = r.Name
+	}
+
+	leaves := map[string]bool{}
+	for _, name := range names {
+		if IsLeaf(name, allNames) {
+			leaves[name] = true
+		}
+	}
+
+	wantLeaves := map[string]bool{
+		"hello_world.greet":    true,
+		"std.io.write_stdout":  true,
+	}
+	for name := range wantLeaves {
+		if !leaves[name] {
+			t.Errorf("expected %q to be a leaf", name)
+		}
+	}
+	notLeaves := []string{"hello_world", "std", "std.io"}
+	for _, name := range notLeaves {
+		if leaves[name] {
+			t.Errorf("expected %q to NOT be a leaf", name)
+		}
+	}
+}
+
 func TestParseRuneContent(t *testing.T) {
 	content := `---
 version: 1.2.0

@@ -10,6 +10,7 @@ import (
 
 	"github.com/chrishayen/odek/internal/llm"
 	runepkg "github.com/chrishayen/odek/internal/rune"
+	"github.com/chrishayen/odek/internal/validator"
 )
 
 func logProgress(w io.Writer, format string, args ...any) {
@@ -55,17 +56,19 @@ type Result struct {
 	NewCount         int               `json:"new_count"`
 	UpdatedCount     int               `json:"updated_count"`
 	PackageSummaries map[string]string `json:"package_summaries,omitempty"`
+	ValidationIssues []string          `json:"validation_issues,omitempty"`
 }
 
 // Decomposer decomposes requirements into runes.
 type Decomposer struct {
-	store  *runepkg.Store
-	client *llm.Client
+	store     *runepkg.Store
+	client    *llm.Client
+	validator *validator.Validator
 }
 
 // New creates a Decomposer backed by the given store and client.
-func New(store *runepkg.Store, client *llm.Client) *Decomposer {
-	return &Decomposer{store: store, client: client}
+func New(store *runepkg.Store, client *llm.Client, v *validator.Validator) *Decomposer {
+	return &Decomposer{store: store, client: client, validator: v}
 }
 
 const metaSystemPrompt = `You name features. Given a requirement, respond with exactly this JSON and nothing else:
@@ -130,18 +133,56 @@ func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecompositio
 	}
 	logProgress(logOut, "Parsing composition tree...")
 
-	result, err := d.parseResult(tr.output)
+	treeOutput := tr.output
+	result, err := d.parseResult(treeOutput)
 	if err != nil {
 		return nil, err
 	}
 	logProgress(logOut, "Found %d runes", len(result.NewRunes))
+
+	if d.validator != nil {
+		for attempt := 1; attempt <= d.validator.MaxRetries(); attempt++ {
+			vr, verr := d.validator.ValidateDecomposition(treeOutput)
+			if verr != nil {
+				logProgress(logOut, "Validation error: %v", verr)
+				break
+			}
+			if vr.Passed {
+				logProgress(logOut, "Validation passed")
+				break
+			}
+			logProgress(logOut, "Validation failed (attempt %d/%d):", attempt, d.validator.MaxRetries())
+			for _, issue := range vr.Issues {
+				logProgress(logOut, "  - %s", issue)
+			}
+			if attempt == d.validator.MaxRetries() {
+				logProgress(logOut, "Max retries reached, continuing with issues")
+				result.ValidationIssues = vr.Issues
+				break
+			}
+			logProgress(logOut, "Retrying with feedback...")
+			feedback := validator.FormatDecompositionFeedback(vr.Issues)
+			refinedPrompt, _ := d.buildPrompt(requirements, treeOutput+"\n"+feedback)
+			retried, rerr := d.client.Call(prompt, refinedPrompt)
+			if rerr != nil {
+				result.ValidationIssues = vr.Issues
+				break
+			}
+			treeOutput = retried
+			result, err = d.parseResult(treeOutput)
+			if err != nil {
+				break
+			}
+			logProgress(logOut, "Found %d runes after retry", len(result.NewRunes))
+		}
+	}
 
 	d.generatePackageSummaries(result, logOut)
 
 	if isRefinement {
 		// Regenerate name/summary from the tree output, which reflects the actual
 		// feature after refinement — not the raw requirements with comments appended.
-		metaName, metaSummary, metaErr := d.generateMeta(tr.output)
+		metaName, metaSummary, metaErr := d.generateMeta(treeOutput)
 		if metaErr == nil {
 			result.FeatureName = metaName
 			result.Summary = metaSummary
