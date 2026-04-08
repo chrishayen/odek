@@ -57,9 +57,10 @@ func (h *Hydrator) GetHydrationSpec(name string) (*HydrationSpec, error) {
 	if err != nil {
 		return nil, err
 	}
+	deps := h.resolveDeps(r.Dependencies)
 	return &HydrationSpec{
 		RuneName: name,
-		Prompt:   buildPrompt(r, h.language),
+		Prompt:   buildPrompt(r, h.language, deps),
 	}, nil
 }
 
@@ -74,7 +75,7 @@ func (h *Hydrator) FinalizeHydration(name, output string) (*Result, error) {
 		return nil, err
 	}
 
-	if err := framework.EnsureDispatch(h.store.OutputPath()); err != nil {
+	if err := framework.EnsureDispatchForLang(h.store.OutputPath(), h.language); err != nil {
 		return nil, fmt.Errorf("ensuring dispatch framework: %w", err)
 	}
 
@@ -118,9 +119,10 @@ func (h *Hydrator) Hydrate(_ context.Context, name string) (*Result, error) {
 		return nil, err
 	}
 
-	prompt := buildPrompt(rn, h.language)
+	deps := h.resolveDeps(rn.Dependencies)
+	prompt := buildPrompt(rn, h.language, deps)
 
-	if err := framework.EnsureDispatch(h.store.OutputPath()); err != nil {
+	if err := framework.EnsureDispatchForLang(h.store.OutputPath(), h.language); err != nil {
 		return nil, fmt.Errorf("ensuring dispatch framework: %w", err)
 	}
 
@@ -325,9 +327,38 @@ func keys(m map[string]bool) []string {
 	return out
 }
 
-func buildPrompt(r *runepkg.Rune, language string) string {
+// depInfo holds a resolved dependency's name and signature for prompt building.
+type depInfo struct {
+	Name      string // e.g. "std.io.write_stdout"
+	ShortName string // e.g. "write_stdout"
+	Signature string // e.g. "(message: string) -> result[void, string]"
+}
+
+// resolveDeps looks up each dependency ref and returns its info.
+func (h *Hydrator) resolveDeps(refs []string) []depInfo {
+	var deps []depInfo
+	for _, ref := range refs {
+		path, _ := runepkg.ParseRef(ref)
+		if path == "" {
+			path = ref // bare name without @major
+		}
+		r, err := h.store.Get(path)
+		if err != nil {
+			continue
+		}
+		deps = append(deps, depInfo{
+			Name:      r.Name,
+			ShortName: runepkg.ShortName(r.Name),
+			Signature: r.Signature,
+		})
+	}
+	return deps
+}
+
+func buildPrompt(r *runepkg.Rune, language string, deps []depInfo) string {
 	var sb strings.Builder
 	shortName := runepkg.ShortName(r.Name)
+	hasDeps := len(deps) > 0
 
 	fmt.Fprintf(&sb, `You are implementing a single, isolated library function called "%s".
 Write all code in %s. This is a library component meant to be imported and called by consumers — not an executable entry point. Do not generate main() functions or CLI scaffolding.
@@ -336,6 +367,14 @@ Description: %s
 
 Signature: %s
 `, r.Name, language, r.Description, r.Signature)
+
+	if hasDeps {
+		sb.WriteString("\nDependencies (injected as function parameters):\n")
+		for _, d := range deps {
+			fmt.Fprintf(&sb, "- %s: %s\n", d.ShortName, d.Signature)
+		}
+		sb.WriteString("\nYour function MUST accept these dependencies as parameters and call them directly.\nDo NOT reimplement their behavior. Trust that they work as described by their signature.\n")
+	}
 
 	if r.Behavior != "" {
 		fmt.Fprintf(&sb, "\nBehavior:\n%s\n", r.Behavior)
@@ -355,17 +394,16 @@ Signature: %s
 		}
 	}
 
-	fmt.Fprintf(&sb, `
+	if hasDeps {
+		fmt.Fprintf(&sb, `
 Instructions:
-1. This component must be isolated from other runes.
-   - Do NOT import or call any other runes directly.
-   - All inter-rune communication goes through the dispatcher via serializable types.
+1. Your function receives its dependencies as parameters. Call them — do NOT reimplement them.
 2. Implement the component as described above, covering all specified behavior.
 3. Write tests that verify every positive and negative test case listed above.
    Each test case should be its own test function with a clear name.
+   In tests, create simple stubs/mocks for the dependency parameters.
 4. Do NOT generate package.json, tsconfig.json, vitest.config.ts, or any project
    configuration files. Only output source (.ts, .js, .go, .py) and test files.
-   The build and test infrastructure is managed externally.
 5. Name your files using ONLY the short name "%s" — for example "%s.ts" and
    "%s.test.ts". Do NOT create subdirectories or nest files under src/ or any
    other folder. All files must be plain filenames with no path separators.
@@ -377,6 +415,27 @@ Instructions:
 
 Keep the implementation minimal and focused on the described behavior.
 Do not include explanations outside of file blocks.`, shortName, shortName, shortName)
+	} else {
+		fmt.Fprintf(&sb, `
+Instructions:
+1. This component has no dependencies. Implement it fully and self-contained.
+2. Implement the component as described above, covering all specified behavior.
+3. Write tests that verify every positive and negative test case listed above.
+   Each test case should be its own test function with a clear name.
+4. Do NOT generate package.json, tsconfig.json, vitest.config.ts, or any project
+   configuration files. Only output source (.ts, .js, .go, .py) and test files.
+5. Name your files using ONLY the short name "%s" — for example "%s.ts" and
+   "%s.test.ts". Do NOT create subdirectories or nest files under src/ or any
+   other folder. All files must be plain filenames with no path separators.
+6. Output each file using this format exactly:
+
+=== FILE: <filename> ===
+<file contents>
+=== END FILE ===
+
+Keep the implementation minimal and focused on the described behavior.
+Do not include explanations outside of file blocks.`, shortName, shortName, shortName)
+	}
 
 	return sb.String()
 }

@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/chrishayen/odek/config"
-	"github.com/chrishayen/odek/internal/app"
 	"github.com/chrishayen/odek/internal/llm"
 	"github.com/chrishayen/odek/internal/composer"
 	"github.com/chrishayen/odek/internal/decomposer"
@@ -21,7 +20,6 @@ var (
 	cfg          *config.Config
 	store        *runepkg.Store
 	featureStore *feature.Store
-	appStore     *app.Store
 	client       *llm.Client
 	hyd          *hydrator.Hydrator
 	dec          *decomposer.Decomposer
@@ -53,7 +51,6 @@ var rootCmd = &cobra.Command{
 
 		store = runepkg.NewStore(filepath.Join(cfg.RegistryPath, "runes"), cfg.OutputPath)
 		featureStore = feature.NewStore(store, cfg.OutputPath)
-		appStore = app.NewStore(cfg.RegistryPath, cfg.OutputPath)
 		client = llm.New(prov.Model, cfg.Agent.ResolveToken(), cfg.Agent.Mock, prov.Format, prov.BaseURL, prov.MaxTokens)
 		val := validator.New(client, cfg.MaxRetries)
 		hyd = hydrator.New(store, client, cfg.Language, val)
@@ -75,7 +72,6 @@ func init() {
 
 	rootCmd.AddCommand(runesCmd)
 	rootCmd.AddCommand(featuresCmd)
-	rootCmd.AddCommand(appsCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(serveCmd)

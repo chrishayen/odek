@@ -23,7 +23,7 @@ var serveCmd = &cobra.Command{
 			port = cfg.Server.Port
 		}
 
-		s := server.New(cfg, store, appStore, dec, hyd)
+		s := server.New(cfg, store, dec, hyd)
 		addr := fmt.Sprintf(":%d", port)
 		fmt.Printf("odek api server listening on %s\n", addr)
 		return http.ListenAndServe(addr, s)

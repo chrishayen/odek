@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/chrishayen/odek/config"
-	"github.com/chrishayen/odek/internal/app"
 	"github.com/chrishayen/odek/internal/decomposer"
 	"github.com/chrishayen/odek/internal/hydrator"
 	runepkg "github.com/chrishayen/odek/internal/rune"
@@ -19,7 +18,6 @@ import (
 type Server struct {
 	cfg       *config.Config
 	runeStore *runepkg.Store
-	appStore  *app.Store
 	dec       *decomposer.Decomposer
 	hyd       *hydrator.Hydrator
 	jobs      *jobs.Manager
@@ -27,11 +25,10 @@ type Server struct {
 }
 
 // New creates a new Server.
-func New(cfg *config.Config, runeStore *runepkg.Store, appStore *app.Store, dec *decomposer.Decomposer, hyd *hydrator.Hydrator) *Server {
+func New(cfg *config.Config, runeStore *runepkg.Store, dec *decomposer.Decomposer, hyd *hydrator.Hydrator) *Server {
 	s := &Server{
 		cfg:       cfg,
 		runeStore: runeStore,
-		appStore:  appStore,
 		dec:       dec,
 		hyd:       hyd,
 		jobs:      &jobs.Manager{},
@@ -56,8 +53,6 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/verify/{id}", s.handleJobStatus)
 	s.mux.HandleFunc("GET /api/features", s.handleFeaturesList)
 	s.mux.HandleFunc("GET /api/features/{name}", s.handleFeaturesGet)
-	s.mux.HandleFunc("GET /api/apps", s.handleAppsList)
-	s.mux.HandleFunc("GET /api/apps/{name}", s.handleAppsGet)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -260,21 +255,3 @@ func (s *Server) handleFeaturesGet(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, rn)
 }
 
-func (s *Server) handleAppsList(w http.ResponseWriter, r *http.Request) {
-	apps, err := s.appStore.List()
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	jsonResponse(w, http.StatusOK, apps)
-}
-
-func (s *Server) handleAppsGet(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	a, err := s.appStore.Get(name)
-	if err != nil {
-		jsonError(w, http.StatusNotFound, fmt.Sprintf("app %q not found", name))
-		return
-	}
-	jsonResponse(w, http.StatusOK, a)
-}
