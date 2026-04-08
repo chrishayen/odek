@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/chrishayen/odek/config"
-	"github.com/chrishayen/odek/internal/app"
 	"github.com/chrishayen/odek/internal/llm"
 	"github.com/chrishayen/odek/internal/decomposer"
 	"github.com/chrishayen/odek/internal/hydrator"
@@ -30,12 +29,11 @@ func newTestServer(t *testing.T) (*Server, string) {
 		Server:       config.Server{Port: 0},
 	}
 	rs := runepkg.NewStore(dir, outPath)
-	as := app.NewStore(dir, outPath)
 	client := llm.New("", "", true, "", "", 0)
 	val := validator.New(client, 2)
 	dec := decomposer.New(rs, client, val)
 	hyd := hydrator.New(rs, client, "go", val)
-	s := New(cfg, rs, as, dec, hyd)
+	s := New(cfg, rs, dec, hyd)
 	return s, dir
 }
 
@@ -109,28 +107,6 @@ func TestFeaturesListEmpty(t *testing.T) {
 func TestFeaturesGetNotFound(t *testing.T) {
 	s, _ := newTestServer(t)
 	req := httptest.NewRequest("GET", "/api/features/nope", nil)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-
-	if w.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want 404", w.Code)
-	}
-}
-
-func TestAppsListEmpty(t *testing.T) {
-	s, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/api/apps", nil)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d", w.Code)
-	}
-}
-
-func TestAppsGetNotFound(t *testing.T) {
-	s, _ := newTestServer(t)
-	req := httptest.NewRequest("GET", "/api/apps/nope", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 

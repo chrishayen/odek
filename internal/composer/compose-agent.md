@@ -14,16 +14,9 @@ No callable may import or reference another callable directly. All calls go thro
 
 The project already has a dispatch framework at `src/dispatch/`. Do not build your own dispatcher. Import and use the existing one.
 
-The framework provides:
+All inputs and outputs are JSON-encoded for isolation.
 
-- `dispatch.New(runes, middleware)` — creates an immutable dispatcher with all callables and middleware baked in
-- `d.Call(ctx, name, input)` — invokes a callable by name through the middleware chain
-
-Types:
-- `dispatch.RuneFunc` — `func(ctx context.Context, input []byte) ([]byte, error)`
-- `dispatch.Middleware` — `func(name string, next RuneFunc) RuneFunc`
-
-All inputs and outputs are JSON-encoded `[]byte` for isolation.
+The language-specific types and API are provided in the prompt below.
 
 ## What you receive
 

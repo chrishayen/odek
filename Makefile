@@ -3,7 +3,7 @@ CONFIG     ?= odek.toml
 DEV_DIR    := .dev
 PORT       := 8319
 
-.PHONY: build install run tui tui-llama-cpp tui-anthropic decompose hydrate generate serve test test-e2e dev clean help
+.PHONY: build install run tui tui-llama-cpp tui-anthropic decompose hydrate generate export serve test test-unit test-e2e dev clean help
 
 ## build: compile the binary
 build:
@@ -41,13 +41,20 @@ hydrate: build
 generate: decompose
 	@./$(BINARY) runes hydrate-all
 
+## export: export a feature as a standalone library (pass ARGS="feature_name")
+export: build
+	@./$(BINARY) features export $(ARGS)
+
 ## serve: start the HTTP API server
 serve: build
 	@./$(BINARY) serve --port $(PORT)
 
-## test: run all tests
-test:
-	go test ./e2e/ -v
+## test: run unit and e2e tests
+test: test-unit test-e2e
+
+## test-unit: run unit tests
+test-unit:
+	go test ./internal/... ./config/...
 
 ## test-e2e: run end-to-end tests
 test-e2e:

@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"path/filepath"
 
+	"github.com/chrishayen/odek/internal/exporter"
 	"github.com/chrishayen/odek/internal/feature"
 	"github.com/spf13/cobra"
 )
@@ -53,8 +55,27 @@ var featuresComposeCmd = &cobra.Command{
 	},
 }
 
+var featuresExportCmd = &cobra.Command{
+	Use:   "export [name]",
+	Short: "Export a feature as a standalone library",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		includeTests, _ := cmd.Flags().GetBool("tests")
+		exp := exporter.New(store, cfg.Language)
+		result, err := exp.Export(args[0], filepath.Join(cfg.RegistryPath, "dist"), exporter.ExportOptions{
+			IncludeTests: includeTests,
+		})
+		if err != nil {
+			return err
+		}
+		return printJSON(result)
+	},
+}
+
 func init() {
 	featuresCmd.AddCommand(featuresListCmd)
 	featuresCmd.AddCommand(featuresGetCmd)
 	featuresCmd.AddCommand(featuresComposeCmd)
+	featuresCmd.AddCommand(featuresExportCmd)
+	featuresExportCmd.Flags().Bool("tests", false, "Include test files in the export")
 }

@@ -21,7 +21,7 @@ var tuiCmd = &cobra.Command{
 		defer cancelProxy()
 
 		port := cfg.Server.Port
-		s := server.New(cfg, store, appStore, dec, hyd)
+		s := server.New(cfg, store, dec, hyd)
 		go http.ListenAndServe(fmt.Sprintf(":%d", port), s)
 
 		p := tea.NewProgram(tui.New(port, cfg.RegistryPath, cfg.Language, store), tea.WithAltScreen())
