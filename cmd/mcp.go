@@ -97,7 +97,7 @@ var mcpCmd = &cobra.Command{
 		), handleFeaturesGet)
 
 		s.AddTool(mcp.NewTool("features_compose",
-			mcp.WithDescription("Generate dispatcher and wiring code for a feature."),
+			mcp.WithDescription("Generate wiring code for a feature."),
 			mcp.WithString("name", mcp.Description("Feature name"), mcp.Required()),
 		), handleFeaturesCompose)
 

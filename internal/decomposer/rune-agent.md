@@ -211,10 +211,10 @@ When the user says "hydrate", run the full pipeline end-to-end:
    - Implement the function described in the prompt
    - Output all source code and test files using `=== FILE: <filename> ===` / `=== END FILE ===` blocks as instructed in the prompt
    - Do NOT use Write, Edit, or any filesystem tools — the sub-agent's only job is to produce text output
-   - Each rune must be isolated — do not import or call other runes directly; all inter-rune communication goes through the dispatcher
+   - Each rune must be isolated — do not import or call other runes directly
 
 4. **Finalize each rune.** After each sub-agent completes, call `runes_finalize_hydration` with the rune name AND the sub-agent's full text output. This extracts the file blocks, writes them to disk, runs language-appropriate tests, records coverage, and marks the rune as hydrated.
 
-5. **Compose the feature.** Once all runes in a feature are hydrated, call `features_compose` to generate the dispatcher, wiring code, and integration tests.
+5. **Compose the feature.** Once all runes in a feature are hydrated, call `features_compose` to generate wiring code and integration tests.
 
 This is one seamless operation — the user says "hydrate" and all of the above happens automatically.

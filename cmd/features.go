@@ -44,7 +44,7 @@ var featuresGetCmd = &cobra.Command{
 
 var featuresComposeCmd = &cobra.Command{
 	Use:   "compose [name]",
-	Short: "Generate dispatcher and wiring code for a feature",
+	Short: "Generate wiring code for a feature",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		result, err := comp.Compose(context.Background(), args[0])

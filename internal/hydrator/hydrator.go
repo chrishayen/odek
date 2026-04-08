@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/chrishayen/odek/framework"
 	"github.com/chrishayen/odek/internal/codegen"
 	"github.com/chrishayen/odek/internal/llm"
 	runepkg "github.com/chrishayen/odek/internal/rune"
@@ -75,10 +74,6 @@ func (h *Hydrator) FinalizeHydration(name, output string) (*Result, error) {
 		return nil, err
 	}
 
-	if err := framework.EnsureDispatchForLang(h.store.OutputPath(), h.language); err != nil {
-		return nil, fmt.Errorf("ensuring dispatch framework: %w", err)
-	}
-
 	codeDir := h.store.CodeDir(name)
 	if err := os.MkdirAll(codeDir, 0755); err != nil {
 		return nil, fmt.Errorf("creating code dir: %w", err)
@@ -121,10 +116,6 @@ func (h *Hydrator) Hydrate(_ context.Context, name string) (*Result, error) {
 
 	deps := h.resolveDeps(rn.Dependencies)
 	prompt := buildPrompt(rn, h.language, deps)
-
-	if err := framework.EnsureDispatchForLang(h.store.OutputPath(), h.language); err != nil {
-		return nil, fmt.Errorf("ensuring dispatch framework: %w", err)
-	}
 
 	codeDir := h.store.CodeDir(name)
 	if err := os.MkdirAll(codeDir, 0755); err != nil {
