@@ -27,15 +27,16 @@ var systemPrompt string
 
 // ProposedRune is a rune the agent wants to create.
 type ProposedRune struct {
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	Signature     string   `json:"signature"`
-	Behavior      string   `json:"behavior"`
-	PositiveTests []string `json:"positive_tests"`
-	NegativeTests []string `json:"negative_tests"`
-	Assumptions   []string `json:"assumptions,omitempty"`
-	Refs          []string `json:"refs,omitempty"`
-	Extend        bool     `json:"extend,omitempty"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	Signature      string   `json:"signature"`
+	Behavior       string   `json:"behavior"`
+	PositiveTests  []string `json:"positive_tests"`
+	NegativeTests  []string `json:"negative_tests"`
+	Assumptions    []string `json:"assumptions,omitempty"`
+	Refs           []string `json:"refs,omitempty"`
+	Extend         bool     `json:"extend,omitempty"`
+	Responsibility string   `json:"responsibility,omitempty"`
 }
 
 // ExistingMatch is a rune already in the registry that covers part of the requirements.
@@ -160,7 +161,11 @@ func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecompositio
 				result.ValidationIssues = vr.Issues
 				break
 			}
-			logProgress(logOut, "Retrying with feedback...")
+			issuesSummary := ""
+			for _, issue := range vr.Issues {
+				issuesSummary += "\n  - " + issue
+			}
+			logProgress(logOut, "Retrying with feedback...%s", issuesSummary)
 			feedback := validator.FormatDecompositionFeedback(vr.Issues)
 			refinedPrompt, _ := d.buildPrompt(requirements, treeOutput+"\n"+feedback)
 			retried, rerr := d.client.Call(prompt, refinedPrompt)
@@ -284,14 +289,15 @@ func (d *Decomposer) generateMeta(requirements string) (string, string, error) {
 // ToRune converts a ProposedRune to a Rune for storage.
 func (p ProposedRune) ToRune() runepkg.Rune {
 	return runepkg.Rune{
-		Name:          p.Name,
-		Description:   p.Description,
-		Signature:     p.Signature,
-		Behavior:      p.Behavior,
-		PositiveTests: p.PositiveTests,
-		NegativeTests: p.NegativeTests,
-		Assumptions:   p.Assumptions,
-		Dependencies:  p.Refs,
+		Name:           p.Name,
+		Description:    p.Description,
+		Signature:      p.Signature,
+		Behavior:       p.Behavior,
+		PositiveTests:  p.PositiveTests,
+		NegativeTests:  p.NegativeTests,
+		Assumptions:    p.Assumptions,
+		Dependencies:   p.Refs,
+		Responsibility: p.Responsibility,
 	}
 }
 
@@ -337,11 +343,12 @@ func (d *Decomposer) parseResult(output string) (*Result, error) {
 		}
 
 		pr := ProposedRune{
-			Name:        n.Path,
-			Signature:   n.Signature,
-			Assumptions: n.Assumptions,
-			Refs:        n.Refs,
-			Extend:      n.Extend,
+			Name:           n.Path,
+			Signature:      n.Signature,
+			Assumptions:    n.Assumptions,
+			Refs:           n.Refs,
+			Extend:         n.Extend,
+			Responsibility: n.Responsibility,
 		}
 
 		if len(n.Pos) > 0 {

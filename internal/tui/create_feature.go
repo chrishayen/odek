@@ -296,13 +296,14 @@ type jobResponse struct {
 }
 
 type proposedRune struct {
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	Signature     string   `json:"signature"`
-	PositiveTests []string `json:"positive_tests"`
-	NegativeTests []string `json:"negative_tests"`
-	Assumptions   []string `json:"assumptions,omitempty"`
-	Refs          []string `json:"refs"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	Signature      string   `json:"signature"`
+	PositiveTests  []string `json:"positive_tests"`
+	NegativeTests  []string `json:"negative_tests"`
+	Assumptions    []string `json:"assumptions,omitempty"`
+	Refs           []string `json:"refs"`
+	Responsibility string   `json:"responsibility,omitempty"`
 }
 
 type existingMatch struct {
@@ -393,7 +394,8 @@ type createFeatureModel struct {
 	featureComment string
 
 	// Std references (derived from Refs, not persisted)
-	stdRefs []stdRef
+	stdRefs              []stdRef
+	groupByPackage bool
 
 	// Drafts
 	draftName   string // top-level suffixed rune name for this draft (empty = new)
@@ -504,13 +506,14 @@ func runesToResult(featureName, summary string, runes []runepkg.Rune) *decompose
 	proposed := make([]proposedRune, len(runes))
 	for i, r := range runes {
 		proposed[i] = proposedRune{
-			Name:          r.Name,
-			Description:   r.Description,
-			Signature:     r.Signature,
-			PositiveTests: r.PositiveTests,
-			NegativeTests: r.NegativeTests,
-			Assumptions:   r.Assumptions,
-			Refs:          r.Dependencies,
+			Name:           r.Name,
+			Description:    r.Description,
+			Signature:      r.Signature,
+			PositiveTests:  r.PositiveTests,
+			NegativeTests:  r.NegativeTests,
+			Assumptions:    r.Assumptions,
+			Refs:           r.Dependencies,
+			Responsibility: r.Responsibility,
 		}
 	}
 	return &decomposeResult{
@@ -548,14 +551,15 @@ func (m *createFeatureModel) saveDraft() string {
 
 	for _, pr := range m.result.NewRunes {
 		r := runepkg.Rune{
-			Name:          addDraftSuffix(pr.Name, m.draftSuffix),
-			Description:   pr.Description,
-			Signature:     pr.Signature,
-			PositiveTests: pr.PositiveTests,
-			NegativeTests: pr.NegativeTests,
-			Assumptions:   pr.Assumptions,
-			Dependencies:  pr.Refs,
-			Status:        "draft",
+			Name:           addDraftSuffix(pr.Name, m.draftSuffix),
+			Description:    pr.Description,
+			Signature:      pr.Signature,
+			PositiveTests:  pr.PositiveTests,
+			NegativeTests:  pr.NegativeTests,
+			Assumptions:    pr.Assumptions,
+			Dependencies:   pr.Refs,
+			Responsibility: pr.Responsibility,
+			Status:         "draft",
 		}
 		_ = m.runeStore.Create(r)
 	}
@@ -942,6 +946,10 @@ func (m *createFeatureModel) updateDoneState(msg tea.Msg) tea.Cmd {
 			return m.openRefine(inputRefineRune, "Comment on "+name+"...")
 		case "a":
 			return m.commitRunes()
+		case "g":
+			m.groupByPackage = !m.groupByPackage
+			m.buildRuneListItems()
+			return nil
 		case "enter":
 			return m.submitAllRefinements()
 		case "backspace":
@@ -1399,6 +1407,46 @@ func groupRunesByPackage(runes []proposedRune) []runeGroup {
 	return result
 }
 
+// groupRunesByResponsibility groups runes by their responsibility label.
+func groupRunesByResponsibility(runes []proposedRune) []runeGroup {
+	order := []string{}
+	groups := map[string][]int{}
+	for i, r := range runes {
+		if strings.HasPrefix(r.Name, "std.") || r.Name == "std" {
+			continue
+		}
+		label := r.Responsibility
+		if label == "" {
+			continue
+		}
+		if _, ok := groups[label]; !ok {
+			order = append(order, label)
+		}
+		groups[label] = append(groups[label], i)
+	}
+	var stdIndices []int
+	for i, r := range runes {
+		if strings.HasPrefix(r.Name, "std.") || r.Name == "std" {
+			stdIndices = append(stdIndices, i)
+		}
+	}
+	result := make([]runeGroup, len(order))
+	for i, label := range order {
+		result[i] = runeGroup{pkg: label, indices: groups[label]}
+	}
+	if len(stdIndices) > 0 {
+		result = append(result, runeGroup{pkg: "std", indices: stdIndices})
+	}
+	return result
+}
+
+func (m *createFeatureModel) groupRunes() []runeGroup {
+	if m.groupByPackage {
+		return groupRunesByPackage(m.result.NewRunes)
+	}
+	return groupRunesByResponsibility(m.result.NewRunes)
+}
+
 // featureName returns the API-provided name or derives one from the rune packages.
 func (m *createFeatureModel) featureName() string {
 	if m.result.FeatureName != "" {
@@ -1443,7 +1491,7 @@ func (m *createFeatureModel) buildRuneListItems() {
 		stdRefsByPkg[pkg] = append(stdRefsByPkg[pkg], sr)
 	}
 
-	groups := groupRunesByPackage(m.result.NewRunes)
+	groups := m.groupRunes()
 	var items []list.Item
 
 	for gi, g := range groups {
@@ -1995,6 +2043,11 @@ func (m *createFeatureModel) viewResult(width int) string {
 			}
 		}
 		footer.WriteString(statusOk.Render(fmt.Sprintf("%d runes proposed", visibleRunes)))
+		if m.groupByPackage {
+			footer.WriteString(runeSigStyle.Render("  g: group by responsibility"))
+		} else {
+			footer.WriteString(runeSigStyle.Render("  g: group by package"))
+		}
 	}
 
 	return layout + "\n\n" + footer.String()

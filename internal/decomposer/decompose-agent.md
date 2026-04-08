@@ -40,15 +40,18 @@ Format:
         + test for this slice
         - failure case
         ? chosen strategy over alternative
+        # responsibility_label
         std.slice.component
           @ (input: type) -> return_type
           + test
           - failure
+          # responsibility_label
           std.slice.component.leaf_unit
             @ (input: type) -> return_type
             + unit test
             - unit failure
             ? default value chosen since unspecified
+            # responsibility_label
 
     project_name
       @ () -> result[void, string]
@@ -60,11 +63,13 @@ Format:
         + test for this component
         - failure case
         ? errors logged to stderr, not a file
+        # responsibility_label
         -> std.some.unit
         project_name.slice.leaf_unit
           @ (input: type) -> return_type
           + test for this unit
           - failure case
+          # responsibility_label
 
 No markdown, no code fences, no extra prose. Just the two trees.
 
@@ -88,19 +93,20 @@ Types can be nested: result[list[i32], string]
 2. The tree structure IS the composition. Parent nodes compose their children. Indentation shows nesting.
 3. Every node MUST have a signature (@ line) and test cases (except -> references). Include every meaningful positive (+) and negative (-) test case — not just one of each. Cover edge cases, boundary values, and error variants.
 4. Every node SHOULD list assumptions (? lines) — decisions you made to fill gaps the user didn't specify. These are behaviors, defaults, scope choices, or strategies you chose on their behalf. The user will review these and refine. Examples: "default port 8080", "graceful shutdown with 5s timeout", "serves index.html at directory root", "plaintext logging, not JSON". Omit ? lines only when the requirement fully specifies the node's behavior.
-5. std.* test cases must be feature-agnostic. Never mention a feature name or use feature-specific example values in std tests. The FIRST positive test case becomes the rune's description — it must describe the generic capability.
+5. Every node MUST have a responsibility tag (# line) — a short snake_case label for the functional concern it serves (e.g., "input_handling", "rendering", "network_io"). Nodes that work together toward the same concern share the same label. Choose labels that describe what the user would evaluate as a group when reviewing completeness.
+6. std.* test cases must be feature-agnostic. Never mention a feature name or use feature-specific example values in std tests. The FIRST positive test case becomes the rune's description — it must describe the generic capability.
    - BAD: `+ writes "hello world" to stdout` (uses content from the specific feature)
    - GOOD: `+ writes provided string to stdout` (describes the generic capability)
-6. Do not emit nodes for constants, config values, or type definitions — only executable behavior.
-7. Use canonical verbs in leaf names: create, read, update, delete, validate, send, resolve, parse, serve, listen, handle, shutdown, filter, sort, transform, log, hash, generate, verify, etc.
-8. Normalize verb synonyms (e.g., "show" → "read", "remove" → "delete").
-9. snake_case everything. Subjects are domain entities, not UI elements.
-10. If existing units are provided as context, you have three options for each:
+7. Do not emit nodes for constants, config values, or type definitions — only executable behavior.
+8. Use canonical verbs in leaf names: create, read, update, delete, validate, send, resolve, parse, serve, listen, handle, shutdown, filter, sort, transform, log, hash, generate, verify, etc.
+9. Normalize verb synonyms (e.g., "show" → "read", "remove" → "delete").
+10. snake_case everything. Subjects are domain entities, not UI elements.
+11. If existing units are provided as context, you have three options for each:
    - -> path.to.unit — reference it as-is (it already does what you need)
    - ~> path.to.unit — extend it (it partially does what you need; include only the NEW +/- test cases to add)
    - Define a new node — when nothing existing covers the capability
-11. The output is always a **library**. Do not generate CLI entry points, main functions, argument parsing, or binary-level concerns (signal handling, process exit codes, graceful shutdown). The feature root node is a library entry point — a callable function with typed parameters and return values that consumers import and call.
-12. The root nodes (std, project_name) are package containers — they MUST have at least one child unit. Do not put executable behavior directly on a root node. Decompose into the minimum necessary child units — avoid unnecessary nesting depth.
+12. The output is always a **library**. Do not generate CLI entry points, main functions, argument parsing, or binary-level concerns (signal handling, process exit codes, graceful shutdown). The feature root node is a library entry point — a callable function with typed parameters and return values that consumers import and call.
+13. The root nodes (std, project_name) are package containers — they MUST have at least one child unit. Do not put executable behavior directly on a root node. Decompose into the minimum necessary child units — avoid unnecessary nesting depth.
 
 # Refinement
 
@@ -118,40 +124,48 @@ std
     @ (data: string, encoding: string) -> result[bytes, string]
     + encodes and decodes data between string and byte representations
     - returns error on malformed input
+    # encoding
     std.encoding.decode_base64url
       @ (encoded: string) -> result[bytes, string]
       + decodes valid base64url string to bytes
       + handles padding and no-padding variants
       - returns error on invalid characters
       - returns error on empty string
+      # encoding
     std.encoding.encode_base64url
       @ (data: bytes) -> string
       + encodes bytes to base64url string without padding
       + returns empty string for empty input
+      # encoding
   std.crypto
     @ (data: bytes, key: bytes, algorithm: string) -> result[bool, string]
     + verifies cryptographic signatures
     - returns error on unsupported algorithm
+    # signature_verification
     std.crypto.verify_hmac_sha256
       @ (data: bytes, signature: bytes, key: bytes) -> bool
       + returns true when signature matches
       + returns false when signature does not match
       - returns false when key is empty
+      # signature_verification
     std.crypto.constant_time_compare
       @ (a: bytes, b: bytes) -> bool
       + returns true for identical byte slices
       + returns false for different byte slices
       + returns false when lengths differ
+      # signature_verification
   std.time
     @ (timestamp: i64, reference: i64) -> bool
     + compares timestamps for expiration checks
     - handles zero timestamps
+    # expiration
     std.time.is_expired
       @ (expires_at: i64, now: i64) -> bool
       + returns false when expires_at is in the future
       + returns true when expires_at is in the past
       + returns true when expires_at equals now
       ? comparison is strictly less-than: expired means now >= expires_at
+      # expiration
   std.json
     std.json.parse_object
       @ (raw: string) -> result[map[string, string], string]
@@ -159,6 +173,7 @@ std
       + handles nested values by serializing them as strings
       - returns error on invalid JSON
       - returns error on JSON arrays (not an object)
+      # claim_extraction
 
 token_validator
   @ (token: string, secret: string) -> result[TokenClaims, string]
@@ -172,17 +187,20 @@ token_validator
     + splits token into header, payload, and signature parts
     - returns error when token has fewer than three segments
     - returns error when any segment is not valid base64url
+    # token_parsing
     -> std.encoding.decode_base64url
   token_validator.verify_signature
     @ (header: bytes, payload: bytes, signature: bytes, secret: string) -> result[bool, string]
     + returns true when signature matches computed HMAC of header.payload
     - returns error when secret is empty
+    # signature_verification
     -> std.crypto.verify_hmac_sha256
   token_validator.extract_claims
     @ (payload: bytes) -> result[TokenClaims, string]
     + parses payload bytes into structured claims
     - returns error when payload is not valid JSON
     - returns error when required "exp" claim is missing
+    # claim_extraction
     -> std.json.parse_object
     -> std.time.is_expired
 

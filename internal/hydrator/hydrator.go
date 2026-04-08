@@ -204,7 +204,11 @@ func (h *Hydrator) HydrateAll(ctx context.Context, concurrency int, verify bool,
 	result := &HydrateAllResult{}
 
 	for _, level := range levels {
-		logProgress(logOut, "Level %d: hydrating %d runes\n", level.depth, len(level.runes))
+		names := make([]string, len(level.runes))
+		for i, rn := range level.runes {
+			names[i] = rn.Name
+		}
+		logProgress(logOut, "Hydrating %d runes: %s\n", len(level.runes), strings.Join(names, ", "))
 
 		for _, hr := range h.parallelHydrate(ctx, level.runes, concurrency, logOut) {
 			if hr.err != nil {

@@ -100,13 +100,14 @@ func LatestVersion(dir string) (Semver, bool) {
 
 // Node represents a parsed item from a composition tree output.
 type Node struct {
-	Path        string   // dot path, e.g. "std.cli.parse_flags"
-	Signature   string   // e.g. "(argv: list[string]) -> result[ParseFlagsResult, string]"
-	Pos         []string // positive test cases
-	Neg         []string // negative test cases
-	Refs        []string // -> references
-	Extend      bool     // true if this is a ~> extension
-	Assumptions []string // ? assumptions
+	Path           string   // dot path, e.g. "std.cli.parse_flags"
+	Signature      string   // e.g. "(argv: list[string]) -> result[ParseFlagsResult, string]"
+	Pos            []string // positive test cases
+	Neg            []string // negative test cases
+	Refs           []string // -> references
+	Extend         bool     // true if this is a ~> extension
+	Assumptions    []string // ? assumptions
+	Responsibility string   // # responsibility label
 }
 
 // IsDotPath checks if a string looks like a dot-notation path (e.g. "std.cli.parse_flags").
@@ -152,6 +153,10 @@ func ParseTree(output string) []Node {
 		} else if strings.HasPrefix(trimmed, "-> ") {
 			if current != nil {
 				current.Refs = append(current.Refs, strings.TrimPrefix(trimmed, "-> "))
+			}
+		} else if strings.HasPrefix(trimmed, "# ") {
+			if current != nil {
+				current.Responsibility = strings.TrimPrefix(trimmed, "# ")
 			}
 		} else if strings.HasPrefix(trimmed, "~> ") {
 			extPath := strings.TrimPrefix(trimmed, "~> ")
@@ -205,7 +210,8 @@ type Rune struct {
 	Status        string   `json:"status,omitempty"         yaml:"status"`
 	Hydrated      bool     `json:"hydrated"                 yaml:"hydrated"`
 	Coverage      float64  `json:"coverage"                 yaml:"coverage"`
-	Dependencies  []string `json:"dependencies,omitempty"   yaml:"dependencies"`
+	Dependencies   []string `json:"dependencies,omitempty"   yaml:"dependencies"`
+	Responsibility string   `json:"responsibility,omitempty" yaml:"responsibility,omitempty"`
 }
 
 // Store manages rune specs on disk using dot-path directories with semver-named files.
@@ -548,6 +554,9 @@ func write(path string, r Rune) error {
 		for _, d := range r.Dependencies {
 			fmt.Fprintf(f, "  - %s\n", d)
 		}
+	}
+	if r.Responsibility != "" {
+		fmt.Fprintf(f, "responsibility: %s\n", r.Responsibility)
 	}
 	fmt.Fprintln(f, "---")
 
