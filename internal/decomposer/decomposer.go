@@ -139,7 +139,7 @@ func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecompositio
 	if err != nil {
 		return nil, err
 	}
-	logProgress(logOut, "Found %d runes", len(result.NewRunes))
+	logProgress(logOut, "Decomposed into %d runes", len(result.NewRunes))
 
 	if d.validator != nil {
 		for attempt := 1; attempt <= d.validator.MaxRetries(); attempt++ {
@@ -178,7 +178,7 @@ func (d *Decomposer) Decompose(_ context.Context, requirements, prevDecompositio
 			if err != nil {
 				break
 			}
-			logProgress(logOut, "Found %d runes after retry", len(result.NewRunes))
+			logProgress(logOut, "Decomposed into %d runes after retry", len(result.NewRunes))
 		}
 	}
 

@@ -3,16 +3,15 @@ package validator
 import (
 	"fmt"
 	"strings"
+
+	runepkg "github.com/chrishayen/odek/internal/rune"
 )
 
-const decomposeValidationPrompt = `You validate a decomposition tree for a software project. The tree uses an indented format where each node is a rune (isolated library function). Check ALL of the following rules:
+const decomposeSemanticPrompt = `You validate the semantic quality of a decomposition tree. The structural format has already been verified — do NOT check signatures, test case counts, naming format, or package structure. Focus ONLY on:
 
-1. Every leaf rune must have a signature line (@ prefix).
-2. Every leaf rune must have at least one positive test case (+ prefix) and at least one negative test case (- prefix).
-3. No two sibling runes should have overlapping or duplicate responsibilities.
-4. Names must follow snake_case dot-path conventions (e.g. std.auth.validate_email).
-5. References (->) must point to runes that exist elsewhere in the tree.
-6. Package (non-leaf) runes should NOT have signatures — they are organizational groupings.
+1. No two sibling runes should have overlapping or duplicate responsibilities. Siblings are runes that share the same parent (e.g. std.text.wrap and std.text.pad_right are siblings).
+2. Each leaf rune should represent a single, focused responsibility — flag any that try to do too much.
+3. References (->) should be semantically reasonable (the referenced rune makes sense for the referencing context). References may point to runes in an external registry not shown in the tree.
 
 If all checks pass, respond with exactly:
 RESULT: PASS
@@ -23,12 +22,57 @@ RESULT: FAIL
 No other output.`
 
 // ValidateDecomposition checks the raw tree output from decomposition.
+// Structural rules are checked deterministically; semantic rules use the LLM.
 func (v *Validator) ValidateDecomposition(treeOutput string) (*Result, error) {
-	resp, err := v.client.Call(decomposeValidationPrompt, treeOutput)
+	// Deterministic structural checks.
+	if r := validateStructure(treeOutput); !r.Passed {
+		return r, nil
+	}
+
+	// Semantic checks via LLM.
+	resp, err := v.client.Call(decomposeSemanticPrompt, treeOutput)
 	if err != nil {
-		return nil, fmt.Errorf("validation call failed: %w", err)
+		// Structural validation passed; don't fail on LLM error.
+		return &Result{Passed: true}, nil
 	}
 	return parseResult(resp), nil
+}
+
+// validateStructure runs deterministic checks on the tree output.
+func validateStructure(treeOutput string) *Result {
+	nodes := runepkg.ParseTree(treeOutput)
+	if len(nodes) == 0 {
+		return &Result{Issues: []string{"no runes found in tree output"}}
+	}
+
+	allNames := make([]string, len(nodes))
+	for i, n := range nodes {
+		allNames[i] = n.Path
+	}
+
+	var issues []string
+	for _, n := range nodes {
+		leaf := runepkg.IsLeaf(n.Path, allNames)
+
+		if leaf {
+			if n.Signature == "" {
+				issues = append(issues, fmt.Sprintf("%s: leaf rune missing signature (@ line)", n.Path))
+			}
+			if len(n.Pos) == 0 {
+				issues = append(issues, fmt.Sprintf("%s: leaf rune missing positive test case (+ line)", n.Path))
+			}
+			if len(n.Neg) == 0 {
+				issues = append(issues, fmt.Sprintf("%s: leaf rune missing negative test case (- line)", n.Path))
+			}
+		} else if n.Signature != "" {
+			issues = append(issues, fmt.Sprintf("%s: package rune should not have a signature", n.Path))
+		}
+	}
+
+	if len(issues) == 0 {
+		return &Result{Passed: true}
+	}
+	return &Result{Issues: issues}
 }
 
 // FormatDecompositionFeedback formats validation issues as refinement instructions

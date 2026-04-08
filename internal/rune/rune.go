@@ -493,16 +493,29 @@ func (s *Store) CheckStaleRefs() (stale, ok int, err error) {
 
 // FormatExistingContext builds a prompt context string from existing runes.
 func (s *Store) FormatExistingContext() (string, error) {
-	runes, err := s.List()
+	all, err := s.List()
 	if err != nil {
 		return "", err
+	}
+
+	// Only include std runes — feature-specific runes from other features
+	// should not influence new decompositions.
+	var runes []Rune
+	for _, r := range all {
+		top := r.Name
+		if idx := strings.Index(r.Name, "."); idx >= 0 {
+			top = r.Name[:idx]
+		}
+		if strings.HasPrefix(top, "std") {
+			runes = append(runes, r)
+		}
 	}
 	if len(runes) == 0 {
 		return "", nil
 	}
 
 	var sb strings.Builder
-	sb.WriteString("The following units already exist in the registry. Reference existing ones with -> path@MAJOR instead of recreating them. If a new requirement needs to EXTEND an existing unit with additional capabilities, emit it as ~> path.to.unit and include only the NEW test cases to add.\n\n")
+	sb.WriteString("The following std runes already exist. Only reference one (-> path@MAJOR) if your decomposition genuinely needs that capability — do not force usage. To extend an existing rune, emit ~> path.to.rune with only the NEW test cases. If nothing existing fits, define new runes.\n\n")
 
 	for _, r := range runes {
 		sb.WriteString(fmt.Sprintf("%s @%d (v%s)\n", r.Name, r.Version.Major, r.Version))
