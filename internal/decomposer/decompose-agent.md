@@ -36,16 +36,7 @@ Format:
 
     std
       std.slice
-        @ (input: type) -> return_type
-        + test for this slice
-        - failure case
-        ? chosen strategy over alternative
-        # responsibility_label
         std.slice.component
-          @ (input: type) -> return_type
-          + test
-          - failure
-          # responsibility_label
           std.slice.component.leaf_unit
             @ (input: type) -> return_type
             + unit test
@@ -54,21 +45,13 @@ Format:
             # responsibility_label
 
     project_name
-      @ () -> result[void, string]
-      + integration test for the whole feature
-      - integration failure
-      ? scope limited to single-user mode
       project_name.slice
-        @ (args: type) -> return_type
-        + test for this component
-        - failure case
-        ? errors logged to stderr, not a file
-        # responsibility_label
         -> std.some.unit
         project_name.slice.leaf_unit
           @ (input: type) -> return_type
           + test for this unit
           - failure case
+          ? errors logged to stderr, not a file
           # responsibility_label
 
 No markdown, no code fences, no extra prose. Just the two trees.
@@ -91,9 +74,9 @@ Types can be nested: result[list[i32], string]
 
 1. STDLIB FIRST. Decompose generic capabilities before the feature. Ask: could another feature use this without modification? If yes → std.*
 2. The tree structure IS the composition. Parent nodes compose their children. Indentation shows nesting.
-3. Every node MUST have a signature (@ line) and test cases (except -> references). Include every meaningful positive (+) and negative (-) test case — not just one of each. Cover edge cases, boundary values, and error variants.
+3. Every leaf node MUST have a signature (@ line) and test cases (except -> references). Package (non-leaf) nodes are organizational groupings and MUST NOT have signatures or test cases. Include every meaningful positive (+) and negative (-) test case — not just one of each. Cover edge cases, boundary values, and error variants.
 4. Every node SHOULD list assumptions (? lines) — decisions you made to fill gaps the user didn't specify. These are behaviors, defaults, scope choices, or strategies you chose on their behalf. The user will review these and refine. Examples: "default port 8080", "graceful shutdown with 5s timeout", "serves index.html at directory root", "plaintext logging, not JSON". Omit ? lines only when the requirement fully specifies the node's behavior.
-5. Every node MUST have a responsibility tag (# line) — a short snake_case label for the functional concern it serves (e.g., "input_handling", "rendering", "network_io"). Nodes that work together toward the same concern share the same label. Choose labels that describe what the user would evaluate as a group when reviewing completeness.
+5. Every leaf node MUST have a responsibility tag (# line) — a short snake_case label for the functional concern it serves (e.g., "input_handling", "rendering", "network_io"). Nodes that work together toward the same concern share the same label. Choose labels that describe what the user would evaluate as a group when reviewing completeness.
 6. std.* test cases must be feature-agnostic. Never mention a feature name or use feature-specific example values in std tests. The FIRST positive test case becomes the rune's description — it must describe the generic capability.
    - BAD: `+ writes "hello world" to stdout` (uses content from the specific feature)
    - GOOD: `+ writes provided string to stdout` (describes the generic capability)
@@ -121,10 +104,6 @@ Requirement: "A token validation library"
 
 std
   std.encoding
-    @ (data: string, encoding: string) -> result[bytes, string]
-    + encodes and decodes data between string and byte representations
-    - returns error on malformed input
-    # encoding
     std.encoding.decode_base64url
       @ (encoded: string) -> result[bytes, string]
       + decodes valid base64url string to bytes
@@ -136,12 +115,9 @@ std
       @ (data: bytes) -> string
       + encodes bytes to base64url string without padding
       + returns empty string for empty input
+      - returns error when input contains invalid byte sequence
       # encoding
   std.crypto
-    @ (data: bytes, key: bytes, algorithm: string) -> result[bool, string]
-    + verifies cryptographic signatures
-    - returns error on unsupported algorithm
-    # signature_verification
     std.crypto.verify_hmac_sha256
       @ (data: bytes, signature: bytes, key: bytes) -> bool
       + returns true when signature matches
@@ -153,17 +129,15 @@ std
       + returns true for identical byte slices
       + returns false for different byte slices
       + returns false when lengths differ
+      - returns false when either input is empty
       # signature_verification
   std.time
-    @ (timestamp: i64, reference: i64) -> bool
-    + compares timestamps for expiration checks
-    - handles zero timestamps
-    # expiration
     std.time.is_expired
       @ (expires_at: i64, now: i64) -> bool
       + returns false when expires_at is in the future
       + returns true when expires_at is in the past
       + returns true when expires_at equals now
+      - returns true when expires_at is zero (epoch) and now is positive
       ? comparison is strictly less-than: expired means now >= expires_at
       # expiration
   std.json
@@ -176,12 +150,6 @@ std
       # claim_extraction
 
 token_validator
-  @ (token: string, secret: string) -> result[TokenClaims, string]
-  + validates a signed token and returns its claims
-  - returns error when token format is invalid
-  - returns error when signature is invalid
-  - returns error when token is expired
-  ? token format is three base64url-encoded segments separated by dots
   token_validator.parse
     @ (token: string) -> result[TokenParts, string]
     + splits token into header, payload, and signature parts
