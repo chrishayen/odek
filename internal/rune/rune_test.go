@@ -390,13 +390,41 @@ func TestCodeDir(t *testing.T) {
 	}{
 		{"hello_world.greet", "/out/hello_world"},
 		{"std.io.write_stdout", "/out/std/io"},
-		{"std", "/out"},
+		{"std", "/out/std"},
 		{"a.b", "/out/a"},
 	}
 	for _, tt := range tests {
 		if got := s.CodeDir(tt.name); got != tt.want {
 			t.Errorf("CodeDir(%q) = %q, want %q", tt.name, got, tt.want)
 		}
+	}
+}
+
+// TestCodeDir_TopLevelPackageCollision reproduces a bug where exporting
+// multiple top-level (single-segment) packages combines them into one
+// directory. CodeDir("auth") and CodeDir("billing") both return the bare
+// outputPath, so generated files from different packages overwrite each other.
+func TestCodeDir_TopLevelPackageCollision(t *testing.T) {
+	outDir := t.TempDir()
+	s := NewStore(t.TempDir(), outDir)
+
+	// Two independent top-level packages must get separate directories.
+	authDir := s.CodeDir("auth")
+	billingDir := s.CodeDir("billing")
+
+	if authDir == billingDir {
+		t.Fatalf("CodeDir collision: auth and billing both resolve to %q — "+
+			"exported packages will be combined", authDir)
+	}
+
+	// Verify they're actual subdirectories of the output path.
+	wantAuth := filepath.Join(outDir, "auth")
+	wantBilling := filepath.Join(outDir, "billing")
+	if authDir != wantAuth {
+		t.Errorf("CodeDir(\"auth\") = %q, want %q", authDir, wantAuth)
+	}
+	if billingDir != wantBilling {
+		t.Errorf("CodeDir(\"billing\") = %q, want %q", billingDir, wantBilling)
 	}
 }
 
