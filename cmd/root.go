@@ -31,6 +31,9 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "odek",
 	Short: "Odek — Tree Composition CLI and Rune Server",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return tuiCmd.RunE(cmd, args)
+	},
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if cmd.Name() == "init" {
 			return nil
