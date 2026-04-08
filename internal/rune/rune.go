@@ -232,7 +232,7 @@ func (s *Store) runeDir(name string) string {
 func (s *Store) CodeDir(name string) string {
 	parts := strings.Split(name, ".")
 	if len(parts) <= 1 {
-		return s.outputPath
+		return filepath.Join(s.outputPath, name)
 	}
 	return filepath.Join(s.outputPath, filepath.Join(parts[:len(parts)-1]...))
 }
