@@ -23,7 +23,7 @@ func main() {
 	// You can change this to point to a remote API (e.g., https://api.openai.com/v1)
 	baseURL := os.Getenv("API_BASE_URL")
 	if baseURL == "" {
-		baseURL = "http://localhost:8080" // Default local server
+		baseURL = "http://localhost:1234" // Default local server
 	}
 
 	client, err := openai.NewClient(baseURL)
