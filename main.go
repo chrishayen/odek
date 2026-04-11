@@ -7,8 +7,16 @@ import (
 	"os"
 	"strings"
 
+	_ "embed"
+	"shotgun.dev/odek/decompose"
+	"shotgun.dev/odek/internal/tui"
 	openai "shotgun.dev/odek/openai"
 )
+
+// System prompt embedded at compile time from decompose.md
+//
+//go:embed decompose.md
+var systemPrompt string
 
 func main() {
 	// 1. Initialize the client
@@ -32,6 +40,35 @@ func main() {
 			prompt = os.Args[i+1]
 			break
 		}
+	}
+
+	// 3. Check for -d flag
+	var dValue string
+	for i, arg := range os.Args {
+		if (i > 0 && strings.HasPrefix(arg, "-d=")) || arg == "-d" {
+			dValue = os.Args[i+1]
+			break
+		}
+	}
+
+	// 4. Check for -d flag (decompose feature)
+	if dValue != "" {
+		response, err := decompose.Decompose(ctx, client, systemPrompt, dValue)
+		if err != nil {
+			log.Fatalf("Decompose failed: %v", err)
+		}
+
+		for _, choice := range response.Choices {
+			fmt.Printf("\n=== Response ===\n%s\n", choice.Message.Content)
+			if response.Usage != nil {
+				fmt.Printf("Tokens: prompt=%d, completion=%d, total=%d\n",
+					response.Usage.PromptTokens,
+					response.Usage.CompletionTokens,
+					response.Usage.TotalTokens)
+			}
+		}
+
+		return
 	}
 
 	if prompt != "" {
@@ -60,21 +97,6 @@ func main() {
 		return // Exit after processing prompt
 	}
 
-	// 3. List available models (original behavior)
-	fmt.Println("Fetching available models...")
-	modelsList, err := client.ListModels(ctx)
-	if err != nil {
-		log.Fatalf("Error listing models: %v", err)
-	}
-
-	// 4. Print results
-	fmt.Printf("Found %d models:\n\n", len(modelsList))
-	for _, m := range modelsList {
-		fmt.Printf("- ID: %s | Name: %s\n", m.ID, m.Name)
-	}
-
-	// Optional: Check health
-	if err := client.HealthCheck(ctx); err != nil {
-		log.Printf("Health check warning (might be expected if API doesn't have /health): %v", err)
-	}
+	// 3. Launch TUI when no arguments provided
+	tui.Run()
 }
