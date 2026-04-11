@@ -13,13 +13,13 @@ import (
 
 // Configuration for the OpenAI-compatible API
 const (
-	API_URL    = "http://localhost:1234/v1/chat/completions" 
-	MODEL_NAME = "gpt-4o" 
+	API_URL    = "http://localhost:1234/v1/chat/completions"
+	MODEL_NAME = "gpt-4o"
 )
 
 // The Master Architect Prompt
 const SYSTEM_COMPOSITION_PROMPT = `You are the Composition Tree Engine (CTE).
-Your purpose is to decompose complex requirements into mathematically traceable, hierarchical composition trees.
+Your purpose is to decompose requirements into mathematically traceable, hierarchical composition trees.
 
 You follow a strict "Top-向 (Top-Down) Discovery" protocol with two distinct modes:
 
@@ -44,7 +44,7 @@ type ChatMessage struct {
 }
 
 type ChatRequest struct {
-	Model    string       `json:"model"`
+	Model    string        `json:"model"`
 	Messages []ChatMessage `json:"messages"`
 }
 
@@ -59,24 +59,48 @@ type ChatResponse struct {
 
 func main() {
 	reader := bufio.NewReader(os.Stdin)
-	
+
 	// Session History: The "Memory" for structural context
 	history := []ChatMessage{
 		{Role: "system", Content: SYSTEM_COMPOSITION_PROMPT},
 	}
 
-	fmt.Println("--- Composition Tree Engine (CTE) ---")
-	fmt.Println("Instructions: Enter a node path to expand. Type 'exit' to quit.")
-	fmt.Printf("Target API: %s\n", API_URL)
+	fmt.Println("=== Requirement Decomposition Engine ===")
+
+	// PHASE 1: Get initial requirement from user
+	fmt.Print("\nEnter your requirement: ")
+	requirement, _ := reader.ReadString('\n')
+	requirement = strings.TrimSpace(requirement)
+
+	if requirement == "" {
+		fmt.Println("No requirement provided. Exiting.")
+		return
+	}
+
+	// Send initial requirement to LLM for decomposition
+	history = append(history, ChatMessage{Role: "user", Content: requirement})
+	fmt.Printf("\nDecomposing: %s...\n", requirement)
+
+	response, err := callLLM(history)
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		return
+	}
+
+	history = append(history, ChatMessage{Role: "assistant", Content: response})
+
+	fmt.Println("\n--- Initial Decomposition ---")
+	fmt.Println(response)
+	fmt.Println("-----------------------------\n")
+
+	// PHASE 2: Expansion loop for drilling down into nodes
+	fmt.Println("Enter a node path to expand (or 'exit' to quit):")
 
 	for {
-		fmt.Print("\nExpand Node > ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			break
-		}
-
+		fmt.Print("> ")
+		input, _ := reader.ReadString('\n')
 		path := strings.TrimSpace(input)
+
 		if path == "exit" || path == "quit" {
 			break
 		}
@@ -84,24 +108,21 @@ func main() {
 			continue
 		}
 
-		// 1. Add User Input to history
 		history = append(history, ChatMessage{Role: "user", Content: path})
-		fmt.Printf("Exploring: %s...\n", path)
-		
-		// 2. Call the API
+		fmt.Printf("Expanding: %s...\n", path)
+
 		response, err := callLLM(history)
 		if err != nil {
-			fmt.Printf("CRITICAL ERROR: %v\n", err)
+			fmt.Printf("ERROR: %v\n", err)
 			history = history[:len(history)-1]
 			continue
 		}
 
-		// 3. Add Assistant Response to history
 		history = append(history, ChatMessage{Role: "assistant", Content: response})
 
 		fmt.Println("\n--- Expanded Tree ---")
 		fmt.Println(response)
-		fmt.Println("----------------------")
+		fmt.Println("----------------------\n")
 	}
 }
 
@@ -153,4 +174,3 @@ func callLLM(messages []ChatMessage) (string, error) {
 
 	return chatResp.Choices[0].Message.Content, nil
 }
-
