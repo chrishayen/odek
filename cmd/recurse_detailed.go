@@ -90,7 +90,26 @@ When the user provides a requirement:
 2.  Determine which behaviors are generic enough to belong in std and which are specific to the project root.
 3.  Construct the composition tree using dot notation.
 4.  For each Rune identified, provide the Description, Signature, Tests (Positive/Negative), and Assumptions.
-5.  Format the output clearly with headers for the **Project Package** and the **Std Package**.
+
+**CRITICAL OUTPUT FORMAT**: You MUST return ONLY valid JSON matching this exact schema - no markdown, no explanations:
+{
+  "project_package": {
+    "name": "string",
+    "runes": {
+      "rune_name": {
+        "description": "string",
+        "function_signature": "string",
+        "positive_tests": ["string"],
+        "negative_tests": ["string"],
+        "assumptions": ["string"]
+      }
+    }
+  },
+  "std_package": {
+    "name": "std",
+    "runes": {}
+  }
+}
 `
 
 // Rune represents the smallest unit of work - exactly one behavior
@@ -104,9 +123,9 @@ type Rune struct {
 
 // PackageNode represents a package in the composition tree
 type PackageNode struct {
-	Name     string        `json:"name" jsonschema:"description=Package name (e.g., 'hello_world' or 'std')"`
+	Name     string          `json:"name" jsonschema:"description=Package name (e.g., 'hello_world' or 'std')"`
 	Runes    map[string]Rune `json:"runes" jsonschema:"description=Map of rune names to their definitions"`
-	Children []PackageNode `json:"children,omitempty" jsonschema:"description=Nested sub-packages"`
+	Children []PackageNode   `json:"children,omitempty" jsonschema:"description=Nested sub-packages"`
 }
 
 // DecompositionResponse is the structured output from the LLM
@@ -122,7 +141,7 @@ type Client struct {
 
 func main() {
 	ctx := context.Background()
-	
+
 	// Initialize instructor-go client with custom endpoint and debug logging
 	client := initInstructorClient(ctx)
 
@@ -181,10 +200,15 @@ func main() {
 		expansionCount++
 		fmt.Printf("\n[Expansion %d/%d] Analyzing rune: %s...\n", expansionCount, MAX_EXPANSIONS, path)
 
-		// Expand specific rune - request more detailed decomposition
-		extendedReq := fmt.Sprintf("Provide deeper decomposition and implementation guidance for the rune at path: %s. Break it down into smaller sub-runes if applicable.", path)
+		// Expand specific rune - explicitly request structured JSON output
+		extendedReq := fmt.Sprintf(`Decompose rune "%s" into sub-runes if applicable. Return ONLY valid JSON matching this structure:
+{
+  "project_package": {"name": "string", "runes": {"rune_name": {"description": "...", "function_signature": "...", "positive_tests": [], "negative_tests": [], "assumptions": []}}},
+  "std_package": {"name": "std", "runes": {...}}
+}
+Do not return markdown, explanations, or plain text - only raw JSON.`, path)
 		conversation = buildConversation(extendedReq)
-		
+
 		expandedResponse, err := client.Decompose(ctx, conversation)
 		if err != nil {
 			fmt.Printf("ERROR expanding rune: %v\n", err)
@@ -203,9 +227,9 @@ func initInstructorClient(ctx context.Context) *Client {
 
 	instructorClient := instructor_openai.FromOpenAI(
 		openai.NewClientWithConfig(config),
-		core.WithMode(core.ModeToolCall),  // Most reliable for structured output
-		core.WithMaxRetries(3),            // Automatic retries on validation failure
-		core.WithLogging("debug"),         // Debug mode enabled
+		core.WithMode(core.ModeToolCall), // Highest accuracy - uses function calling
+		core.WithMaxRetries(3),           // Automatic retries on validation failure
+		core.WithLogging("debug"),        // Debug mode enabled
 	)
 
 	return &Client{instructorClient: instructorClient}
@@ -241,9 +265,9 @@ func (c *Client) Decompose(ctx context.Context, conversation *core.Conversation)
 // printDecomposition formats and prints the decomposition response
 func printDecomposition(resp *DecompositionResponse, expansionLevel int) {
 	separator := strings.Repeat("=", 60)
-	
+
 	if expansionLevel > 0 {
-		fmt.Printf("\n%s\n")
+		fmt.Println()
 		fmt.Println("EXPANDED DECOMPOSITION")
 		fmt.Printf("%s\n", separator)
 	}
