@@ -15,7 +15,7 @@ import (
 // Configuration for the OpenAI-compatible API
 const (
 	BASE_URL       = "http://localhost:1234/v1"
-	MODEL_NAME     = "gpt-4o"
+	MODEL_NAME     = "default"
 	MAX_EXPANSIONS = 3 // Maximum number of expansion iterations
 )
 
@@ -92,27 +92,44 @@ When the user provides a requirement:
 4.  For each Rune identified, provide the Description, Signature, Tests (Positive/Negative), and Assumptions.
 
 **CRITICAL OUTPUT FORMAT**: You MUST return ONLY valid JSON matching this exact schema - no markdown, no explanations:
+
 {
   "project_package": {
-    "name": "string",
+    "name": "<your-project-name>",
     "runes": {
-      "rune_name": {
-        "description": "string",
-        "function_signature": "string",
-        "positive_tests": ["string"],
-        "negative_tests": ["string"],
-        "assumptions": ["string"]
+      "<rune-name>": {
+        "description": "<string>",
+        "function_signature": "<string>",
+        "positive_tests": ["<string>"],
+        "negative_tests": ["<string>"],
+        "assumptions": ["<string>"]
       }
     }
   },
   "std_package": {
     "name": "std",
-    "runes": {}
+    "runes": {
+      "<rune-name>": {
+        "description": "<string>",
+        "function_signature": "<string>",
+        "positive_tests": ["<string>"],
+        "negative_tests": ["<string>"],
+        "assumptions": ["<string>"]
+      }
+    }
   }
 }
+
+**STRICT RULES**:
+1. The std_package field MUST ALWAYS be a complete object with "name" and "runes" keys - NEVER a string or null
+2. If no std runes are needed, set 'runes: {}' (empty object), NOT omitted
+3. Both the project_package and std_package fields must always appear in the JSON output
+4. Do not use placeholders like "string" - replace with actual values matching your decomposition
+
+**END OF INSTRUCTIONS**
 `
 
-// Rune represents the smallest unit of work - exactly one behavior
+// Rune represents the smallest unit of work
 type Rune struct {
 	Description   string   `json:"description" jsonschema:"description=Clear explanation of what the rune does"`
 	FunctionSig   string   `json:"function_signature" jsonschema:"description=Function signature using the defined type system (e.g., 'add(a: i32, b: i32) -> result[i32, string]')"`
