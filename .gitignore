@@ -1,2 +1,17 @@
+# Binaries for installation
+build/
+
+# Test binary
+test
+
+# Coverage profile
+coverage.out
+
+# Compiled Go files (if any)
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Main odek binary
 odek
-.dev/
