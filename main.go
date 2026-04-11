@@ -62,48 +62,31 @@ func main() {
 
 	// 5. Check for -d flag (decompose feature)
 	if dValue != "" {
-		var result *decompose.DecomposeResult
-		var err error
-
 		if structuredOutput {
-			result, err = decompose.DecomposeStructured(ctx, client, systemPrompt, dValue)
-		} else {
-			response, respErr := decompose.Decompose(ctx, client, systemPrompt, dValue)
-			if respErr != nil {
-				log.Fatalf("Decompose failed: %v", respErr)
+			// JSON output mode
+			result, err := decompose.DecomposeStructured(ctx, client, systemPrompt, dValue)
+			if err != nil {
+				log.Fatalf("Decompose failed: %v", err)
 			}
 
-			for _, choice := range response.Choices {
-				fmt.Printf("\n=== Response ===\n%s\n", choice.Message.Content)
-				if response.Usage != nil {
-					fmt.Printf("Tokens: prompt=%d, completion=%d, total=%d\n",
-						response.Usage.PromptTokens,
-						response.Usage.CompletionTokens,
-						response.Usage.TotalTokens)
-				}
+			jsonOutput, marshalErr := result.Decomposition.FormatJSON()
+			if marshalErr != nil {
+				log.Fatalf("Failed to format JSON: %v", marshalErr)
+			}
+			fmt.Println(jsonOutput)
+
+			if result.Response.Usage != nil {
+				fmt.Fprintf(os.Stderr, "\nTokens: prompt=%d, completion=%d, total=%d\n",
+					result.Response.Usage.PromptTokens,
+					result.Response.Usage.CompletionTokens,
+					result.Response.Usage.TotalTokens)
 			}
 
 			return
 		}
 
-		if err != nil {
-			log.Fatalf("Decompose failed: %v", err)
-		}
-
-		// Output structured JSON
-		jsonOutput, marshalErr := result.Decomposition.FormatJSON()
-		if marshalErr != nil {
-			log.Fatalf("Failed to format JSON: %v", marshalErr)
-		}
-		fmt.Println(jsonOutput)
-
-		if result.Response.Usage != nil {
-			fmt.Fprintf(os.Stderr, "\nTokens: prompt=%d, completion=%d, total=%d\n",
-				result.Response.Usage.PromptTokens,
-				result.Response.Usage.CompletionTokens,
-				result.Response.Usage.TotalTokens)
-		}
-
+		// Launch decompose TUI
+		tui.RunDecompose(ctx, client, systemPrompt, dValue)
 		return
 	}
 

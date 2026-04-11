@@ -23,11 +23,6 @@ func Decompose(ctx context.Context, client *openai.Client, systemPrompt, userMes
 		},
 	}
 
-	fmt.Printf("DEBUG decompose: Building request with %d messages\n", len(request.Messages))
-	for i, msg := range request.Messages {
-		fmt.Printf("DEBUG decompose: Message %d (role=%s): %.80s...\n", i, msg.Role, msg.Content)
-	}
-
 	return client.Chat(ctx, request)
 }
 

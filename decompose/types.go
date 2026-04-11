@@ -3,6 +3,7 @@ package decompose
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // Rune represents a single hierarchical unit in the decomposition
@@ -32,11 +33,44 @@ type Decomposition struct {
 	RuneTree    *Rune  `json:"rune_tree"`             // Root of the hierarchical rune structure
 }
 
+// stripMarkdownJSON removes markdown code fences from JSON strings
+func stripMarkdownJSON(input string) string {
+	input = strings.TrimSpace(input)
+
+	// Remove ```json ... ``` or ``` ... ``` wrappers
+	if strings.HasPrefix(input, "```") {
+		// Find opening fence end
+		endFence := strings.Index(input, "\n```")
+		if endFence == -1 {
+			endFence = strings.Index(input, "```")
+		}
+		if endFence != -1 {
+			content := input[endFence+3:]
+
+			// Find closing fence
+			closeIdx := strings.Index(content, "\n```")
+			if closeIdx == -1 {
+				closeIdx = strings.Index(content, "```")
+			}
+			if closeIdx != -1 {
+				content = content[:closeIdx]
+			}
+
+			return strings.TrimSpace(content)
+		}
+	}
+
+	return input
+}
+
 // ParseDecomposition parses an LLM response into a structured Decomposition
 func ParseDecomposition(responseText string) (*Decomposition, error) {
 	var decomposition Decomposition
 
-	err := json.Unmarshal([]byte(responseText), &decomposition)
+	// Strip markdown code fences if present
+	cleaned := stripMarkdownJSON(responseText)
+
+	err := json.Unmarshal([]byte(cleaned), &decomposition)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse decomposition JSON: %w", err)
 	}

@@ -17,11 +17,6 @@ var logoBig = `
  ╚██████╔╝██████╔╝███████╗██║  ██╗
   ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝`
 
-var (
-	border = lipgloss.Color("#666666")
-	dim    = lipgloss.Color("#888888")
-)
-
 var taglineStyle = lipgloss.NewStyle().
 	Foreground(dim).
 	Italic(true)
