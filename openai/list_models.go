@@ -18,7 +18,7 @@ type Client struct {
 // NewClient creates a new client for the API.
 func NewClient(baseURL string, apiKey ...string) (*Client, error) {
 	if baseURL == "" {
-		baseURL = "http://localhost:8080" // Default local dev URL
+		baseURL = "http://127.0.0.1:1234" // Default local dev URL
 	}
 
 	apiKeyVal := ""
