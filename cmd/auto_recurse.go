@@ -23,7 +23,7 @@ const (
 //go:embed decompose.md
 var SYSTEM_PROMPT string
 
-type Rune struct {
+type Rune = struct {
 	Description   string   `json:"description" jsonschema:"description=Clear explanation of what the rune does"`
 	FunctionSig   string   `json:"function_signature" jsonschema:"description=Function signature using the defined type system"`
 	PositiveTests []string `json:"positive_tests" jsonschema:"description=Scenarios where the function succeeds"`
@@ -37,10 +37,15 @@ type PackageNode struct {
 	Children []PackageNode   `json:"children,omitempty"`
 }
 
+type wirePackage = struct {
+	Name  string          `json:"name"`
+	Runes map[string]Rune `json:"runes"`
+}
+
 type DecompositionResponse struct {
 	Type           string       `json:"type" jsonschema:"const=decompose"`
-	ProjectPackage PackageNode  `json:"project_package"`
-	StdPackage     *PackageNode `json:"std_package,omitempty"`
+	ProjectPackage wirePackage  `json:"project_package"`
+	StdPackage     *wirePackage `json:"std_package,omitempty"`
 }
 
 type ClarificationRequest struct {
@@ -93,80 +98,94 @@ func getRequirement(reader *bufio.Reader) (string, error) {
 
 func main() {
 	ctx := context.Background()
-	reader := bufio.NewReader(os.Stdin)
+	printBanner()
 
-	fmt.Println("=== Auto-Recursive Rune Decomposition Engine ===")
-	fmt.Printf("Max depth: %d, Max total runes: %d\n\n", MAX_DEPTH, MAX_TOTAL_RUNES)
-
-	var req string
-	var err error
-
-	if req, err = getRequirement(reader); err != nil {
+	req, err := getRequirement(bufio.NewReader(os.Stdin))
+	if err != nil || req == "" {
 		fmt.Println("No requirement provided. Exiting.")
 		os.Exit(1)
 	}
 
-	conversation := core.NewConversation(strings.TrimSpace(SYSTEM_PROMPT))
-	conversation.AddUserMessage("decompose: " + req)
-
+	conversation := newConversation(req)
 	fmt.Printf("\nDecomposing: %s...\n", req)
 
-	response, err := client.Decompose(ctx, conversation)
-
+	root, queue, err := initialDecompose(ctx, conversation)
 	if err != nil {
 		fmt.Printf("ERROR: %v, %v\n", err, conversation.GetMessages())
 		return
 	}
+	if root == nil {
+		return
+	}
 
-	var expansionQueue []RuneExpansionInfo
+	fmt.Printf("queue %v", queue)
+
+	// expandRecursively(ctx, conversation, root, queue)
+}
+
+func printBanner() {
+	fmt.Println("=== Auto-Recursive Rune Decomposition Engine ===")
+	fmt.Printf("Max depth: %d, Max total runes: %d\n\n", MAX_DEPTH, MAX_TOTAL_RUNES)
+}
+
+func newConversation(req string) *core.Conversation {
+	conv := core.NewConversation(strings.TrimSpace(SYSTEM_PROMPT))
+	conv.AddUserMessage("decompose: " + req)
+	return conv
+}
+
+// initialDecompose runs the first decomposition pass. Returns (nil, nil, nil)
+// when the model asks for clarification, so the caller should treat a nil root
+// as a clean exit.
+func initialDecompose(ctx context.Context, conv *core.Conversation) (*AutoDecomposition, []RuneExpansionInfo, error) {
+	response, err := client.Decompose(ctx, conv)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	switch action := response.(type) {
-
 	case ClarificationRequest:
 		fmt.Printf("\n⚠️  CLARIFICATION NEEDED: %s\n", action.Message)
-		return
+		return nil, nil, nil
 
 	case DecompositionResponse:
-		rootDecomposition := &AutoDecomposition{
+		root := &AutoDecomposition{
 			Path:       "root",
 			Depth:      0,
 			Response:   &action,
 			ParentPath: "",
 			ChildPaths: make([]string, 0),
 		}
-
-		fmt.Printf("decomp response %+v", rootDecomposition.Response)
-		expansionQueue = collectRunesForExpansion(rootDecomposition.Response)
-
-		// fmt.Printf("%v\n", rootDecomposition.Response)
-		// fmt.Printf("fuck it %v", rootDecomposition.Response)
+		fmt.Printf("decomp response %+v", root.Response)
+		return root, collectRunesForExpansion(root.Response), nil
 
 	default:
-		fmt.Printf("Received unknown action type: %T\n", action)
-		return
+		return nil, nil, fmt.Errorf("unknown action type: %T", action)
 	}
+}
 
-	fmt.Printf("queue %v", expansionQueue)
-
-	// 	for i := range expansionQueue {
-	// 		expansionQueue[i].ParentDecomposition = rootDecomposition
+// expandRecursively drains the expansion queue, decomposing each rune up to
+// MAX_DEPTH and stitching child decompositions back into the tree. WIP.
+func expandRecursively(ctx context.Context, conv *core.Conversation, root *AutoDecomposition, queue []RuneExpansionInfo) {
+	// 	for i := range queue {
+	// 		queue[i].ParentDecomposition = root
 	// 	}
 
-	// 	allDecompositions := []*AutoDecomposition{rootDecomposition}
-	// 	totalRunesCount := countTotalRunes(response)
+	// 	allDecompositions := []*AutoDecomposition{root}
+	// 	totalRunesCount := countTotalRunes(root.Response)
 	// 	visitedRunePaths := make(map[string]bool)
 	// 	visitedRunePaths["root"] = true
 
-	// 	fmt.Printf("\n🔄 Starting auto-recursion (depth 0: %d runes)\n", len(expansionQueue))
+	// 	fmt.Printf("\n🔄 Starting auto-recursion (depth 0: %d runes)\n", len(queue))
 
-	// 	for len(expansionQueue) > 0 {
+	// 	for len(queue) > 0 {
 	// 		if totalRunesCount >= MAX_TOTAL_RUNES {
 	// 			fmt.Printf("\n⚠️  Max total runes (%d) reached. Stopping expansion.\n", MAX_TOTAL_RUNES)
 	// 			break
 	// 		}
 
-	// 		runeInfo := expansionQueue[0]
-	// 		expansionQueue = expansionQueue[1:]
+	// 		runeInfo := queue[0]
+	// 		queue = queue[1:]
 
 	// 		if visitedRunePaths[runeInfo.FullPath] || runeInfo.Depth >= MAX_DEPTH {
 	// 			continue
@@ -183,9 +202,9 @@ func main() {
 	// }
 	// Do not return markdown, only raw JSON.`, runeInfo.FullPath)
 
-	// 		conversation.AddUserMessage(extendedReq)
+	// 		conv.AddUserMessage(extendedReq)
 
-	// 		expandedResponse, err := client.Decompose(ctx, conversation)
+	// 		expandedResponse, err := client.Decompose(ctx, conv)
 	// 		if err != nil {
 	// 			fmt.Printf("      ⚠️  ERROR: %v\n", err)
 	// 			continue
@@ -196,7 +215,6 @@ func main() {
 	// 			continue
 	// 		}
 
-	// 		// Check if there are any runes to expand - skip empty responses (leaf nodes)
 	// 		newRunes := collectRunesForExpansion(expandedResponse)
 	// 		if len(newRunes) == 0 {
 	// 			fmt.Printf("      ✓ No sub-runes found (leaf node).\n")
@@ -221,7 +239,7 @@ func main() {
 	// 			newRunes[i].Depth = runeInfo.Depth + 1
 	// 			newRunes[i].ParentDecomposition = childDecomposition
 	// 		}
-	// 		expansionQueue = append(expansionQueue, newRunes...)
+	// 		queue = append(queue, newRunes...)
 
 	// 		totalRunesCount += countTotalRunes(expandedResponse)
 	// 	}
@@ -229,10 +247,10 @@ func main() {
 	// 	fmt.Printf("\n")
 	// 	printCompleteTree(allDecompositions, "root", 0, true)
 
-	// separator := strings.Repeat("=", 70)
-	// fmt.Printf("\n%s\n", separator)
-	// fmt.Printf("📊 SUMMARY: %d decompositions, %d runes discovered at depth %d\n", len(allDecompositions), totalRunesCount, MAX_DEPTH)
-	// fmt.Printf("%s\n", separator)
+	// 	separator := strings.Repeat("=", 70)
+	// 	fmt.Printf("\n%s\n", separator)
+	// 	fmt.Printf("📊 SUMMARY: %d decompositions, %d runes discovered at depth %d\n", len(allDecompositions), totalRunesCount, MAX_DEPTH)
+	// 	fmt.Printf("%s\n", separator)
 }
 
 func (c *Client) Decompose(ctx context.Context, conv *core.Conversation) (any, error) {
