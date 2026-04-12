@@ -38,14 +38,44 @@ type PackageNode struct {
 }
 
 type DecompositionResponse struct {
+	Type           string       `json:"type" jsonschema:"const=decompose"`
 	ProjectPackage PackageNode  `json:"project_package"`
 	StdPackage     *PackageNode `json:"std_package,omitempty"`
+}
+
+type ClarificationRequest struct {
+	Type    string `json:"type" jsonschema:"const=clarify"`
+	Message string `json:"message" jsonschema:"description=The explanation if the requirement is too vague"`
 }
 
 type Client struct {
 	instructorClient *instructor_openai.InstructorOpenAI
 	conversation     *core.Conversation
 }
+
+// func (c *Client) Decompose(ctx context.Context, conv *core.Conversation) (any, error) {
+// 	var action any
+
+// 	err := c.instructorClient.CreateChatCompletionUnion(
+// 		ctx,
+// 		openai.ChatCompletionRequest{
+// 			Model:    MODEL_NAME,
+// 			Messages: instructor_openai.ConversationToMessages(conv),
+// 		},
+// 		core.UnionOptions{
+// 			Discriminator: "type",
+// 			Variants:      []any{DecompositionResponse{}, ClarificationRequest{}},
+// 		},
+// 		&action,
+// 	)
+
+// 	if err != nil {
+// 		return nil, fmt.Errorf("structured extraction failed: %w", err)
+// 	}
+
+// 	c.conversation = conv
+// 	return action, nil
+// }
 
 type RuneExpansionInfo struct {
 	FullPath            string
@@ -106,21 +136,37 @@ func main() {
 	fmt.Printf("\nDecomposing: %s...\n", req)
 
 	response, err := client.Decompose(ctx, conversation)
+
 	if err != nil {
-		fmt.Printf("ERROR: %v\n", err)
+		fmt.Printf("ERROR: %v, %v\n", err, conversation.GetMessages())
 		return
 	}
 
-	rootDecomposition := &AutoDecomposition{
-		Path:       "root",
-		Depth:      0,
-		Response:   response,
-		ParentPath: "",
-		ChildPaths: make([]string, 0),
-	}
+	switch action := response.(type) {
 
-	// fmt.Printf("%v\n", rootDecomposition.Response)
-	fmt.Printf("fuck it %v", rootDecomposition.Response)
+	case ClarificationRequest:
+		fmt.Printf("\n⚠️  CLARIFICATION NEEDED: %s\n", action.Message)
+		return
+
+	case DecompositionResponse:
+		rootDecomposition := &AutoDecomposition{
+			Path:       "root",
+			Depth:      0,
+			Response:   &action,
+			ParentPath: "",
+			ChildPaths: make([]string, 0),
+		}
+
+		// fmt.Printf("%v\n", rootDecomposition.Response)
+		fmt.Printf("fuck it %v", rootDecomposition.Response)
+
+	// case openai.ChatCompletionResponse:
+	// 	println("clarification request")
+
+	default:
+		fmt.Printf("Received unknown action type: %T\n", action)
+		return
+	}
 
 	// 	expansionQueue := collectRunesForExpansion(response)
 	// 	for i := range expansionQueue {
@@ -210,24 +256,41 @@ func main() {
 	// fmt.Printf("%s\n", separator)
 }
 
-func (c *Client) Decompose(ctx context.Context, conv *core.Conversation) (*DecompositionResponse, error) {
-	var response DecompositionResponse
+func (c *Client) Decompose(ctx context.Context, conv *core.Conversation) (any, error) {
+	// var action any
 
-	_, err := c.instructorClient.CreateChatCompletion(
+	result, _, err := c.instructorClient.CreateChatCompletionUnion(
 		ctx,
 		openai.ChatCompletionRequest{
 			Model:    MODEL_NAME,
 			Messages: instructor_openai.ConversationToMessages(conv),
 		},
-		&response,
+		core.UnionOptions{
+			Discriminator: "type",
+			Variants:      []any{DecompositionResponse{}, ClarificationRequest{}},
+		},
 	)
 
 	if err != nil {
 		return nil, fmt.Errorf("structured extraction failed: %w", err)
 	}
 
+	// fmt.Printf("res %v %v %i", res, resp, len(res))
+	// fmt.Printf("res %v", res)
+
 	c.conversation = conv
-	return &response, nil
+	for _, item := range result {
+		if req, ok := item.(ClarificationRequest); ok {
+			return req, err
+		}
+
+		if req, ok := item.(DecompositionResponse); ok {
+			return req, err
+		}
+	}
+
+	return nil, err
+
 }
 
 func collectRunesForExpansion(resp *DecompositionResponse) []RuneExpansionInfo {
