@@ -268,7 +268,7 @@ func expandRecursively(ctx context.Context, baseMessages []openai.ChatCompletion
 
 Question: what 0–3 PRIVATE helper functions would you write inside "%s"'s body to do its job? Helpers that no other function would ever call. Implementation details only.
 
-Call the decompose tool. The runes map keys must be of the form "%s.<new_helper_name>". Examples of <new_helper_name>: "validate_input", "compute_step", "check_overflow". Each helper should be a verb-phrase describing one internal step.
+Call the decompose tool. The runes map keys must be of the form "%s.<new_helper_name>". Example, for a different rune: if you were expanding "image.compress", reasonable helpers would be "image.compress.detect_format", "image.compress.choose_quality", "image.compress.encode_bytes". Each is a verb-phrase describing one internal step.
 
 If "%s" is a single primitive operation (like an arithmetic op or a single syscall) and would have no private helpers in its body, return an empty runes map ({}). That is the correct answer.
 
