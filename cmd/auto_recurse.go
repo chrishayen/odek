@@ -15,7 +15,7 @@ import (
 
 const (
 	BASE_URL        = "http://localhost:8080/v1"
-	MODEL_NAME      = "gemma-4-26B-A4B-it-Q4_K_M.gguf"
+	MODEL_NAME      = "Qwen3.5-35B-A3B-Q4_K_M.gguf"
 	MAX_DEPTH       = 3
 	MAX_TOTAL_RUNES = 100
 )
@@ -118,9 +118,11 @@ func main() {
 		return
 	}
 
-	fmt.Printf("queue %v", queue)
+	for i := range queue {
+		queue[i].ParentDecomposition = root
+	}
 
-	// expandRecursively(ctx, conversation, root, queue)
+	expandRecursively(ctx, conversation, root, queue)
 }
 
 func printBanner() {
@@ -165,92 +167,93 @@ func initialDecompose(ctx context.Context, conv *core.Conversation) (*AutoDecomp
 }
 
 // expandRecursively drains the expansion queue, decomposing each rune up to
-// MAX_DEPTH and stitching child decompositions back into the tree. WIP.
+// MAX_DEPTH and stitching child decompositions back into the tree.
 func expandRecursively(ctx context.Context, conv *core.Conversation, root *AutoDecomposition, queue []RuneExpansionInfo) {
-	// 	for i := range queue {
-	// 		queue[i].ParentDecomposition = root
-	// 	}
+	for i := range queue {
+		queue[i].ParentDecomposition = root
+	}
 
-	// 	allDecompositions := []*AutoDecomposition{root}
-	// 	totalRunesCount := countTotalRunes(root.Response)
-	// 	visitedRunePaths := make(map[string]bool)
-	// 	visitedRunePaths["root"] = true
+	allDecompositions := []*AutoDecomposition{root}
+	totalRunesCount := countTotalRunes(root.Response)
+	visitedRunePaths := make(map[string]bool)
+	visitedRunePaths["root"] = true
 
-	// 	fmt.Printf("\n🔄 Starting auto-recursion (depth 0: %d runes)\n", len(queue))
+	fmt.Printf("\n🔄 Starting auto-recursion (depth 0: %d runes)\n", len(queue))
 
-	// 	for len(queue) > 0 {
-	// 		if totalRunesCount >= MAX_TOTAL_RUNES {
-	// 			fmt.Printf("\n⚠️  Max total runes (%d) reached. Stopping expansion.\n", MAX_TOTAL_RUNES)
-	// 			break
-	// 		}
+	for len(queue) > 0 {
+		if totalRunesCount >= MAX_TOTAL_RUNES {
+			fmt.Printf("\n⚠️  Max total runes (%d) reached. Stopping expansion.\n", MAX_TOTAL_RUNES)
+			break
+		}
 
-	// 		runeInfo := queue[0]
-	// 		queue = queue[1:]
+		runeInfo := queue[0]
+		queue = queue[1:]
 
-	// 		if visitedRunePaths[runeInfo.FullPath] || runeInfo.Depth >= MAX_DEPTH {
-	// 			continue
-	// 		}
+		if visitedRunePaths[runeInfo.FullPath] || runeInfo.Depth >= MAX_DEPTH {
+			continue
+		}
 
-	// 		visitedRunePaths[runeInfo.FullPath] = true
+		visitedRunePaths[runeInfo.FullPath] = true
 
-	// 		fmt.Printf("   ├─ Expanding [%d/%d] %s...\n", runeInfo.Depth+1, MAX_DEPTH, runeInfo.FullPath)
+		fmt.Printf("   ├─ Expanding [%d/%d] %s...\n", runeInfo.Depth+1, MAX_DEPTH, runeInfo.FullPath)
 
-	// 		extendedReq := fmt.Sprintf(`Based on the previous decomposition, now decompose rune "%s" into sub-runes if applicable. Return ONLY valid JSON matching this structure:
-	// {
-	//   "project_package": {"name": "string", "runes": {"rune_name": {"description": "...", "function_signature": "...", "positive_tests": [], "negative_tests": [], "assumptions": []}}},
-	//   "std_package": {"name": "std", "runes": {...}}
-	// }
-	// Do not return markdown, only raw JSON.`, runeInfo.FullPath)
+		extendedReq := fmt.Sprintf(`Based on the previous decomposition, now decompose rune "%s" into sub-runes if applicable. Return ONLY valid JSON matching this structure:
+{
+  "project_package": {"name": "string", "runes": {"rune_name": {"description": "...", "function_signature": "...", "positive_tests": [], "negative_tests": [], "assumptions": []}}},
+  "std_package": {"name": "std", "runes": {...}}
+}
+Do not return markdown, only raw JSON.`, runeInfo.FullPath)
 
-	// 		conv.AddUserMessage(extendedReq)
+		conv.AddUserMessage(extendedReq)
 
-	// 		expandedResponse, err := client.Decompose(ctx, conv)
-	// 		if err != nil {
-	// 			fmt.Printf("      ⚠️  ERROR: %v\n", err)
-	// 			continue
-	// 		}
+		expandedResponse, err := client.Decompose(ctx, conv)
+		if err != nil {
+			fmt.Printf("      ⚠️  ERROR: %v\n", err)
+			continue
+		}
 
-	// 		if expandedResponse == nil || expandedResponse.ProjectPackage.Name == "" {
-	// 			fmt.Printf("      ⚠️  ERROR: invalid response received, skipping expansion.\n")
-	// 			continue
-	// 		}
+		resp, ok := expandedResponse.(*DecompositionResponse)
+		if !ok || resp == nil || resp.ProjectPackage.Name == "" {
+			fmt.Printf("      ⚠️  ERROR: invalid response received, skipping expansion.\n")
+			continue
+		}
 
-	// 		newRunes := collectRunesForExpansion(expandedResponse)
-	// 		if len(newRunes) == 0 {
-	// 			fmt.Printf("      ✓ No sub-runes found (leaf node).\n")
-	// 			continue
-	// 		}
+		newRunes := collectRunesForExpansion(resp)
+		if len(newRunes) == 0 {
+			fmt.Printf("      ✓ No sub-runes found (leaf node).\n")
+			continue
+		}
 
-	// 		childDecomposition := &AutoDecomposition{
-	// 			Path:       runeInfo.FullPath,
-	// 			Depth:      runeInfo.Depth + 1,
-	// 			Response:   expandedResponse,
-	// 			ParentPath: "",
-	// 			ChildPaths: make([]string, 0),
-	// 		}
-	// 		allDecompositions = append(allDecompositions, childDecomposition)
+		childDecomposition := &AutoDecomposition{
+			Path:       runeInfo.FullPath,
+			Depth:      runeInfo.Depth + 1,
+			Response:   resp,
+			ParentPath: "",
+			ChildPaths: make([]string, 0),
+		}
+		allDecompositions = append(allDecompositions, childDecomposition)
 
-	// 		if runeInfo.ParentDecomposition != nil {
-	// 			runeInfo.ParentDecomposition.ChildPaths = append(runeInfo.ParentDecomposition.ChildPaths, runeInfo.FullPath)
-	// 			childDecomposition.ParentPath = runeInfo.ParentDecomposition.Path
-	// 		}
+		if runeInfo.ParentDecomposition != nil {
+			runeInfo.ParentDecomposition.ChildPaths = append(runeInfo.ParentDecomposition.ChildPaths, runeInfo.FullPath)
+			childDecomposition.ParentPath = runeInfo.ParentDecomposition.Path
+		}
 
-	// 		for i := range newRunes {
-	// 			newRunes[i].Depth = runeInfo.Depth + 1
-	// 			newRunes[i].ParentDecomposition = childDecomposition
-	// 		}
-	// 		queue = append(queue, newRunes...)
+		for i := range newRunes {
+			newRunes[i].Depth = runeInfo.Depth + 1
+			newRunes[i].ParentDecomposition = childDecomposition
+		}
+		queue = append(queue, newRunes...)
 
-	// 		totalRunesCount += countTotalRunes(expandedResponse)
-	// 	}
+		totalRunesCount += countTotalRunes(resp)
+	}
 
-	// 	fmt.Printf("\n")
-	// 	printCompleteTree(allDecompositions, "root", 0, true)
+	fmt.Printf("\n")
+	printCompleteTree(allDecompositions, "root", 0, true)
 
-	// 	separator := strings.Repeat("=", 70)
-	// 	fmt.Printf("\n%s\n", separator)
-	// 	fmt.Printf("📊 SUMMARY: %d decompositions, %d runes discovered at depth %d\n", len(allDecompositions), totalRunesCount, MAX_DEPTH)
-	// 	fmt.Printf("%s\n", separator)
+	separator := strings.Repeat("=", 70)
+	fmt.Printf("\n%s\n", separator)
+	fmt.Printf("📊 SUMMARY: %d decompositions, %d runes discovered at depth %d\n", len(allDecompositions), totalRunesCount, MAX_DEPTH)
+	fmt.Printf("%s\n", separator)
 }
 
 func (c *Client) Decompose(ctx context.Context, conv *core.Conversation) (any, error) {
