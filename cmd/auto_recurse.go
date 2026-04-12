@@ -53,30 +53,6 @@ type Client struct {
 	conversation     *core.Conversation
 }
 
-// func (c *Client) Decompose(ctx context.Context, conv *core.Conversation) (any, error) {
-// 	var action any
-
-// 	err := c.instructorClient.CreateChatCompletionUnion(
-// 		ctx,
-// 		openai.ChatCompletionRequest{
-// 			Model:    MODEL_NAME,
-// 			Messages: instructor_openai.ConversationToMessages(conv),
-// 		},
-// 		core.UnionOptions{
-// 			Discriminator: "type",
-// 			Variants:      []any{DecompositionResponse{}, ClarificationRequest{}},
-// 		},
-// 		&action,
-// 	)
-
-// 	if err != nil {
-// 		return nil, fmt.Errorf("structured extraction failed: %w", err)
-// 	}
-
-// 	c.conversation = conv
-// 	return action, nil
-// }
-
 type RuneExpansionInfo struct {
 	FullPath            string
 	Depth               int
@@ -142,6 +118,8 @@ func main() {
 		return
 	}
 
+	var expansionQueue []RuneExpansionInfo
+
 	switch action := response.(type) {
 
 	case ClarificationRequest:
@@ -157,18 +135,19 @@ func main() {
 			ChildPaths: make([]string, 0),
 		}
 
-		// fmt.Printf("%v\n", rootDecomposition.Response)
-		fmt.Printf("fuck it %v", rootDecomposition.Response)
+		fmt.Printf("decomp response %+v", rootDecomposition.Response)
+		expansionQueue = collectRunesForExpansion(rootDecomposition.Response)
 
-	// case openai.ChatCompletionResponse:
-	// 	println("clarification request")
+		// fmt.Printf("%v\n", rootDecomposition.Response)
+		// fmt.Printf("fuck it %v", rootDecomposition.Response)
 
 	default:
 		fmt.Printf("Received unknown action type: %T\n", action)
 		return
 	}
 
-	// 	expansionQueue := collectRunesForExpansion(response)
+	fmt.Printf("queue %v", expansionQueue)
+
 	// 	for i := range expansionQueue {
 	// 		expansionQueue[i].ParentDecomposition = rootDecomposition
 	// 	}
@@ -281,6 +260,7 @@ func (c *Client) Decompose(ctx context.Context, conv *core.Conversation) (any, e
 		}
 
 		if req, ok := item.(DecompositionResponse); ok {
+			fmt.Printf("%+v", req.StdPackage)
 			return req, err
 		}
 	}
@@ -291,6 +271,8 @@ func (c *Client) Decompose(ctx context.Context, conv *core.Conversation) (any, e
 
 func collectRunesForExpansion(resp *DecompositionResponse) []RuneExpansionInfo {
 	var runes []RuneExpansionInfo
+
+	fmt.Printf("runes %v", resp.ProjectPackage.Runes)
 
 	if resp == nil || resp.ProjectPackage.Name == "" {
 		return runes
