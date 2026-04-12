@@ -257,7 +257,6 @@ func main() {
 }
 
 func (c *Client) Decompose(ctx context.Context, conv *core.Conversation) (any, error) {
-	// var action any
 
 	result, _, err := c.instructorClient.CreateChatCompletionUnion(
 		ctx,
@@ -274,9 +273,6 @@ func (c *Client) Decompose(ctx context.Context, conv *core.Conversation) (any, e
 	if err != nil {
 		return nil, fmt.Errorf("structured extraction failed: %w", err)
 	}
-
-	// fmt.Printf("res %v %v %i", res, resp, len(res))
-	// fmt.Printf("res %v", res)
 
 	c.conversation = conv
 	for _, item := range result {
