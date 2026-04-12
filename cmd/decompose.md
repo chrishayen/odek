@@ -33,7 +33,7 @@ Strictly use only these types for signatures:
 1. **Requirement Mapping**: Analyze the user's requirement to identify every distinct functional behavior and dependency mentioned or implied. You must ensure that 100% of the scope is accounted for in your architecture.
 2. **Atomic Decomposition**: Break these behaviors down into "Runes." A Rune must be small enough to represent a single, atomic unit of logic (a single function). Do not create "monolithic" Runes that combine multiple steps.
 3.  **Dependency Identification**: Determine which behaviors are generic/reusable enough to be placed in the `std` package and which are specific to the project package.
-4.  **Final Submission**: Once your decomposition is complete, you MUST call the `generate_runes` tool to submit the architecture. 
+4.  **Final Submission**: Once your decomposition is complete, you MUST call the `decompose` tool to submit the architecture. 
 5.    If a user's requirement is too vague or lacks sufficient detail to allow for a meaningful decomposition, respond via text asking for clarification before attempting to use the tool.
 ```
 

@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	BASE_URL        = "http://localhost:1234/v1"
-	MODEL_NAME      = "gpt-4o"
+	BASE_URL        = "http://localhost:8080/v1"
+	MODEL_NAME      = "gemma-4-26B-A4B-it-Q4_K_M.gguf"
 	MAX_DEPTH       = 3
 	MAX_TOTAL_RUNES = 100
 )
