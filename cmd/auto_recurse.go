@@ -264,11 +264,18 @@ func expandRecursively(ctx context.Context, baseMessages []openai.ChatCompletion
 			go func(i int, ri RuneExpansionInfo) {
 				defer wg.Done()
 
-				extendedReq := fmt.Sprintf(`Call the decompose tool to decompose the rune "%s".
+				extendedReq := fmt.Sprintf(`Forget the prior decomposition. Imagine you are seeing "%s" for the first time, in isolation, as a black-box function you have to implement.
 
-You MUST call the decompose tool — never respond with plain text.
+Question: what 0–3 PRIVATE helper functions would you write inside "%s"'s body to do its job? Helpers that no other function would ever call. Implementation details only.
 
-If "%s" is already atomic and has no meaningful sub-runes, that is a valid and expected outcome. In that case, still call the decompose tool, and pass an empty runes map. The empty-map tool call IS the correct answer for atomic runes — do not explain it in text.`, ri.FullPath, ri.FullPath)
+Call the decompose tool. The runes map keys must be of the form "%s.<new_helper_name>". Examples of <new_helper_name>: "validate_input", "compute_step", "check_overflow". Each helper should be a verb-phrase describing one internal step.
+
+If "%s" is a single primitive operation (like an arithmetic op or a single syscall) and would have no private helpers in its body, return an empty runes map ({}). That is the correct answer.
+
+Hard rules:
+- Reply ONLY by calling the decompose tool.
+- Never include sibling-level functions, never repeat existing names, never include "%s" itself.
+- At most 3 helpers.`, ri.FullPath, ri.FullPath, ri.FullPath, ri.FullPath, ri.FullPath)
 
 				localMsgs := make([]openai.ChatCompletionMessage, 0, len(baseMessages)+1)
 				localMsgs = append(localMsgs, baseMessages...)
