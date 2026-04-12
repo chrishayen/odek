@@ -8,13 +8,16 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/sashabaranov/go-openai"
 )
 
 const (
 	BASE_URL        = "http://localhost:8080/v1"
-	MODEL_NAME      = "Carnice-27b-Q4_K_M.gguf"
+	MODEL_NAME      = "default"
 	MAX_DEPTH       = 3
 	MAX_TOTAL_RUNES = 100
 )
@@ -71,6 +74,7 @@ type AutoDecomposition struct {
 var (
 	client        *Client
 	decomposeTool openai.Tool
+	stdoutMu      sync.Mutex
 )
 
 func init() {
@@ -134,7 +138,9 @@ func main() {
 	messages := newConversation(req)
 	fmt.Printf("\nDecomposing: %s...\n", req)
 
+	initStart := time.Now()
 	root, queue, err := initialDecompose(ctx, &messages)
+	fmt.Printf("⏱️  initial decompose: %s\n", time.Since(initStart).Round(time.Millisecond))
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		return
@@ -143,11 +149,25 @@ func main() {
 		return
 	}
 
+	printInitialDecomposition(root.Response)
+
 	for i := range queue {
 		queue[i].ParentDecomposition = root
 	}
 
-	expandRecursively(ctx, &messages, root, queue)
+	expandRecursively(ctx, messages, root, queue)
+}
+
+func printInitialDecomposition(resp *DecompositionResponse) {
+	fmt.Printf("\n🌳 INITIAL DECOMPOSITION:\n")
+	if len(resp.ProjectPackage.Runes) > 0 {
+		fmt.Printf("   📦 %s\n", resp.ProjectPackage.Name)
+		printRunesIndented(resp.ProjectPackage.Runes, 1)
+	}
+	if resp.StdPackage != nil && len(resp.StdPackage.Runes) > 0 {
+		fmt.Printf("   📚 %s\n", resp.StdPackage.Name)
+		printRunesIndented(resp.StdPackage.Runes, 1)
+	}
 }
 
 func printBanner() {
@@ -191,84 +211,165 @@ func initialDecompose(ctx context.Context, messages *[]openai.ChatCompletionMess
 	}
 }
 
-// expandRecursively drains the expansion queue, decomposing each rune up to
-// MAX_DEPTH and stitching child decompositions back into the tree.
-func expandRecursively(ctx context.Context, messages *[]openai.ChatCompletionMessage, root *AutoDecomposition, queue []RuneExpansionInfo) {
+type expansionResult struct {
+	runeInfo RuneExpansionInfo
+	resp     *DecompositionResponse
+	err      error
+}
+
+// expandRecursively drains the expansion queue level-by-level, decomposing each
+// rune up to MAX_DEPTH and stitching child decompositions back into the tree.
+// Each level dispatches all expansions in parallel since each expansion is
+// independent — it only needs the initial decomposition context, not the
+// results of sibling expansions.
+func expandRecursively(ctx context.Context, baseMessages []openai.ChatCompletionMessage, root *AutoDecomposition, queue []RuneExpansionInfo) {
 	for i := range queue {
 		queue[i].ParentDecomposition = root
 	}
 
 	allDecompositions := []*AutoDecomposition{root}
 	totalRunesCount := countTotalRunes(root.Response)
-	visitedRunePaths := make(map[string]bool)
-	visitedRunePaths["root"] = true
+	visitedRunePaths := map[string]bool{"root": true}
 
 	fmt.Printf("\n🔄 Starting auto-recursion (depth 0: %d runes)\n", len(queue))
 
-	for len(queue) > 0 {
+	currentLevel := queue
+	for len(currentLevel) > 0 {
 		if totalRunesCount >= MAX_TOTAL_RUNES {
 			fmt.Printf("\n⚠️  Max total runes (%d) reached. Stopping expansion.\n", MAX_TOTAL_RUNES)
 			break
 		}
 
-		runeInfo := queue[0]
-		queue = queue[1:]
-
-		if visitedRunePaths[runeInfo.FullPath] || runeInfo.Depth >= MAX_DEPTH {
-			continue
+		var toExpand []RuneExpansionInfo
+		for _, ri := range currentLevel {
+			if visitedRunePaths[ri.FullPath] || ri.Depth >= MAX_DEPTH {
+				continue
+			}
+			visitedRunePaths[ri.FullPath] = true
+			toExpand = append(toExpand, ri)
+		}
+		if len(toExpand) == 0 {
+			break
 		}
 
-		visitedRunePaths[runeInfo.FullPath] = true
+		fmt.Printf("\n📤 Dispatching %d expansions...\n", len(toExpand))
 
-		fmt.Printf("   ├─ Expanding [%d/%d] %s...\n", runeInfo.Depth+1, MAX_DEPTH, runeInfo.FullPath)
+		results := make([]expansionResult, len(toExpand))
+		var wg sync.WaitGroup
+		var totalReqNanos int64
+		levelStart := time.Now()
 
-		extendedReq := fmt.Sprintf(`Decompose rune "%s" into sub-runes if applicable. Submit the decomposition by calling the decompose tool, following the same rules as the initial decomposition. If the rune is already atomic and has no meaningful sub-runes, call decompose with an empty runes map.`, runeInfo.FullPath)
+		for i, ri := range toExpand {
+			wg.Add(1)
+			go func(i int, ri RuneExpansionInfo) {
+				defer wg.Done()
 
-		*messages = append(*messages, openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleUser,
-			Content: extendedReq,
-		})
+				extendedReq := fmt.Sprintf(`Call the decompose tool to decompose the rune "%s".
 
-		expandedResponse, err := client.Decompose(ctx, messages)
-		if err != nil {
-			fmt.Printf("      ⚠️  ERROR: %v\n", err)
-			continue
+You MUST call the decompose tool — never respond with plain text.
+
+If "%s" is already atomic and has no meaningful sub-runes, that is a valid and expected outcome. In that case, still call the decompose tool, and pass an empty runes map. The empty-map tool call IS the correct answer for atomic runes — do not explain it in text.`, ri.FullPath, ri.FullPath)
+
+				localMsgs := make([]openai.ChatCompletionMessage, 0, len(baseMessages)+1)
+				localMsgs = append(localMsgs, baseMessages...)
+				localMsgs = append(localMsgs, openai.ChatCompletionMessage{
+					Role:    openai.ChatMessageRoleUser,
+					Content: extendedReq,
+				})
+
+				reqStart := time.Now()
+				response, err := client.Decompose(ctx, &localMsgs)
+				reqDur := time.Since(reqStart)
+				atomic.AddInt64(&totalReqNanos, int64(reqDur))
+				dur := reqDur.Round(time.Millisecond)
+
+				if err != nil {
+					stdoutMu.Lock()
+					fmt.Printf("   ⚠️  %s: %v (%s)\n", ri.FullPath, err, dur)
+					stdoutMu.Unlock()
+					results[i] = expansionResult{ri, nil, err}
+					return
+				}
+
+				respVal, ok := response.(DecompositionResponse)
+				if !ok {
+					stdoutMu.Lock()
+					if clar, isClar := response.(ClarificationRequest); isClar {
+						fmt.Printf("   ⚠️  %s: model returned text instead of tool call (%s): %q\n", ri.FullPath, dur, clar.Message)
+					} else {
+						fmt.Printf("   ⚠️  %s: unexpected response type %T (%s): %+v\n", ri.FullPath, response, dur, response)
+					}
+					stdoutMu.Unlock()
+					results[i] = expansionResult{ri, nil, fmt.Errorf("unexpected response type %T", response)}
+					return
+				}
+				if respVal.ProjectPackage.Name == "" {
+					stdoutMu.Lock()
+					fmt.Printf("   ⚠️  %s: tool call had empty project_package.name (%s)\n      parsed response: %+v\n", ri.FullPath, dur, respVal)
+					stdoutMu.Unlock()
+					results[i] = expansionResult{ri, nil, fmt.Errorf("empty project_package.name")}
+					return
+				}
+
+				newRunes := collectRunesForExpansion(&respVal)
+				stdoutMu.Lock()
+				if len(newRunes) == 0 {
+					fmt.Printf("   ✓ %s: leaf (%s)\n", ri.FullPath, dur)
+				} else {
+					fmt.Printf("   ➜ %s: %d sub-runes (%s)\n", ri.FullPath, len(newRunes), dur)
+				}
+				stdoutMu.Unlock()
+
+				results[i] = expansionResult{ri, &respVal, nil}
+			}(i, ri)
 		}
 
-		respVal, ok := expandedResponse.(DecompositionResponse)
-		if !ok || respVal.ProjectPackage.Name == "" {
-			fmt.Printf("      ⚠️  ERROR: invalid response received, skipping expansion.\n")
-			continue
-		}
-		resp := &respVal
+		wg.Wait()
 
-		newRunes := collectRunesForExpansion(resp)
-		if len(newRunes) == 0 {
-			fmt.Printf("      ✓ No sub-runes found (leaf node).\n")
-			continue
+		levelDur := time.Since(levelStart)
+		sumDur := time.Duration(atomic.LoadInt64(&totalReqNanos))
+		factor := float64(sumDur) / float64(levelDur)
+		fmt.Printf("   ⏱️  level wall-clock: %s, sum of %d requests: %s (parallelism factor: %.1fx)\n",
+			levelDur.Round(time.Millisecond),
+			len(toExpand),
+			sumDur.Round(time.Millisecond),
+			factor,
+		)
+
+		var nextLevel []RuneExpansionInfo
+		for _, r := range results {
+			if r.resp == nil {
+				continue
+			}
+
+			newRunes := collectRunesForExpansion(r.resp)
+			if len(newRunes) == 0 {
+				continue
+			}
+
+			childDecomposition := &AutoDecomposition{
+				Path:       r.runeInfo.FullPath,
+				Depth:      r.runeInfo.Depth + 1,
+				Response:   r.resp,
+				ParentPath: "",
+				ChildPaths: make([]string, 0),
+			}
+			allDecompositions = append(allDecompositions, childDecomposition)
+
+			if r.runeInfo.ParentDecomposition != nil {
+				r.runeInfo.ParentDecomposition.ChildPaths = append(r.runeInfo.ParentDecomposition.ChildPaths, r.runeInfo.FullPath)
+				childDecomposition.ParentPath = r.runeInfo.ParentDecomposition.Path
+			}
+
+			for j := range newRunes {
+				newRunes[j].Depth = r.runeInfo.Depth + 1
+				newRunes[j].ParentDecomposition = childDecomposition
+			}
+			nextLevel = append(nextLevel, newRunes...)
+			totalRunesCount += countTotalRunes(r.resp)
 		}
 
-		childDecomposition := &AutoDecomposition{
-			Path:       runeInfo.FullPath,
-			Depth:      runeInfo.Depth + 1,
-			Response:   resp,
-			ParentPath: "",
-			ChildPaths: make([]string, 0),
-		}
-		allDecompositions = append(allDecompositions, childDecomposition)
-
-		if runeInfo.ParentDecomposition != nil {
-			runeInfo.ParentDecomposition.ChildPaths = append(runeInfo.ParentDecomposition.ChildPaths, runeInfo.FullPath)
-			childDecomposition.ParentPath = runeInfo.ParentDecomposition.Path
-		}
-
-		for i := range newRunes {
-			newRunes[i].Depth = runeInfo.Depth + 1
-			newRunes[i].ParentDecomposition = childDecomposition
-		}
-		queue = append(queue, newRunes...)
-
-		totalRunesCount += countTotalRunes(resp)
+		currentLevel = nextLevel
 	}
 
 	fmt.Printf("\n")
