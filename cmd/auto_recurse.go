@@ -4,12 +4,11 @@ import (
 	"bufio"
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/567-labs/instructor-go/pkg/instructor/core"
-	instructor_openai "github.com/567-labs/instructor-go/pkg/instructor/providers/openai"
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -24,11 +23,11 @@ const (
 var SYSTEM_PROMPT string
 
 type Rune = struct {
-	Description   string   `json:"description" jsonschema:"description=Clear explanation of what the rune does"`
-	FunctionSig   string   `json:"function_signature" jsonschema:"description=Function signature using the defined type system"`
-	PositiveTests []string `json:"positive_tests" jsonschema:"description=Scenarios where the function succeeds"`
-	NegativeTests []string `json:"negative_tests" jsonschema:"description=Scenarios where the function fails"`
-	Assumptions   []string `json:"assumptions" jsonschema:"description=Explicit assumptions made"`
+	Description   string   `json:"description"`
+	FunctionSig   string   `json:"function_signature"`
+	PositiveTests []string `json:"positive_tests"`
+	NegativeTests []string `json:"negative_tests"`
+	Assumptions   []string `json:"assumptions"`
 }
 
 type PackageNode struct {
@@ -43,19 +42,16 @@ type wirePackage = struct {
 }
 
 type DecompositionResponse struct {
-	Type           string       `json:"type" jsonschema:"const=decompose"`
 	ProjectPackage wirePackage  `json:"project_package"`
 	StdPackage     *wirePackage `json:"std_package,omitempty"`
 }
 
 type ClarificationRequest struct {
-	Type    string `json:"type" jsonschema:"const=clarify"`
-	Message string `json:"message" jsonschema:"description=The explanation if the requirement is too vague"`
+	Message string `json:"message"`
 }
 
 type Client struct {
-	instructorClient *instructor_openai.InstructorOpenAI
-	conversation     *core.Conversation
+	openai *openai.Client
 }
 
 type RuneExpansionInfo struct {
@@ -72,21 +68,50 @@ type AutoDecomposition struct {
 	ChildPaths []string
 }
 
-var client *Client
+var (
+	client        *Client
+	decomposeTool openai.Tool
+)
 
 func init() {
 	config := openai.DefaultConfig("default")
 	config.BaseURL = BASE_URL
+	client = &Client{openai: openai.NewClientWithConfig(config)}
 
-	c := &Client{}
-	c.instructorClient = instructor_openai.FromOpenAI(
-		openai.NewClientWithConfig(config),
-		core.WithMode(core.ModeToolCall),
-		core.WithMaxRetries(3),
-		// core.WithLogging("debug"),
-	)
-
-	client = c
+	runeSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"description":        map[string]any{"type": "string"},
+			"function_signature": map[string]any{"type": "string"},
+			"positive_tests":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"negative_tests":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"assumptions":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		},
+		"required": []string{"description", "function_signature", "positive_tests", "negative_tests", "assumptions"},
+	}
+	packageSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name":  map[string]any{"type": "string"},
+			"runes": map[string]any{"type": "object", "additionalProperties": runeSchema},
+		},
+		"required": []string{"name", "runes"},
+	}
+	decomposeTool = openai.Tool{
+		Type: openai.ToolTypeFunction,
+		Function: &openai.FunctionDefinition{
+			Name:        "decompose",
+			Description: "Submit a rune decomposition. Provide a project_package, and optionally a std_package of reusable utilities.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"project_package": packageSchema,
+					"std_package":     packageSchema,
+				},
+				"required": []string{"project_package"},
+			},
+		},
+	}
 }
 
 func getRequirement(reader *bufio.Reader) (string, error) {
@@ -106,12 +131,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	conversation := newConversation(req)
+	messages := newConversation(req)
 	fmt.Printf("\nDecomposing: %s...\n", req)
 
-	root, queue, err := initialDecompose(ctx, conversation)
+	root, queue, err := initialDecompose(ctx, &messages)
 	if err != nil {
-		fmt.Printf("ERROR: %v, %v\n", err, conversation.GetMessages())
+		fmt.Printf("ERROR: %v\n", err)
 		return
 	}
 	if root == nil {
@@ -122,7 +147,7 @@ func main() {
 		queue[i].ParentDecomposition = root
 	}
 
-	expandRecursively(ctx, conversation, root, queue)
+	expandRecursively(ctx, &messages, root, queue)
 }
 
 func printBanner() {
@@ -130,17 +155,18 @@ func printBanner() {
 	fmt.Printf("Max depth: %d, Max total runes: %d\n\n", MAX_DEPTH, MAX_TOTAL_RUNES)
 }
 
-func newConversation(req string) *core.Conversation {
-	conv := core.NewConversation(strings.TrimSpace(SYSTEM_PROMPT))
-	conv.AddUserMessage("decompose: " + req)
-	return conv
+func newConversation(req string) []openai.ChatCompletionMessage {
+	return []openai.ChatCompletionMessage{
+		{Role: openai.ChatMessageRoleSystem, Content: strings.TrimSpace(SYSTEM_PROMPT)},
+		{Role: openai.ChatMessageRoleUser, Content: "decompose: " + req},
+	}
 }
 
 // initialDecompose runs the first decomposition pass. Returns (nil, nil, nil)
 // when the model asks for clarification, so the caller should treat a nil root
 // as a clean exit.
-func initialDecompose(ctx context.Context, conv *core.Conversation) (*AutoDecomposition, []RuneExpansionInfo, error) {
-	response, err := client.Decompose(ctx, conv)
+func initialDecompose(ctx context.Context, messages *[]openai.ChatCompletionMessage) (*AutoDecomposition, []RuneExpansionInfo, error) {
+	response, err := client.Decompose(ctx, messages)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -158,7 +184,6 @@ func initialDecompose(ctx context.Context, conv *core.Conversation) (*AutoDecomp
 			ParentPath: "",
 			ChildPaths: make([]string, 0),
 		}
-		fmt.Printf("decomp response %+v", root.Response)
 		return root, collectRunesForExpansion(root.Response), nil
 
 	default:
@@ -168,7 +193,7 @@ func initialDecompose(ctx context.Context, conv *core.Conversation) (*AutoDecomp
 
 // expandRecursively drains the expansion queue, decomposing each rune up to
 // MAX_DEPTH and stitching child decompositions back into the tree.
-func expandRecursively(ctx context.Context, conv *core.Conversation, root *AutoDecomposition, queue []RuneExpansionInfo) {
+func expandRecursively(ctx context.Context, messages *[]openai.ChatCompletionMessage, root *AutoDecomposition, queue []RuneExpansionInfo) {
 	for i := range queue {
 		queue[i].ParentDecomposition = root
 	}
@@ -197,26 +222,25 @@ func expandRecursively(ctx context.Context, conv *core.Conversation, root *AutoD
 
 		fmt.Printf("   ├─ Expanding [%d/%d] %s...\n", runeInfo.Depth+1, MAX_DEPTH, runeInfo.FullPath)
 
-		extendedReq := fmt.Sprintf(`Based on the previous decomposition, now decompose rune "%s" into sub-runes if applicable. Return ONLY valid JSON matching this structure:
-{
-  "project_package": {"name": "string", "runes": {"rune_name": {"description": "...", "function_signature": "...", "positive_tests": [], "negative_tests": [], "assumptions": []}}},
-  "std_package": {"name": "std", "runes": {...}}
-}
-Do not return markdown, only raw JSON.`, runeInfo.FullPath)
+		extendedReq := fmt.Sprintf(`Decompose rune "%s" into sub-runes if applicable. Submit the decomposition by calling the decompose tool, following the same rules as the initial decomposition. If the rune is already atomic and has no meaningful sub-runes, call decompose with an empty runes map.`, runeInfo.FullPath)
 
-		conv.AddUserMessage(extendedReq)
+		*messages = append(*messages, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleUser,
+			Content: extendedReq,
+		})
 
-		expandedResponse, err := client.Decompose(ctx, conv)
+		expandedResponse, err := client.Decompose(ctx, messages)
 		if err != nil {
 			fmt.Printf("      ⚠️  ERROR: %v\n", err)
 			continue
 		}
 
-		resp, ok := expandedResponse.(*DecompositionResponse)
-		if !ok || resp == nil || resp.ProjectPackage.Name == "" {
+		respVal, ok := expandedResponse.(DecompositionResponse)
+		if !ok || respVal.ProjectPackage.Name == "" {
 			fmt.Printf("      ⚠️  ERROR: invalid response received, skipping expansion.\n")
 			continue
 		}
+		resp := &respVal
 
 		newRunes := collectRunesForExpansion(resp)
 		if len(newRunes) == 0 {
@@ -256,61 +280,70 @@ Do not return markdown, only raw JSON.`, runeInfo.FullPath)
 	fmt.Printf("%s\n", separator)
 }
 
-func (c *Client) Decompose(ctx context.Context, conv *core.Conversation) (any, error) {
-
-	result, _, err := c.instructorClient.CreateChatCompletionUnion(
-		ctx,
-		openai.ChatCompletionRequest{
-			Model:    MODEL_NAME,
-			Messages: instructor_openai.ConversationToMessages(conv),
-		},
-		core.UnionOptions{
-			Discriminator: "type",
-			Variants:      []any{DecompositionResponse{}, ClarificationRequest{}},
-		},
-	)
-
+func (c *Client) Decompose(ctx context.Context, messages *[]openai.ChatCompletionMessage) (any, error) {
+	resp, err := c.openai.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model:      MODEL_NAME,
+		Messages:   *messages,
+		Tools:      []openai.Tool{decomposeTool},
+		ToolChoice: "auto",
+	})
 	if err != nil {
-		return nil, fmt.Errorf("structured extraction failed: %w", err)
+		return nil, fmt.Errorf("chat completion failed: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
 	}
 
-	c.conversation = conv
-	for _, item := range result {
-		if req, ok := item.(ClarificationRequest); ok {
-			return req, err
-		}
+	msg := resp.Choices[0].Message
+	*messages = append(*messages, msg)
 
-		if req, ok := item.(DecompositionResponse); ok {
-			fmt.Printf("%+v", req.StdPackage)
-			return req, err
+	if len(msg.ToolCalls) > 0 {
+		call := msg.ToolCalls[0]
+		if call.Function.Name != "decompose" {
+			return nil, fmt.Errorf("unexpected tool call: %s", call.Function.Name)
 		}
+		var decomp DecompositionResponse
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &decomp); err != nil {
+			return nil, fmt.Errorf("parsing decompose arguments: %w (raw: %s)", err, call.Function.Arguments)
+		}
+		*messages = append(*messages, openai.ChatCompletionMessage{
+			Role:       openai.ChatMessageRoleTool,
+			ToolCallID: call.ID,
+			Content:    "decomposition recorded",
+		})
+		return decomp, nil
 	}
 
-	return nil, err
+	if strings.TrimSpace(msg.Content) != "" {
+		return ClarificationRequest{Message: msg.Content}, nil
+	}
 
+	return nil, fmt.Errorf("model returned neither a tool call nor content")
 }
 
 func collectRunesForExpansion(resp *DecompositionResponse) []RuneExpansionInfo {
 	var runes []RuneExpansionInfo
 
-	fmt.Printf("runes %v", resp.ProjectPackage.Runes)
-
 	if resp == nil || resp.ProjectPackage.Name == "" {
 		return runes
 	}
 
-	// Only expand if there are actually runes in the project package
 	if len(resp.ProjectPackage.Runes) > 0 {
 		for name := range resp.ProjectPackage.Runes {
-			path := fmt.Sprintf("%s.%s", resp.ProjectPackage.Name, name)
+			path := name
+			if !strings.HasPrefix(name, resp.ProjectPackage.Name+".") {
+				path = fmt.Sprintf("%s.%s", resp.ProjectPackage.Name, name)
+			}
 			runes = append(runes, RuneExpansionInfo{FullPath: path, Depth: 1})
 		}
 	}
 
-	// Only expand if there are actually runes in the std package
 	if resp.StdPackage != nil && len(resp.StdPackage.Runes) > 0 {
 		for name := range resp.StdPackage.Runes {
-			path := fmt.Sprintf("%s.%s", resp.StdPackage.Name, name)
+			path := name
+			if !strings.HasPrefix(name, resp.StdPackage.Name+".") {
+				path = fmt.Sprintf("%s.%s", resp.StdPackage.Name, name)
+			}
 			runes = append(runes, RuneExpansionInfo{FullPath: path, Depth: 1})
 		}
 	}
