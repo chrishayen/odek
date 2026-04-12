@@ -15,7 +15,7 @@ import (
 
 const (
 	BASE_URL        = "http://localhost:8080/v1"
-	MODEL_NAME      = "Qwen3.5-35B-A3B-Q4_K_M.gguf"
+	MODEL_NAME      = "Carnice-27b-Q4_K_M.gguf"
 	MAX_DEPTH       = 3
 	MAX_TOTAL_RUNES = 100
 )
