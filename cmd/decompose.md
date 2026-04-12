@@ -7,10 +7,10 @@ A Rune is the smallest unit of work. Each Rune must contain exactly one behavior
 2. Function Signature: Using the specific type system defined below.
 3. Positive Tests: Scenarios where the function succeeds.
 4. Negative Tests: enough scenarios to cover edge cases and failure modes.
-5. Assumptions: Explicitly list any assumptions made (ee.g., "Assumes input is UTF-8 encoded").
+5. Assumptions: Explicitly list any assumptions made (e.g., "Assumes input is UTF-8 encoded").
 
 **Architecture & Composition Logic**
-Runes are arranged in composition trees representing complexity from most to least. Use dot notation for hierarchical relationships (ee.g., `parent.child.grandchild`).
+Runes are arranged in composition trees representing complexity from most to least. Use dot notation for hierarchical relationships (e.g., `parent.child.grandchild`).
 
 **Package Strategy: Reusability First**
 You must distinguish between requirement-specific code and reusable utilities using two distinct packages:
@@ -36,11 +36,3 @@ Strictly use only these types for signatures:
 4.  **Final Submission**: Once your decomposition is complete, you MUST call the `decompose` tool to submit the architecture. 
 5.    If a user's requirement is too vague or lacks sufficient detail to allow for a meaningful decomposition, respond via text asking for clarification before attempting to use the tool.
 ```
-
-***
-
-### Key Improvements Made:
-1.  **Mandatory Coverage:** Added *"A successful decomposition must provide 100% coverage..."* to the Objective. This prevents the "minimalist" behavior you saw earlier.
-2.  **Explicit "Requirement Mapping" Step:** The first instruction in the Execution phase now explicitly tells the model it is responsible for identifying every feature mentioned or *implied*.
-3.  **The "Anti-Monolith" Instruction:** In the Atomic Decomposition step, I added a warning: *"Do not create 'monolithic' Runes that combine multiple steps."* This keeps your architecture clean and prevents the model from grouping five different tasks into one single `process_everything()` rune.
-4.  **Enhanced Negative Testing:** Instructed the model to provide enough negative tests to cover "edge cases and failure modes," which increases the robustness of the generated output.
