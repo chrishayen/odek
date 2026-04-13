@@ -16,3 +16,6 @@ coverage.out
 # Main odek binary
 odek
 .aider*
+
+decompose-prompt-eval/
+.claude
