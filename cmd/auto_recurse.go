@@ -13,11 +13,17 @@ import (
 	"time"
 
 	"github.com/sashabaranov/go-openai"
+
+	"shotgun.dev/odek/internal/examples"
+	"shotgun.dev/odek/internal/toollog"
 )
 
 const (
-	BASE_URL   = "http://localhost:8080/v1"
-	MODEL_NAME = "default"
+	BASE_URL              = "http://localhost:8080/v1"
+	MODEL_NAME            = "default"
+	EXAMPLES_DIR          = "examples"
+	TOOL_LOG_PATH         = "/tmp/odek-example-log.jsonl"
+	MAX_TOOL_ITERATIONS   = 6
 )
 
 //go:embed decompose.md
@@ -82,10 +88,14 @@ type AutoDecomposition struct {
 }
 
 var (
-	client         *Client
-	decomposeTool  openai.Tool
-	rateEffortTool openai.Tool
-	stdoutMu       sync.Mutex
+	client          *Client
+	decomposeTool   openai.Tool
+	rateEffortTool  openai.Tool
+	readExampleTool openai.Tool
+	stdoutMu        sync.Mutex
+	exampleIndex    *examples.Index
+	exampleManifest string
+	toolLogger      *toollog.Logger
 )
 
 func init() {
@@ -150,6 +160,48 @@ func init() {
 				"required": []string{"level", "reason"},
 			},
 		},
+	}
+
+	readExampleTool = openai.Tool{
+		Type: openai.ToolTypeFunction,
+		Function: &openai.FunctionDefinition{
+			Name:        "read_example",
+			Description: "Read the full contents of one or more example decompositions from the corpus. The full list of available example handles is shown in the `Example index` section of your system message — pick the most relevant ones by name and pass them here. Call this before `decompose` to see how similar requirements have been broken down. You may call it more than once if you need additional references.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"paths": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "string",
+						},
+						"minItems":    1,
+						"maxItems":    5,
+						"description": "list of example handles to load, e.g. ['medium/csv-reader', 'trivial/hello-world']. The handle is tier/slug as shown in the Example index.",
+					},
+				},
+				"required": []string{"paths"},
+			},
+		},
+	}
+
+	// Load the example corpus into memory and build the manifest that gets
+	// inlined into the system prompt.
+	idx, err := examples.LoadFromDir(EXAMPLES_DIR)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARN: could not load example corpus at %s: %v\n", EXAMPLES_DIR, err)
+		exampleIndex = &examples.Index{}
+	} else {
+		exampleIndex = idx
+	}
+	exampleManifest = exampleIndex.Manifest()
+
+	// Open the tool-call log for read_example monitoring.
+	logger, err := toollog.NewLogger(TOOL_LOG_PATH)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARN: could not open tool log at %s: %v\n", TOOL_LOG_PATH, err)
+	} else {
+		toolLogger = logger
 	}
 }
 
@@ -421,8 +473,12 @@ func printBanner() {
 }
 
 func newConversation(req string) []openai.ChatCompletionMessage {
+	system := strings.TrimSpace(SYSTEM_PROMPT)
+	if exampleManifest != "" {
+		system += "\n\n# Example index\n\nThe following reference decompositions are available. To see the full contents of one, call `read_example` with its handle (tier/slug). Pick the most relevant ones for the current requirement, read them first, then call `decompose` with your answer.\n\n" + exampleManifest
+	}
 	return []openai.ChatCompletionMessage{
-		{Role: openai.ChatMessageRoleSystem, Content: strings.TrimSpace(SYSTEM_PROMPT)},
+		{Role: openai.ChatMessageRoleSystem, Content: system},
 		{Role: openai.ChatMessageRoleUser, Content: "decompose: " + req},
 	}
 }
@@ -604,45 +660,199 @@ Hard rules:
 	fmt.Printf("%s\n", separator)
 }
 
+// Decompose drives a multi-turn tool loop with the LLM. The model may call
+// `read_example` any number of times (up to MAX_TOOL_ITERATIONS) to retrieve
+// reference decompositions from the corpus by handle, then call `decompose`
+// to submit its final answer. If the model replies in plain text before ever
+// calling a tool, that text is treated as a clarification request.
+//
+// The full manifest of example handles (tier/slug) is inlined into the
+// system prompt at conversation start, so the model picks handles directly
+// from context — no search step.
 func (c *Client) Decompose(ctx context.Context, messages *[]openai.ChatCompletionMessage) (any, error) {
-	resp, err := c.openai.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:      MODEL_NAME,
-		Messages:   *messages,
-		Tools:      []openai.Tool{decomposeTool},
-		ToolChoice: "auto",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("chat completion failed: %w", err)
-	}
-	if len(resp.Choices) == 0 {
-		return nil, fmt.Errorf("no choices in response")
-	}
-
-	msg := resp.Choices[0].Message
-	*messages = append(*messages, msg)
-
-	if len(msg.ToolCalls) > 0 {
-		call := msg.ToolCalls[0]
-		if call.Function.Name != "decompose" {
-			return nil, fmt.Errorf("unexpected tool call: %s", call.Function.Name)
-		}
-		var decomp DecompositionResponse
-		if err := json.Unmarshal([]byte(call.Function.Arguments), &decomp); err != nil {
-			return nil, fmt.Errorf("parsing decompose arguments: %w (raw: %s)", err, call.Function.Arguments)
-		}
-		*messages = append(*messages, openai.ChatCompletionMessage{
-			Role:       openai.ChatMessageRoleTool,
-			ToolCallID: call.ID,
-			Content:    "decomposition recorded",
+	for iter := 0; iter < MAX_TOOL_ITERATIONS; iter++ {
+		resp, err := c.openai.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+			Model:      MODEL_NAME,
+			Messages:   *messages,
+			Tools:      []openai.Tool{readExampleTool, decomposeTool},
+			ToolChoice: "auto",
 		})
-		return decomp, nil
+		if err != nil {
+			return nil, fmt.Errorf("chat completion failed: %w", err)
+		}
+		if len(resp.Choices) == 0 {
+			return nil, fmt.Errorf("no choices in response")
+		}
+
+		msg := resp.Choices[0].Message
+		*messages = append(*messages, msg)
+
+		// No tool call → text response. On the first turn, treat as clarification;
+		// on later turns, treat as a protocol error.
+		if len(msg.ToolCalls) == 0 {
+			if iter == 0 && strings.TrimSpace(msg.Content) != "" {
+				return ClarificationRequest{Message: msg.Content}, nil
+			}
+			return nil, fmt.Errorf("model returned neither a tool call nor content (iter %d)", iter)
+		}
+
+		// Dispatch every tool call in the response. A `decompose` call ends the
+		// loop immediately; `read_example` calls are executed and their results
+		// appended as tool messages so the next LLM turn can use them.
+		for _, call := range msg.ToolCalls {
+			switch call.Function.Name {
+			case "read_example":
+				result := handleReadExampleCall(call, *messages)
+				*messages = append(*messages, openai.ChatCompletionMessage{
+					Role:       openai.ChatMessageRoleTool,
+					ToolCallID: call.ID,
+					Content:    result,
+				})
+			case "decompose":
+				var decomp DecompositionResponse
+				if err := json.Unmarshal([]byte(call.Function.Arguments), &decomp); err != nil {
+					return nil, fmt.Errorf("parsing decompose arguments: %w (raw: %s)", err, call.Function.Arguments)
+				}
+				*messages = append(*messages, openai.ChatCompletionMessage{
+					Role:       openai.ChatMessageRoleTool,
+					ToolCallID: call.ID,
+					Content:    "decomposition recorded",
+				})
+				return decomp, nil
+			default:
+				return nil, fmt.Errorf("unexpected tool call: %s", call.Function.Name)
+			}
+		}
+	}
+	return nil, fmt.Errorf("exceeded %d tool iterations without a decompose call", MAX_TOOL_ITERATIONS)
+}
+
+// readExampleArgs is the JSON shape the model sends when calling read_example.
+type readExampleArgs struct {
+	Paths []string `json:"paths"`
+}
+
+// handleReadExampleCall parses the tool call, looks up each requested handle
+// in the in-memory index, logs the call, and returns the formatted tool
+// result (which becomes the Content of the next tool message).
+func handleReadExampleCall(call openai.ToolCall, messages []openai.ChatCompletionMessage) string {
+	var args readExampleArgs
+	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+		return fmt.Sprintf("error: could not parse read_example arguments: %v", err)
+	}
+	if len(args.Paths) == 0 {
+		return "error: `paths` is required and must contain at least one entry"
+	}
+	if len(args.Paths) > 5 {
+		args.Paths = args.Paths[:5]
 	}
 
-	if strings.TrimSpace(msg.Content) != "" {
-		return ClarificationRequest{Message: msg.Content}, nil
+	type resolved struct {
+		ref    string
+		result examples.LookupResult
+	}
+	resolvedList := make([]resolved, 0, len(args.Paths))
+	foundPaths := make([]string, 0, len(args.Paths))
+	for _, ref := range args.Paths {
+		res := exampleIndex.Lookup(ref)
+		resolvedList = append(resolvedList, resolved{ref: ref, result: res})
+		if res.Entry != nil {
+			foundPaths = append(foundPaths, res.Entry.Path)
+		}
 	}
 
-	return nil, fmt.Errorf("model returned neither a tool call nor content")
+	// Log the call for monitoring.
+	if toolLogger != nil {
+		_ = toolLogger.LogToolCall(
+			time.Now(),
+			requirementFromMessages(messages),
+			strings.Join(args.Paths, ","),
+			len(args.Paths),
+			foundPaths,
+		)
+	}
+
+	// Debug print so the human can see which examples the agent is pulling
+	// in real time. ✓=hit, ≈=tier auto-corrected, ✗=miss.
+	stdoutMu.Lock()
+	fmt.Printf("🔎 read_example (%d handle%s)\n", len(resolvedList), plural(len(resolvedList)))
+	for _, r := range resolvedList {
+		switch r.result.Kind {
+		case examples.LookupHit:
+			fmt.Printf("   ✓ %s\n", r.result.Entry.Handle())
+		case examples.LookupTierCorrected:
+			fmt.Printf("   ≈ %s (requested %q, corrected to %s)\n",
+				r.result.Entry.Handle(), r.ref, r.result.Entry.Handle())
+		case examples.LookupMiss:
+			fmt.Printf("   ✗ %s (not found)\n", r.ref)
+		}
+	}
+	stdoutMu.Unlock()
+
+	var b strings.Builder
+	for i, r := range resolvedList {
+		switch r.result.Kind {
+		case examples.LookupHit:
+			fmt.Fprintf(&b, "=== %s (tier=%s) ===\n", r.result.Entry.Handle(), r.result.Entry.Tier)
+			b.WriteString(r.result.Entry.Content)
+			if !strings.HasSuffix(r.result.Entry.Content, "\n") {
+				b.WriteString("\n")
+			}
+			b.WriteString("\n")
+		case examples.LookupTierCorrected:
+			// Tell the model we corrected the tier so it uses the right handle next time.
+			fmt.Fprintf(&b, "=== %s (tier=%s, auto-corrected from %q — the slug lives in a different tier than you guessed) ===\n",
+				r.result.Entry.Handle(), r.result.Entry.Tier, r.ref)
+			b.WriteString(r.result.Entry.Content)
+			if !strings.HasSuffix(r.result.Entry.Content, "\n") {
+				b.WriteString("\n")
+			}
+			b.WriteString("\n")
+		case examples.LookupMiss:
+			fmt.Fprintf(&b, "=== request %d: %q NOT FOUND in example index ===\n", i+1, r.ref)
+			if len(r.result.Suggestions) > 0 {
+				b.WriteString("Did you mean one of these?\n")
+				for _, s := range r.result.Suggestions {
+					fmt.Fprintf(&b, "  - %s\n", s.Handle())
+				}
+			} else {
+				b.WriteString("(no similar handles found; try a different slug from the Example index)\n")
+			}
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// plural returns "s" if n != 1, otherwise "". Used for one-off count labels.
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// requirementFromMessages walks the conversation backward and returns the
+// first user message content that starts with "decompose: " (the convention
+// from newConversation). Falls back to the most recent user message text.
+func requirementFromMessages(messages []openai.ChatCompletionMessage) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		m := messages[i]
+		if m.Role != openai.ChatMessageRoleUser {
+			continue
+		}
+		content := strings.TrimSpace(m.Content)
+		if after, ok := strings.CutPrefix(content, "decompose: "); ok {
+			return after
+		}
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		m := messages[i]
+		if m.Role == openai.ChatMessageRoleUser {
+			return strings.TrimSpace(m.Content)
+		}
+	}
+	return ""
 }
 
 func collectRunesForExpansion(resp *DecompositionResponse) []RuneExpansionInfo {
