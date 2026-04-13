@@ -7,15 +7,11 @@ import (
 	"os"
 	"strings"
 
-	_ "embed"
 	"shotgun.dev/odek/decompose"
 	"shotgun.dev/odek/internal/tui"
 	openai "shotgun.dev/odek/openai"
 )
 
-// System prompt embedded at compile time from decompose.md
-//
-//go:embed decompose.md
 var systemPrompt string
 
 func main() {

@@ -1,9 +1,9 @@
 package tui
 
 import (
-	"os"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/help"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lucasb-eyer/go-colorful"
@@ -50,6 +50,7 @@ func init() {
 type model struct {
 	width  int
 	height int
+	help   help.Model
 }
 
 func (m model) Init() tea.Cmd {
@@ -61,14 +62,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.help.Width = msg.Width
 		return m, nil
 	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyEnter:
-			// Create - for now just quit
+		switch msg.String() {
+		case "n", "N":
+			next := newCreateFeatureModel(m.width, m.height)
+			return next, next.Init()
+		case "esc", "q", "ctrl+c":
 			return m, tea.Quit
-		case tea.KeyEsc, tea.KeyBackspace:
-			os.Exit(0)
 		}
 	}
 	return m, nil
@@ -96,6 +98,51 @@ func renderStripes(text string, stops []colorful.Color) string {
 	return out.String()
 }
 
+func renderGradientOnBg(text string, stops []colorful.Color, bg string, totalWidth int) string {
+	lines := strings.Split(text, "\n")
+	bgColor := lipgloss.Color(bg)
+
+	maxLen := 0
+	for _, line := range lines {
+		runes := []rune(line)
+		if len(runes) > maxLen {
+			maxLen = len(runes)
+		}
+	}
+	if maxLen == 0 {
+		return text
+	}
+
+	n := len(stops) - 1
+	bgStyle := lipgloss.NewStyle().Background(bgColor)
+	var out strings.Builder
+	for i, line := range lines {
+		runes := []rune(line)
+		for j, r := range runes {
+			if r == ' ' {
+				out.WriteString(bgStyle.Render(" "))
+				continue
+			}
+			t := float64(j) / float64(maxLen) * float64(n)
+			idx := int(t)
+			if idx >= n {
+				idx = n - 1
+			}
+			frac := t - float64(idx)
+			c := stops[idx].BlendLuv(stops[idx+1], frac)
+			out.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(c.Hex())).Background(bgColor).Bold(true).Render(string(r)))
+		}
+		pad := totalWidth - len(runes)
+		if pad > 0 {
+			out.WriteString(bgStyle.Render(strings.Repeat(" ", pad)))
+		}
+		if i < len(lines)-1 {
+			out.WriteRune('\n')
+		}
+	}
+	return out.String()
+}
+
 func (m model) View() string {
 	gradientLogo := renderStripes(logoBig, gradStops)
 
@@ -103,15 +150,18 @@ func (m model) View() string {
 		taglineStyle.Render("Tree Composition CLI and Rune Server")
 
 	framed := frameStyle.Render(content)
+	helpBar := helpBarStyle.Render(m.help.View(splashKeyMap{}))
+
+	block := lipgloss.JoinVertical(lipgloss.Left, framed, helpBar)
 
 	return lipgloss.Place(m.width, m.height,
 		lipgloss.Center, lipgloss.Center,
-		framed,
+		block,
 	)
 }
 
 func Run() {
-	teaModel := model{}
+	teaModel := model{help: newHelpModel()}
 	p := tea.NewProgram(teaModel)
 	if _, err := p.Run(); err != nil {
 		panic(err)
