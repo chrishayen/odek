@@ -328,15 +328,15 @@ func configForEffort(level int) RunConfig {
 	case 1:
 		return RunConfig{ParallelInitial: 1, MaxDepth: 0, RuneCap: 10, Recurse: false}
 	case 2:
-		return RunConfig{ParallelInitial: 1, MaxDepth: 1, RuneCap: 25, Recurse: true}
+		return RunConfig{ParallelInitial: 1, MaxDepth: 10, RuneCap: 25, Recurse: true}
 	case 3:
-		return RunConfig{ParallelInitial: 3, MaxDepth: 2, RuneCap: 50, Recurse: true}
+		return RunConfig{ParallelInitial: 3, MaxDepth: 10, RuneCap: 50, Recurse: true}
 	case 4:
-		return RunConfig{ParallelInitial: 5, MaxDepth: 3, RuneCap: 100, Recurse: true}
+		return RunConfig{ParallelInitial: 5, MaxDepth: 10, RuneCap: 100, Recurse: true}
 	case 5:
-		return RunConfig{ParallelInitial: 5, MaxDepth: 3, RuneCap: 200, Recurse: true}
+		return RunConfig{ParallelInitial: 5, MaxDepth: 10, RuneCap: 200, Recurse: true}
 	}
-	return RunConfig{ParallelInitial: 3, MaxDepth: 2, RuneCap: 50, Recurse: true}
+	return RunConfig{ParallelInitial: 3, MaxDepth: 10, RuneCap: 50, Recurse: true}
 }
 
 func confirm(reader *bufio.Reader, prompt string) bool {
