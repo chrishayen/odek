@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -25,15 +26,15 @@ const (
 )
 
 var tomlItems = []string{
-	"toml.tokenize",
-	"toml.parse",
-	"toml.decode",
-	"toml.get_string",
-	"toml.get_int",
-	"toml.get_bool",
-	"toml.get_array",
-	"toml.encode_value",
-	"toml.encode",
+	"tokenize",
+	"parse",
+	"decode",
+	"get_string",
+	"get_int",
+	"get_bool",
+	"get_array",
+	"encode_value",
+	"encode",
 }
 
 type model struct {
@@ -41,10 +42,21 @@ type model struct {
 	vp            viewport.Model
 	selectedIdx   int
 	focusedCol    int
+	inputActive   bool
+	input         textinput.Model
 }
 
 func newModel() model {
-	return model{vp: viewport.New()}
+	ti := textinput.New()
+	ti.Prompt = "> "
+	ti.Placeholder = ""
+	s := ti.Styles()
+	s.Focused.Prompt = lipgloss.NewStyle().Foreground(textColor).Background(bg)
+	s.Focused.Text = lipgloss.NewStyle().Foreground(textColor).Background(bg)
+	s.Blurred.Prompt = lipgloss.NewStyle().Foreground(textColor).Background(bg)
+	s.Blurred.Text = lipgloss.NewStyle().Foreground(textColor).Background(bg)
+	ti.SetStyles(s)
+	return model{vp: viewport.New(), input: ti}
 }
 
 func (m *model) refreshColumns() {
@@ -66,9 +78,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshColumns()
 		return m, nil
 	case tea.KeyPressMsg:
+		if m.inputActive {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "enter", "esc":
+				m.inputActive = false
+				m.input.SetValue("")
+				m.input.Blur()
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			return m, cmd
+		}
+
 		switch msg.String() {
 		case "q", "esc", "ctrl+c":
 			return m, tea.Quit
+		case "space":
+			m.inputActive = true
+			return m, m.input.Focus()
 		case "tab":
 			m.focusedCol = (m.focusedCol + 1) % numCols
 			m.refreshColumns()
@@ -92,9 +122,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	var cmds []tea.Cmd
 	var cmd tea.Cmd
 	m.vp, cmd = m.vp.Update(msg)
-	return m, cmd
+	cmds = append(cmds, cmd)
+	if m.inputActive {
+		m.input, cmd = m.input.Update(msg)
+		cmds = append(cmds, cmd)
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m model) View() tea.View {
@@ -107,10 +143,16 @@ func (m model) View() tea.View {
 	}
 
 	topH := m.height / 3
-	top := renderTop(m.width, topH)
+	top := renderTop(m.width, topH, m.selectedIdx*4)
 	blank := lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", m.width))
 	bottom := m.vp.View()
 	bar := renderBottomBar(m.width)
+	lastLine := blank
+	if m.inputActive {
+		rendered := m.input.View()
+		pad := max(m.width-lipgloss.Width(rendered), 0)
+		lastLine = rendered + lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", pad))
+	}
 
 	v.Content = lipgloss.JoinVertical(lipgloss.Left,
 		top,
@@ -119,7 +161,7 @@ func (m model) View() tea.View {
 		blank,
 		bar,
 		blank,
-		blank,
+		lastLine,
 	)
 	return v
 }
@@ -140,7 +182,7 @@ func renderBottomBar(width int) string {
 
 const topCopy = "A full subsystem: tokenize, parse, build a typed value tree, and emit it back as text. Values can be strings, integers, floats, booleans, arrays, or nested tables."
 
-func renderTop(width, height int) string {
+func renderTop(width, height, kanjiOffset int) string {
 	const logoText = "ODEK "
 	logoCells := len(logoText)
 	logoStyled := lipgloss.NewStyle().
@@ -160,6 +202,8 @@ func renderTop(width, height int) string {
 	rawLines := wrapText(topCopy, textMax)
 	textStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(bg)
 	const textStartRow = 2
+	const runesText = "9 runes"
+	runesRow := textStartRow + len(rawLines) + 2 // third line below the last text line
 
 	lines := make([]string, height)
 	for row := range height {
@@ -183,11 +227,14 @@ func renderTop(width, height int) string {
 			line := rawLines[idx]
 			b.WriteString(textStyle.Render(line))
 			cells = len(line)
+		} else if row == runesRow {
+			b.WriteString(textStyle.Render(runesText))
+			cells = len(runesText)
 		}
 
 		var kb strings.Builder
 		for cells+2 <= width {
-			kb.WriteRune(kanjiAt(row, cells))
+			kb.WriteRune(kanjiAt(row, cells+kanjiOffset))
 			cells += 2
 		}
 		if kb.Len() > 0 {
@@ -260,7 +307,7 @@ func buildColumns(innerH, selectedIdx, focusedCol int) string {
 			ruleStyle.Render(strings.Repeat("─", contentW)),
 		}
 		for i, it := range items {
-			prefix := "▸ "
+			prefix := "• "
 			raw := prefix + it
 			if i == sel {
 				pad := contentW - len(raw)
@@ -287,7 +334,7 @@ func buildColumns(innerH, selectedIdx, focusedCol int) string {
 			}
 			content = titled("toml", tomlItems, sel, focused)
 		case 1:
-			content = titled(strings.TrimPrefix(tomlItems[selectedIdx], "toml."), nil, -1, focused)
+			content = titled(tomlItems[selectedIdx], nil, -1, focused)
 		}
 		cols[i] = lipgloss.NewStyle().
 			Background(bg).
