@@ -26,15 +26,103 @@ const (
 )
 
 var tomlItems = []string{
-	"tokenize",
-	"parse",
 	"decode",
-	"get_string",
-	"get_int",
-	"get_bool",
-	"get_array",
-	"encode_value",
 	"encode",
+	"encode_value",
+	"tokenize",
+	"get_array",
+	"get_bool",
+	"get_int",
+	"get_string",
+	"parse",
+}
+
+type runeInfo struct {
+	summary   string
+	sig       string
+	pluses    []string
+	minuses   []string
+	questions []string
+	tag       string
+	deps      []string
+}
+
+var runeInfos = []runeInfo{
+	{
+		summary: "One-shot helper that chains tokenize + parse so callers can hand in source text and get back a ready-to-query value tree.",
+		sig:     "(source: string) -> result[toml_value, string]",
+		pluses:  []string{"tokenizes then parses, returning the root table"},
+		minuses: []string{"propagates tokenize and parse errors"},
+		tag:     "decoding",
+		deps:    []string{"toml.tokenize", "toml.parse"},
+	},
+	{
+		summary: "Serializes a full toml_value tree back into TOML text, choosing header grouping and key order for round-trip fidelity.",
+		sig:     "(root: toml_value) -> result[string, string]",
+		pluses: []string{
+			"returns a TOML document whose decode round-trips to the same value tree",
+			`emits nested tables as "[section.sub]" headers ordered by appearance`,
+		},
+		minuses: []string{"returns error when the root is not a table"},
+		tag:     "encoding",
+		deps:    []string{"toml.encode_value"},
+	},
+	{
+		summary:   "Renders a single TOML value — scalar, string, number, bool, or inline array — in its literal source form.",
+		sig:       "(value: toml_value) -> string",
+		pluses:    []string{"renders a scalar value or inline array in TOML literal syntax"},
+		questions: []string{"used internally by encode; exposed for callers who build values directly"},
+		tag:       "encoding",
+	},
+	{
+		summary: "Turns raw TOML source into a flat stream of tokens — keys, values, brackets, equals signs, newlines — ready for the parser to consume.",
+		sig:     "(source: string) -> result[list[toml_token], string]",
+		pluses:  []string{"splits the input into keys, equals, strings, numbers, booleans, brackets, and newlines"},
+		minuses: []string{"returns error on an unterminated string literal", "returns error on an invalid number literal"},
+		tag:     "lexing",
+	},
+	{
+		summary: "Fetches an array at a dotted path within a decoded TOML value tree.",
+		sig:     "(root: toml_value, path: string) -> optional[list[toml_value]]",
+		pluses:  []string{"returns the array at a dotted path"},
+		minuses: []string{"returns none when missing or not an array"},
+		tag:     "lookup",
+	},
+	{
+		summary: "Looks up a boolean leaf at a dotted path within a decoded TOML value tree.",
+		sig:     "(root: toml_value, path: string) -> optional[bool]",
+		pluses:  []string{"returns the boolean value at a dotted path"},
+		minuses: []string{"returns none when missing or not a boolean"},
+		tag:     "lookup",
+	},
+	{
+		summary: "Looks up an integer leaf at a dotted path within a decoded TOML value tree.",
+		sig:     "(root: toml_value, path: string) -> optional[i64]",
+		pluses:  []string{"returns the integer value at a dotted path"},
+		minuses: []string{"returns none when missing or not an integer"},
+		tag:     "lookup",
+	},
+	{
+		summary: "Looks up a string leaf at a dotted path within a decoded TOML value tree.",
+		sig:     "(root: toml_value, path: string) -> optional[string]",
+		pluses:  []string{`returns the string value at a dotted path like "server.host"`},
+		minuses: []string{"returns none when any segment is missing or the leaf is not a string"},
+		tag:     "lookup",
+	},
+	{
+		summary: "Walks a token stream and builds the root table value: nested sections, inline arrays, and scalar leaves.",
+		sig:     "(tokens: list[toml_token]) -> result[toml_value, string]",
+		pluses: []string{
+			"returns the root table value containing every top-level key",
+			`supports nested tables via "[section.sub]" headers`,
+			"supports inline arrays of homogeneous type",
+		},
+		minuses: []string{
+			"returns error on duplicate keys within the same table",
+			"returns error on unclosed section headers",
+		},
+		tag: "parsing",
+	},
 }
 
 type model struct {
@@ -60,7 +148,7 @@ func newModel() model {
 }
 
 func (m *model) refreshColumns() {
-	m.vp.SetContent(buildColumns(m.vp.Height(), m.selectedIdx, m.focusedCol))
+	m.vp.SetContent(buildColumns(m.vp.Width(), m.vp.Height(), m.selectedIdx, m.focusedCol))
 }
 
 func (m model) Init() tea.Cmd { return nil }
@@ -284,8 +372,55 @@ func kanjiAt(row, col int) rune {
 	return kanjiPool[h]
 }
 
-func buildColumns(innerH, selectedIdx, focusedCol int) string {
-	contentW := colW - 2 // inside horizontal padding
+func renderRuneInfo(info runeInfo, maxW int) string {
+	summaryW := min(max(maxW-4, 20), 72)
+	summaryStyle := lipgloss.NewStyle().Foreground(textColor).Background(bg).Italic(true).Width(summaryW)
+	headingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Background(bg).Bold(true)
+	sigStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Background(bg)
+	plusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Background(bg)
+	minusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Background(bg)
+	questionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Background(bg).Italic(true)
+	depStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Background(bg)
+	bodyStyle := lipgloss.NewStyle().Foreground(textColor).Background(bg)
+
+	var lines []string
+	if info.summary != "" {
+		lines = append(lines, summaryStyle.Render(info.summary))
+		lines = append(lines, "")
+	}
+	if info.sig != "" {
+		lines = append(lines, sigStyle.Render("@ "+info.sig))
+	}
+	if len(info.pluses) > 0 || len(info.minuses) > 0 {
+		if len(lines) > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, headingStyle.Render("Behavior"))
+		for _, p := range info.pluses {
+			lines = append(lines, plusStyle.Render("  + ")+bodyStyle.Render(p))
+		}
+		for _, mn := range info.minuses {
+			lines = append(lines, minusStyle.Render("  - ")+bodyStyle.Render(mn))
+		}
+	}
+	for _, q := range info.questions {
+		lines = append(lines, questionStyle.Render("? "+q))
+	}
+	if len(info.deps) > 0 {
+		if len(lines) > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, headingStyle.Render("References"))
+		for _, d := range info.deps {
+			lines = append(lines, depStyle.Render("  -> ")+bodyStyle.Render(d))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildColumns(innerW, innerH, selectedIdx, focusedCol int) string {
+	const sepWidth = 3
+	widths := []int{colW, max(innerW-colW-sepWidth, colW)}
 
 	textStyle := lipgloss.NewStyle().Foreground(textColor).Background(bg)
 	dimStyle := lipgloss.NewStyle().Foreground(sepColor).Background(bg)
@@ -296,8 +431,17 @@ func buildColumns(innerH, selectedIdx, focusedCol int) string {
 		Background(lipgloss.Color("#f74e82")).
 		Bold(true)
 
-	titled := func(name string, items []string, sel int, focused bool) string {
-		header := iconStyle.Render("◆ ") + textStyle.Render(name)
+	tagStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Background(bg)
+	titled := func(name, tag string, items []string, sel int, focused bool, w int) string {
+		contentW := w - 2
+		nameSeg := iconStyle.Render("◆ ") + textStyle.Render(name)
+		header := nameSeg
+		if tag != "" {
+			tagSeg := tagStyle.Render("# " + tag)
+			pad := max(contentW-lipgloss.Width(nameSeg)-lipgloss.Width(tagSeg), 1)
+			spacer := lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", pad))
+			header = nameSeg + spacer + tagSeg
+		}
 		ruleStyle := dimStyle
 		if focused {
 			ruleStyle = ruleFocusedStyle
@@ -310,10 +454,7 @@ func buildColumns(innerH, selectedIdx, focusedCol int) string {
 			prefix := "• "
 			raw := prefix + it
 			if i == sel {
-				pad := contentW - len(raw)
-				if pad < 0 {
-					pad = 0
-				}
+				pad := max(contentW-len(raw), 0)
 				parts = append(parts, selectedStyle.Render(raw+strings.Repeat(" ", pad)))
 			} else {
 				parts = append(parts, dimStyle.Render(prefix)+textStyle.Render(it))
@@ -332,14 +473,43 @@ func buildColumns(innerH, selectedIdx, focusedCol int) string {
 			if focused {
 				sel = selectedIdx
 			}
-			content = titled("toml", tomlItems, sel, focused)
+			_ = sel
+			contentW := widths[i] - 2
+			ruleStyle := dimStyle
+			if focused {
+				ruleStyle = ruleFocusedStyle
+			}
+			bgSpace := lipgloss.NewStyle().Background(bg)
+			parts := []string{
+				iconStyle.Render("◆ ") + textStyle.Render("toml"),
+				ruleStyle.Render(strings.Repeat("─", contentW)),
+				bgSpace.Render(strings.Repeat(" ", contentW)),
+			}
+			pinkCircleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#f74e82")).Background(bg).Bold(true)
+
+			for j, name := range tomlItems {
+				prefix := "• "
+				circleStyle := dimStyle
+				if focused && j == selectedIdx {
+					circleStyle = pinkCircleStyle
+				}
+				line := circleStyle.Render(prefix) + textStyle.Render(name)
+				gap := max(contentW-len(prefix)-len(name), 0)
+				if gap > 0 {
+					line += bgSpace.Render(strings.Repeat(" ", gap))
+				}
+				parts = append(parts, line)
+			}
+			content = lipgloss.JoinVertical(lipgloss.Left, parts...)
 		case 1:
-			content = titled(tomlItems[selectedIdx], nil, -1, focused)
+			info := runeInfos[selectedIdx]
+			base := titled(tomlItems[selectedIdx], info.tag, nil, -1, focused, widths[i])
+			content = base + "\n\n" + renderRuneInfo(info, widths[i])
 		}
 		cols[i] = lipgloss.NewStyle().
 			Background(bg).
 			Padding(0, 1).
-			Width(colW).
+			Width(widths[i]).
 			Height(innerH).
 			Render(content)
 	}
