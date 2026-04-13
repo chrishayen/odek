@@ -1,0 +1,77 @@
+# Requirement: "an SQL injection detection and exploitation library for authorized security testing"
+
+Given an HTTP request template with a parameter under test, probes for injection vulnerabilities and, when present, extracts database metadata.
+
+std
+  std.http
+    std.http.request
+      @ (method: string, url: string, headers: map[string, string], body: bytes) -> result[http_response, string]
+      + performs an HTTP request and returns status, headers, and body
+      - returns error on network failure
+      # http_client
+  std.time
+    std.time.now_millis
+      @ () -> i64
+      + returns current unix time in milliseconds
+      # time
+  std.encoding
+    std.encoding.url_encode
+      @ (raw: string) -> string
+      + returns a percent-encoded form of the input suitable for URL query strings
+      # encoding
+
+sqlprobe
+  sqlprobe.build_request
+    @ (tmpl: request_template, param: string, value: string) -> http_request
+    + returns a request where the named parameter is replaced by value
+    ? supports parameters in query, body, and header positions
+    # templating
+    -> std.encoding.url_encode
+  sqlprobe.detect_error_based
+    @ (tmpl: request_template, param: string) -> detection
+    + returns vulnerable when a broken payload triggers a database error string
+    - returns not_vulnerable when no payload changes the response
+    # detection
+    -> std.http.request
+  sqlprobe.detect_boolean_based
+    @ (tmpl: request_template, param: string) -> detection
+    + returns vulnerable when true and false payloads yield measurably different responses
+    # detection
+    -> std.http.request
+  sqlprobe.detect_time_based
+    @ (tmpl: request_template, param: string) -> detection
+    + returns vulnerable when a sleep payload delays the response beyond a baseline threshold
+    # detection
+    -> std.http.request
+    -> std.time.now_millis
+  sqlprobe.fingerprint_dbms
+    @ (tmpl: request_template, param: string) -> optional[string]
+    + returns the dbms family when one of the probes matches a known signature
+    # fingerprinting
+    -> std.http.request
+  sqlprobe.extract_version
+    @ (tmpl: request_template, param: string, technique: string) -> result[string, string]
+    + extracts the database version string using the chosen technique
+    - returns error when extraction is not feasible
+    # extraction
+    -> std.http.request
+  sqlprobe.extract_tables
+    @ (tmpl: request_template, param: string, technique: string, schema: string) -> result[list[string], string]
+    + returns table names in the given schema
+    # extraction
+    -> std.http.request
+  sqlprobe.extract_columns
+    @ (tmpl: request_template, param: string, technique: string, table: string) -> result[list[string], string]
+    + returns column names in the given table
+    # extraction
+    -> std.http.request
+  sqlprobe.dump_rows
+    @ (tmpl: request_template, param: string, technique: string, table: string, columns: list[string], limit: i32) -> result[list[map[string, string]], string]
+    + returns up to limit rows with the requested columns
+    - returns error when the technique fails to return data
+    # extraction
+    -> std.http.request
+  sqlprobe.render_report
+    @ (findings: findings_state) -> string
+    + returns a structured report of detections and extracted data
+    # reporting
