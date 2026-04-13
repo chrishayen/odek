@@ -344,7 +344,9 @@ func buildColumns(innerH, selectedIdx, focusedCol int) string {
 			Render(content)
 	}
 
-	sepLine := lipgloss.NewStyle().Foreground(sepColor).Background(bg).Render("▏")
+	pad := lipgloss.NewStyle().Background(bg).Render(" ")
+	line := lipgloss.NewStyle().Foreground(sepColor).Background(bg).Render("▏")
+	sepLine := pad + line + pad
 	var sepBuilder strings.Builder
 	for i := range innerH {
 		if i > 0 {
