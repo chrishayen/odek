@@ -376,7 +376,7 @@ func renderRuneInfo(info runeInfo, maxW int) string {
 	summaryW := min(max(maxW-4, 20), 72)
 	summaryStyle := lipgloss.NewStyle().Foreground(textColor).Background(bg).Italic(true).Width(summaryW)
 	headingStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Background(bg).Bold(true)
-	sigStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Background(bg)
+	sigStyle := lipgloss.NewStyle().Foreground(accent).Background(bg)
 	plusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Background(bg)
 	minusStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Background(bg)
 	questionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Background(bg).Italic(true)
