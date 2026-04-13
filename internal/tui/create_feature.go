@@ -3,10 +3,10 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/textarea"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/textarea"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type createFeatureModel struct {
@@ -22,20 +22,22 @@ func newCreateFeatureModel(width, height int) createFeatureModel {
 	ta.ShowLineNumbers = false
 	ta.Prompt = ""
 	ta.EndOfBufferCharacter = ' '
-	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	ta.FocusedStyle.Prompt = lipgloss.NewStyle()
-	ta.FocusedStyle.EndOfBuffer = lipgloss.NewStyle()
-	ta.FocusedStyle.Base = lipgloss.NewStyle()
-	ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
-	ta.BlurredStyle.Prompt = lipgloss.NewStyle()
-	ta.BlurredStyle.EndOfBuffer = lipgloss.NewStyle()
-	ta.BlurredStyle.Base = lipgloss.NewStyle()
+	s := ta.Styles()
+	s.Focused.CursorLine = lipgloss.NewStyle()
+	s.Focused.Prompt = lipgloss.NewStyle()
+	s.Focused.EndOfBuffer = lipgloss.NewStyle()
+	s.Focused.Base = lipgloss.NewStyle()
+	s.Blurred.CursorLine = lipgloss.NewStyle()
+	s.Blurred.Prompt = lipgloss.NewStyle()
+	s.Blurred.EndOfBuffer = lipgloss.NewStyle()
+	s.Blurred.Base = lipgloss.NewStyle()
+	ta.SetStyles(s)
 	ta.KeyMap.InsertNewline.SetKeys("alt+enter")
 	ta.Focus()
 	ta.CharLimit = 2000
 
 	h := newHelpModel()
-	h.Width = width - viewPadX*2
+	h.SetWidth(width - viewPadX*2)
 
 	m := createFeatureModel{
 		width:     width,
@@ -52,7 +54,7 @@ func (m *createFeatureModel) resize(width, height int) {
 	m.height = height
 	m.descInput.SetWidth(max(width-viewPadX*2-4, 40))
 	m.descInput.SetHeight(max(height-8, 3))
-	m.help.Width = width - viewPadX*2
+	m.help.SetWidth(width - viewPadX*2)
 }
 
 func (m createFeatureModel) Init() tea.Cmd {
@@ -64,7 +66,7 @@ func (m createFeatureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
 		return m, nil
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "esc":
 			return model{width: m.width, height: m.height, help: newHelpModel()}, nil
@@ -78,7 +80,7 @@ func (m createFeatureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m createFeatureModel) View() string {
+func (m createFeatureModel) View() tea.View {
 	innerWidth := m.width - viewPadX*2
 	header := renderGradientOnBg(" "+logoSmall, gradStops, "#1A1A1A", innerWidth)
 
@@ -92,5 +94,9 @@ func (m createFeatureModel) View() string {
 	bodyBlock := lipgloss.NewStyle().Height(m.height - 1).Render(body)
 
 	content := bodyBlock + "\n" + helpBar
-	return lipgloss.NewStyle().PaddingLeft(viewPadX).PaddingRight(viewPadX).Render(content)
+	rendered := lipgloss.NewStyle().PaddingLeft(viewPadX).PaddingRight(viewPadX).Render(content)
+	v := tea.NewView(rendered)
+	v.AltScreen = true
+	v.BackgroundColor = bgMain
+	return v
 }

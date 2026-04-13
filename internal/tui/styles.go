@@ -1,9 +1,9 @@
 package tui
 
 import (
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/lipgloss/v2"
 )
 
 const viewPadX = 1
@@ -11,9 +11,9 @@ const viewPadX = 1
 var logoSmall = "ODEK"
 
 var (
-	border  = lipgloss.Color("#666666")
-	dim     = lipgloss.Color("#888888")
-	helpKey = lipgloss.Color("#6A9FD9")
+	border  = lipgloss.Color("241")
+	dim     = lipgloss.Color("241")
+	helpKey = lipgloss.Color("99")
 
 	helpKeyStyle = lipgloss.NewStyle().
 			Foreground(helpKey).
@@ -25,22 +25,23 @@ var (
 	helpBarStyle = lipgloss.NewStyle().PaddingLeft(5)
 
 	inputLabel = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#CCCCCC")).
+			Foreground(lipgloss.Color("245")).
 			Bold(true)
 )
 
 var (
-	keyNew      = key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new"))
-	keyCreate   = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "create"))
-	keyNewLine  = key.NewBinding(key.WithKeys("alt+enter"), key.WithHelp("alt+enter", "new line"))
-	keyCancel   = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel"))
-	keyQuit     = key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit"))
+	keyNew           = key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new"))
+	keyCreate        = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "create"))
+	keyNewLine       = key.NewBinding(key.WithKeys("alt+enter"), key.WithHelp("alt+enter", "new line"))
+	keyCancel        = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel"))
+	keyQuit          = key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit"))
+	keyDecomposition = key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "decomposition"))
 )
 
 type splashKeyMap struct{}
 
 func (splashKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{keyNew, keyQuit}
+	return []key.Binding{keyNew, keyDecomposition, keyQuit}
 }
 func (splashKeyMap) FullHelp() [][]key.Binding { return nil }
 

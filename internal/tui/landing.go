@@ -3,9 +3,9 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/help"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/help"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/lucasb-eyer/go-colorful"
 )
 
@@ -62,12 +62,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.help.Width = msg.Width
+		m.help.SetWidth(msg.Width)
 		return m, nil
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "n", "N":
 			next := newCreateFeatureModel(m.width, m.height)
+			return next, next.Init()
+		case "d", "D":
+			d, groups := mockDecomposition()
+			next := newDecompositionModel(d, groups)
+			next.width = m.width
+			next.height = m.height
 			return next, next.Init()
 		case "esc", "q", "ctrl+c":
 			return m, tea.Quit
@@ -143,7 +149,7 @@ func renderGradientOnBg(text string, stops []colorful.Color, bg string, totalWid
 	return out.String()
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	gradientLogo := renderStripes(logoBig, gradStops)
 
 	content := gradientLogo + "\n\n" +
@@ -154,10 +160,14 @@ func (m model) View() string {
 
 	block := lipgloss.JoinVertical(lipgloss.Left, framed, helpBar)
 
-	return lipgloss.Place(m.width, m.height,
+	placed := lipgloss.Place(m.width, m.height,
 		lipgloss.Center, lipgloss.Center,
 		block,
 	)
+	v := tea.NewView(placed)
+	v.AltScreen = true
+	v.BackgroundColor = bgMain
+	return v
 }
 
 func Run() {
