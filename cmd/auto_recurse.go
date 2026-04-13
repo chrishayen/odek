@@ -16,10 +16,8 @@ import (
 )
 
 const (
-	BASE_URL        = "http://localhost:8080/v1"
-	MODEL_NAME      = "default"
-	MAX_DEPTH       = 3
-	MAX_TOTAL_RUNES = 100
+	BASE_URL   = "http://localhost:8080/v1"
+	MODEL_NAME = "default"
 )
 
 //go:embed decompose.md
@@ -53,6 +51,18 @@ type ClarificationRequest struct {
 	Message string `json:"message"`
 }
 
+type EffortEstimate struct {
+	Level  int    `json:"level"`
+	Reason string `json:"reason"`
+}
+
+type RunConfig struct {
+	ParallelInitial int
+	MaxDepth        int
+	RuneCap         int
+	Recurse         bool
+}
+
 type Client struct {
 	openai *openai.Client
 }
@@ -72,9 +82,10 @@ type AutoDecomposition struct {
 }
 
 var (
-	client        *Client
-	decomposeTool openai.Tool
-	stdoutMu      sync.Mutex
+	client         *Client
+	decomposeTool  openai.Tool
+	rateEffortTool openai.Tool
+	stdoutMu       sync.Mutex
 )
 
 func init() {
@@ -116,6 +127,30 @@ func init() {
 			},
 		},
 	}
+
+	rateEffortTool = openai.Tool{
+		Type: openai.ToolTypeFunction,
+		Function: &openai.FunctionDefinition{
+			Name:        "rate_effort",
+			Description: "Rate the complexity of a software requirement on a 1-5 scale.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"level": map[string]any{
+						"type":        "integer",
+						"minimum":     1,
+						"maximum":     5,
+						"description": "1=trivial (hello world, single function); 2=small (one file or simple CLI); 3=medium (a few modules); 4=large (subsystem with several integration points); 5=very large (full application stack)",
+					},
+					"reason": map[string]any{
+						"type":        "string",
+						"description": "One short sentence justifying the level.",
+					},
+				},
+				"required": []string{"level", "reason"},
+			},
+		},
+	}
 }
 
 func getRequirement(reader *bufio.Reader) (string, error) {
@@ -129,33 +164,244 @@ func main() {
 	ctx := context.Background()
 	printBanner()
 
-	req, err := getRequirement(bufio.NewReader(os.Stdin))
+	stdin := bufio.NewReader(os.Stdin)
+	req, err := getRequirement(stdin)
 	if err != nil || req == "" {
 		fmt.Println("No requirement provided. Exiting.")
 		os.Exit(1)
 	}
 
-	messages := newConversation(req)
-	fmt.Printf("\nDecomposing: %s...\n", req)
-
-	initStart := time.Now()
-	root, queue, err := initialDecompose(ctx, &messages)
-	fmt.Printf("⏱️  initial decompose: %s\n", time.Since(initStart).Round(time.Millisecond))
+	// Stage 1: estimate effort
+	fmt.Printf("\n🎯 Estimating effort for: %s\n", req)
+	effortStart := time.Now()
+	effort, err := client.EstimateEffort(ctx, req)
 	if err != nil {
-		fmt.Printf("ERROR: %v\n", err)
-		return
+		fmt.Printf("⚠️  effort estimation failed: %v — defaulting to level 3\n", err)
+		effort = EffortEstimate{Level: 3, Reason: "default (estimator failed)"}
 	}
-	if root == nil {
-		return
+	cfg := configForEffort(effort.Level)
+	fmt.Printf("🎯 effort: %d/5 — %s (%s)\n", effort.Level, effort.Reason, time.Since(effortStart).Round(time.Millisecond))
+	fmt.Printf("   config: parallel=%d depth=%d cap=%d recurse=%v\n",
+		cfg.ParallelInitial, cfg.MaxDepth, cfg.RuneCap, cfg.Recurse)
+
+	// Stages 2 & 3: initial decompose (single or N-way + merge)
+	var rootResponse DecompositionResponse
+	var baseMessages []openai.ChatCompletionMessage
+
+	if cfg.ParallelInitial == 1 {
+		baseMessages = newConversation(req)
+		fmt.Printf("\nDecomposing: %s...\n", req)
+		initStart := time.Now()
+		response, err := client.Decompose(ctx, &baseMessages)
+		fmt.Printf("⏱️  initial decompose: %s\n", time.Since(initStart).Round(time.Millisecond))
+		if err != nil {
+			fmt.Printf("ERROR: %v\n", err)
+			return
+		}
+		switch v := response.(type) {
+		case ClarificationRequest:
+			fmt.Printf("\n⚠️  CLARIFICATION NEEDED: %s\n", v.Message)
+			return
+		case DecompositionResponse:
+			rootResponse = v
+		default:
+			fmt.Printf("ERROR: unexpected response type %T\n", response)
+			return
+		}
+	} else {
+		fmt.Printf("\n🚀 Running %d parallel initial decompositions...\n", cfg.ParallelInitial)
+		parallelStart := time.Now()
+		attempts := parallelInitialDecompose(ctx, req, cfg.ParallelInitial)
+		fmt.Printf("✅ %d/%d attempts succeeded (%s)\n",
+			len(attempts), cfg.ParallelInitial, time.Since(parallelStart).Round(time.Millisecond))
+		if len(attempts) == 0 {
+			fmt.Println("ERROR: all parallel attempts failed")
+			return
+		}
+		if len(attempts) == 1 {
+			rootResponse = attempts[0]
+			baseMessages = newConversation(req)
+		} else {
+			fmt.Printf("\n🔀 Merging %d attempts...\n", len(attempts))
+			mergeStart := time.Now()
+			merged, mergedMsgs, err := client.MergeAttempts(ctx, req, attempts)
+			fmt.Printf("⏱️  merge: %s\n", time.Since(mergeStart).Round(time.Millisecond))
+			if err != nil {
+				fmt.Printf("⚠️  merge failed: %v — using first attempt\n", err)
+				rootResponse = attempts[0]
+				baseMessages = newConversation(req)
+			} else {
+				rootResponse = merged
+				baseMessages = mergedMsgs
+			}
+		}
 	}
+
+	// Stage 4: present + confirm
+	root := &AutoDecomposition{
+		Path:       "root",
+		Depth:      0,
+		Response:   &rootResponse,
+		ParentPath: "",
+		ChildPaths: make([]string, 0),
+	}
+	queue := collectRunesForExpansion(root.Response)
 
 	printInitialDecomposition(root.Response)
 
+	if !cfg.Recurse {
+		fmt.Println("\n(Skipping recursion: requirement is trivial enough.)")
+		return
+	}
+	if len(queue) == 0 {
+		fmt.Println("\n(No runes to expand.)")
+		return
+	}
+
+	if !confirm(stdin, fmt.Sprintf("\nProceed with recursion (max depth %d, max %d runes)? [y/N] ", cfg.MaxDepth, cfg.RuneCap)) {
+		fmt.Println("Stopping before recursion. Initial decomposition is above.")
+		return
+	}
+
+	// Stage 5: recurse
 	for i := range queue {
 		queue[i].ParentDecomposition = root
 	}
 
-	expandRecursively(ctx, messages, root, queue)
+	expandRecursively(ctx, baseMessages, root, queue, cfg)
+}
+
+func configForEffort(level int) RunConfig {
+	switch level {
+	case 1:
+		return RunConfig{ParallelInitial: 1, MaxDepth: 0, RuneCap: 10, Recurse: false}
+	case 2:
+		return RunConfig{ParallelInitial: 1, MaxDepth: 1, RuneCap: 25, Recurse: true}
+	case 3:
+		return RunConfig{ParallelInitial: 3, MaxDepth: 2, RuneCap: 50, Recurse: true}
+	case 4:
+		return RunConfig{ParallelInitial: 5, MaxDepth: 3, RuneCap: 100, Recurse: true}
+	case 5:
+		return RunConfig{ParallelInitial: 5, MaxDepth: 3, RuneCap: 200, Recurse: true}
+	}
+	return RunConfig{ParallelInitial: 3, MaxDepth: 2, RuneCap: 50, Recurse: true}
+}
+
+func confirm(reader *bufio.Reader, prompt string) bool {
+	fmt.Print(prompt)
+	line, _ := reader.ReadString('\n')
+	line = strings.TrimSpace(strings.ToLower(line))
+	return line == "y" || line == "yes"
+}
+
+func parallelInitialDecompose(ctx context.Context, req string, n int) []DecompositionResponse {
+	type attemptResult struct {
+		idx  int
+		resp DecompositionResponse
+		err  error
+	}
+	out := make(chan attemptResult, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			local := newConversation(req)
+			response, err := client.Decompose(ctx, &local)
+			if err != nil {
+				out <- attemptResult{i, DecompositionResponse{}, err}
+				return
+			}
+			if decomp, ok := response.(DecompositionResponse); ok && decomp.ProjectPackage.Name != "" {
+				out <- attemptResult{i, decomp, nil}
+				return
+			}
+			out <- attemptResult{i, DecompositionResponse{}, fmt.Errorf("non-decomposition response: %T", response)}
+		}(i)
+	}
+	wg.Wait()
+	close(out)
+
+	var ok []DecompositionResponse
+	for r := range out {
+		if r.err != nil {
+			stdoutMu.Lock()
+			fmt.Printf("   ⚠️  attempt %d failed: %v\n", r.idx+1, r.err)
+			stdoutMu.Unlock()
+			continue
+		}
+		ok = append(ok, r.resp)
+	}
+	return ok
+}
+
+func (c *Client) EstimateEffort(ctx context.Context, req string) (EffortEstimate, error) {
+	messages := []openai.ChatCompletionMessage{
+		{Role: openai.ChatMessageRoleSystem, Content: "You are a software-complexity estimator. Given a software requirement, rate it 1-5 by calling the rate_effort tool. Reply only via the tool call."},
+		{Role: openai.ChatMessageRoleUser, Content: "Rate the complexity of this requirement: " + req},
+	}
+	resp, err := c.openai.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model:    MODEL_NAME,
+		Messages: messages,
+		Tools:    []openai.Tool{rateEffortTool},
+		ToolChoice: map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name": "rate_effort",
+			},
+		},
+	})
+	if err != nil {
+		return EffortEstimate{}, fmt.Errorf("effort completion failed: %w", err)
+	}
+	if len(resp.Choices) == 0 || len(resp.Choices[0].Message.ToolCalls) == 0 {
+		return EffortEstimate{}, fmt.Errorf("no tool call in effort response")
+	}
+	call := resp.Choices[0].Message.ToolCalls[0]
+	var est EffortEstimate
+	if err := json.Unmarshal([]byte(call.Function.Arguments), &est); err != nil {
+		return EffortEstimate{}, fmt.Errorf("parsing effort args: %w (raw: %s)", err, call.Function.Arguments)
+	}
+	if est.Level < 1 || est.Level > 5 {
+		return EffortEstimate{}, fmt.Errorf("level out of range: %d", est.Level)
+	}
+	return est, nil
+}
+
+func (c *Client) MergeAttempts(ctx context.Context, req string, attempts []DecompositionResponse) (DecompositionResponse, []openai.ChatCompletionMessage, error) {
+	var blocks []string
+	for i, a := range attempts {
+		b, err := json.MarshalIndent(a, "", "  ")
+		if err != nil {
+			return DecompositionResponse{}, nil, err
+		}
+		blocks = append(blocks, fmt.Sprintf("Attempt %d:\n%s", i+1, string(b)))
+	}
+
+	userMsg := fmt.Sprintf(`Below are %d independent decompositions of this requirement:
+
+REQUIREMENT: %s
+
+Merge them into a single consensus decomposition. Take the best ideas from each, drop redundancy, prefer the clearest names. The result should be a single project_package (and optional std_package) that captures the agreed-on top-level architecture.
+
+Submit the consensus by calling the decompose tool.
+
+%s`, len(attempts), req, strings.Join(blocks, "\n\n"))
+
+	messages := []openai.ChatCompletionMessage{
+		{Role: openai.ChatMessageRoleSystem, Content: strings.TrimSpace(SYSTEM_PROMPT)},
+		{Role: openai.ChatMessageRoleUser, Content: userMsg},
+	}
+
+	response, err := c.Decompose(ctx, &messages)
+	if err != nil {
+		return DecompositionResponse{}, nil, err
+	}
+	decomp, ok := response.(DecompositionResponse)
+	if !ok {
+		return DecompositionResponse{}, nil, fmt.Errorf("merge returned non-decomposition: %T", response)
+	}
+	return decomp, messages, nil
 }
 
 func printInitialDecomposition(resp *DecompositionResponse) {
@@ -172,42 +418,12 @@ func printInitialDecomposition(resp *DecompositionResponse) {
 
 func printBanner() {
 	fmt.Println("=== Auto-Recursive Rune Decomposition Engine ===")
-	fmt.Printf("Max depth: %d, Max total runes: %d\n\n", MAX_DEPTH, MAX_TOTAL_RUNES)
 }
 
 func newConversation(req string) []openai.ChatCompletionMessage {
 	return []openai.ChatCompletionMessage{
 		{Role: openai.ChatMessageRoleSystem, Content: strings.TrimSpace(SYSTEM_PROMPT)},
 		{Role: openai.ChatMessageRoleUser, Content: "decompose: " + req},
-	}
-}
-
-// initialDecompose runs the first decomposition pass. Returns (nil, nil, nil)
-// when the model asks for clarification, so the caller should treat a nil root
-// as a clean exit.
-func initialDecompose(ctx context.Context, messages *[]openai.ChatCompletionMessage) (*AutoDecomposition, []RuneExpansionInfo, error) {
-	response, err := client.Decompose(ctx, messages)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	switch action := response.(type) {
-	case ClarificationRequest:
-		fmt.Printf("\n⚠️  CLARIFICATION NEEDED: %s\n", action.Message)
-		return nil, nil, nil
-
-	case DecompositionResponse:
-		root := &AutoDecomposition{
-			Path:       "root",
-			Depth:      0,
-			Response:   &action,
-			ParentPath: "",
-			ChildPaths: make([]string, 0),
-		}
-		return root, collectRunesForExpansion(root.Response), nil
-
-	default:
-		return nil, nil, fmt.Errorf("unknown action type: %T", action)
 	}
 }
 
@@ -218,11 +434,11 @@ type expansionResult struct {
 }
 
 // expandRecursively drains the expansion queue level-by-level, decomposing each
-// rune up to MAX_DEPTH and stitching child decompositions back into the tree.
+// rune up to cfg.MaxDepth and stitching child decompositions back into the tree.
 // Each level dispatches all expansions in parallel since each expansion is
 // independent — it only needs the initial decomposition context, not the
 // results of sibling expansions.
-func expandRecursively(ctx context.Context, baseMessages []openai.ChatCompletionMessage, root *AutoDecomposition, queue []RuneExpansionInfo) {
+func expandRecursively(ctx context.Context, baseMessages []openai.ChatCompletionMessage, root *AutoDecomposition, queue []RuneExpansionInfo, cfg RunConfig) {
 	for i := range queue {
 		queue[i].ParentDecomposition = root
 	}
@@ -235,14 +451,14 @@ func expandRecursively(ctx context.Context, baseMessages []openai.ChatCompletion
 
 	currentLevel := queue
 	for len(currentLevel) > 0 {
-		if totalRunesCount >= MAX_TOTAL_RUNES {
-			fmt.Printf("\n⚠️  Max total runes (%d) reached. Stopping expansion.\n", MAX_TOTAL_RUNES)
+		if totalRunesCount >= cfg.RuneCap {
+			fmt.Printf("\n⚠️  Max total runes (%d) reached. Stopping expansion.\n", cfg.RuneCap)
 			break
 		}
 
 		var toExpand []RuneExpansionInfo
 		for _, ri := range currentLevel {
-			if visitedRunePaths[ri.FullPath] || ri.Depth >= MAX_DEPTH {
+			if visitedRunePaths[ri.FullPath] || ri.Depth >= cfg.MaxDepth {
 				continue
 			}
 			visitedRunePaths[ri.FullPath] = true
@@ -384,7 +600,7 @@ Hard rules:
 
 	separator := strings.Repeat("=", 70)
 	fmt.Printf("\n%s\n", separator)
-	fmt.Printf("📊 SUMMARY: %d decompositions, %d runes discovered at depth %d\n", len(allDecompositions), totalRunesCount, MAX_DEPTH)
+	fmt.Printf("📊 SUMMARY: %d decompositions, %d runes discovered (max depth %d)\n", len(allDecompositions), totalRunesCount, cfg.MaxDepth)
 	fmt.Printf("%s\n", separator)
 }
 
