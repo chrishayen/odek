@@ -342,6 +342,18 @@ func (m chatModel) Busy() bool {
 	return m.status == chatSending
 }
 
+func (m *chatModel) Focus() tea.Cmd {
+	return m.input.Focus()
+}
+
+func (m *chatModel) Blur() {
+	m.input.Blur()
+}
+
+func (m *chatModel) SetInput(s string) {
+	m.input.SetValue(s)
+}
+
 func (m chatModel) Init() tea.Cmd {
 	return textarea.Blink
 }

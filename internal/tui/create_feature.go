@@ -59,6 +59,18 @@ func (m *createFeatureModel) resize(width, height int) {
 	m.chat.SetSize(chatWidth, chatHeight)
 }
 
+func (m *createFeatureModel) Focus() tea.Cmd {
+	return m.chat.Focus()
+}
+
+func (m *createFeatureModel) Blur() {
+	m.chat.Blur()
+}
+
+func (m *createFeatureModel) SetChatInput(s string) {
+	m.chat.SetInput(s)
+}
+
 func (m createFeatureModel) Init() tea.Cmd {
 	return tea.Batch(m.chat.Init(), kanjiTick())
 }
@@ -101,6 +113,14 @@ func (m createFeatureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			pin := renderFeaturePin()
+			if m.width >= splitPaneMinWidth {
+				leftW, rightW := splitWidths(m.width)
+				left := m
+				left.resize(leftW, m.height)
+				right := newFeatureDecompModel(rightW, m.height, pin)
+				split := newSplitPaneModel(left, right, m.width, m.height)
+				return split, split.Init()
+			}
 			dest := newFeatureDecompModel(m.width, m.height, pin)
 			t := newTransition(m, dest, m.width, m.height, pin)
 			return t, t.Init()
@@ -147,7 +167,7 @@ func (m createFeatureModel) View() tea.View {
 }
 
 func renderKanjiLine(width, row, offset int) string {
-	kanjiStyle := lipgloss.NewStyle().Foreground(fgDim).Background(bgMain)
+	kanjiStyle := lipgloss.NewStyle().Foreground(mockSep).Background(bgMain)
 	bgStyle := lipgloss.NewStyle().Background(bgMain)
 	var kb strings.Builder
 	cells := 0
@@ -173,8 +193,6 @@ func renderFormHelpBar(width int, scrollDown bool) string {
 		{"enter", "send"},
 		{"alt+enter", "new line"},
 		{"↑/↓", "scroll"},
-		{"pgup/pgdn", "page"},
-		{"esc", "back"},
 	}
 
 	var b strings.Builder

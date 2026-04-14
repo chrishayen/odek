@@ -2,12 +2,23 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
+
+const blinkInterval = 500 * time.Millisecond
+
+type blinkTickMsg struct{}
+
+func blinkTick() tea.Cmd {
+	return tea.Tick(blinkInterval, func(time.Time) tea.Msg {
+		return blinkTickMsg{}
+	})
+}
 
 var (
 	mockSep   = lipgloss.Color("#3e3e3e")
@@ -16,8 +27,9 @@ var (
 )
 
 const (
-	mockNumCols = 2
-	mockColW    = 30
+	mockNumCols       = 2
+	mockNavigableCols = mockNumCols - 1 // rightmost column is the summary/detail pane, not navigable
+	mockColW          = 30
 )
 
 var mockTomlItems = []string{
@@ -130,6 +142,8 @@ type featureDecompModel struct {
 	selectedIdx int
 	focusedCol  int
 	inputActive bool
+	active      bool
+	blinkOn     bool
 	input       textinput.Model
 }
 
@@ -149,9 +163,23 @@ func newFeatureDecompModel(width, height int, pin string) featureDecompModel {
 		pin:    pin,
 		vp:     viewport.New(),
 		input:  ti,
+		active: true,
 	}
 	m.resize(width, height)
 	return m
+}
+
+func (m *featureDecompModel) SetActive(active bool) {
+	if m.active == active {
+		return
+	}
+	m.active = active
+	if active {
+		// Start the blink in the "off" phase so the first visible change
+		// after activation is dot → invisible, not dot → (same) bright pink.
+		m.blinkOn = false
+	}
+	m.refreshColumns()
 }
 
 // mockBottomChromeRows is the number of rows consumed below the viewport:
@@ -172,7 +200,7 @@ func (m *featureDecompModel) resize(w, h int) {
 }
 
 func (m *featureDecompModel) refreshColumns() {
-	m.vp.SetContent(buildMockColumns(m.vp.Width(), m.vp.Height(), m.selectedIdx, m.focusedCol))
+	m.vp.SetContent(buildMockColumns(m.vp.Width(), m.vp.Height(), m.selectedIdx, m.focusedCol, m.active, m.blinkOn))
 }
 
 // PinRow reports the row at which the feature pin renders, so the slide
@@ -187,13 +215,19 @@ func (m featureDecompModel) PinRow() int {
 	return topH + 1 + bottomH + 1
 }
 
-func (m featureDecompModel) Init() tea.Cmd { return nil }
+func (m featureDecompModel) Init() tea.Cmd { return blinkTick() }
 
 func (m featureDecompModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
 		return m, nil
+	case blinkTickMsg:
+		if m.active {
+			m.blinkOn = !m.blinkOn
+			m.refreshColumns()
+		}
+		return m, blinkTick()
 	case tea.KeyPressMsg:
 		if m.inputActive {
 			switch msg.String() {
@@ -216,13 +250,17 @@ func (m featureDecompModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "space":
 			m.inputActive = true
 			return m, m.input.Focus()
-		case "tab":
-			m.focusedCol = (m.focusedCol + 1) % mockNumCols
-			m.refreshColumns()
+		case "left", "h":
+			if mockNavigableCols > 1 {
+				m.focusedCol = (m.focusedCol - 1 + mockNavigableCols) % mockNavigableCols
+				m.refreshColumns()
+			}
 			return m, nil
-		case "shift+tab":
-			m.focusedCol = (m.focusedCol - 1 + mockNumCols) % mockNumCols
-			m.refreshColumns()
+		case "right", "l":
+			if mockNavigableCols > 1 {
+				m.focusedCol = (m.focusedCol + 1) % mockNavigableCols
+				m.refreshColumns()
+			}
 			return m, nil
 		case "up", "k":
 			if m.focusedCol == 0 && m.selectedIdx > 0 {
@@ -315,12 +353,8 @@ func renderMockHelp(width int, inputActive bool) string {
 		}
 	} else {
 		bindings = []binding{
-			{"↑/k", "up"},
-			{"↓/j", "down"},
-			{"tab", "next col"},
-			{"shift+tab", "prev col"},
-			{"space", "search"},
-			{"q/esc", "quit"},
+			{"↑/↓", "navigate"},
+			{"←/→", "navigate"},
 		}
 	}
 
@@ -475,7 +509,7 @@ func renderMockRuneInfo(info mockRuneInfo, maxW int) string {
 	return strings.Join(lines, "\n")
 }
 
-func buildMockColumns(innerW, innerH, selectedIdx, focusedCol int) string {
+func buildMockColumns(innerW, innerH, selectedIdx, focusedCol int, active, blinkOn bool) string {
 	const sepWidth = 3
 	widths := []int{mockColW, max(innerW-mockColW-sepWidth, mockColW)}
 
@@ -483,10 +517,22 @@ func buildMockColumns(innerW, innerH, selectedIdx, focusedCol int) string {
 	dimStyle := lipgloss.NewStyle().Foreground(mockSep).Background(bgMain)
 	ruleFocusedStyle := lipgloss.NewStyle().Foreground(mockFocus).Background(bgMain)
 	iconStyle := lipgloss.NewStyle().Foreground(mockHot).Background(bgMain).Bold(true)
-	selectedStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("0")).
-		Background(mockHot).
-		Bold(true)
+	var cursorStyle lipgloss.Style
+	switch {
+	case active && blinkOn:
+		cursorStyle = lipgloss.NewStyle().
+			Foreground(mockHot).
+			Background(bgMain).
+			Bold(true)
+	case active && !blinkOn:
+		cursorStyle = lipgloss.NewStyle().
+			Foreground(bgMain).
+			Background(bgMain)
+	default:
+		cursorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#9a3050")).
+			Background(bgMain)
+	}
 	tagStyle := lipgloss.NewStyle().Foreground(fgBody).Background(bgMain)
 
 	titled := func(name, tag string, w int) string {
@@ -525,13 +571,11 @@ func buildMockColumns(innerW, innerH, selectedIdx, focusedCol int) string {
 
 			for j, name := range mockTomlItems {
 				prefix := "• "
+				circleStyle := dimStyle
 				if focused && j == selectedIdx {
-					raw := prefix + name
-					pad := max(contentW-len(raw), 0)
-					parts = append(parts, selectedStyle.Render(raw+strings.Repeat(" ", pad)))
-					continue
+					circleStyle = cursorStyle
 				}
-				line := dimStyle.Render(prefix) + textStyle.Render(name)
+				line := circleStyle.Render(prefix) + textStyle.Render(name)
 				gap := max(contentW-len(prefix)-len(name), 0)
 				if gap > 0 {
 					line += bgSpace.Render(strings.Repeat(" ", gap))
