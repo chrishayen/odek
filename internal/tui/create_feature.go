@@ -28,6 +28,7 @@ type createFeatureModel struct {
 	height      int
 	chat        chatModel
 	kanjiOffset int
+	inSplit     bool
 }
 
 func newCreateFeatureModel(ctx context.Context, client *openai.Client, width, height int) createFeatureModel {
@@ -69,6 +70,10 @@ func (m *createFeatureModel) Blur() {
 
 func (m *createFeatureModel) SetChatInput(s string) {
 	m.chat.SetInput(s)
+}
+
+func (m *createFeatureModel) SetInSplit(v bool) {
+	m.inSplit = v
 }
 
 func (m createFeatureModel) Init() tea.Cmd {
@@ -150,7 +155,7 @@ func (m createFeatureModel) View() tea.View {
 	logoPad := max(innerWidth-len(logoText)-statusWidth-lipgloss.Width(upArrow), 0)
 	header := logoStyle.Render(logoText) + padStyle.Render(strings.Repeat(" ", logoPad)) + statusStr + upArrow
 
-	helpBar := renderFormHelpBar(innerWidth, m.chat.CanScrollDown())
+	helpBar := renderFormHelpBar(innerWidth, m.chat.CanScrollDown(), m.inSplit)
 
 	scrollOff := m.chat.ViewportYOffset() * 2
 	kanjiLine1 := renderKanjiLine(innerWidth, 2, m.kanjiOffset+scrollOff)
@@ -182,7 +187,7 @@ func renderKanjiLine(width, row, offset int) string {
 	return line
 }
 
-func renderFormHelpBar(width int, scrollDown bool) string {
+func renderFormHelpBar(width int, scrollDown, showTabSwitch bool) string {
 	keyStyle := lipgloss.NewStyle().Foreground(fgBright).Background(bgMain).Bold(true)
 	descStyle := lipgloss.NewStyle().Foreground(fgBody).Background(bgMain)
 	sepStyle := lipgloss.NewStyle().Foreground(fgDim).Background(bgMain)
@@ -193,6 +198,9 @@ func renderFormHelpBar(width int, scrollDown bool) string {
 		{"enter", "send"},
 		{"alt+enter", "new line"},
 		{"↑/↓", "scroll"},
+	}
+	if showTabSwitch {
+		bindings = append(bindings, binding{"tab", "runes"})
 	}
 
 	var b strings.Builder

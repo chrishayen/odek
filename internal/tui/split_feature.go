@@ -31,6 +31,8 @@ func newSplitPaneModel(left createFeatureModel, right featureDecompModel, width,
 		width:  width,
 		height: height,
 	}
+	m.left.SetInSplit(true)
+	m.right.SetInSplit(true)
 	m.right.SetActive(m.focus == 1)
 	m.resize(width, height)
 	return m
@@ -79,10 +81,12 @@ func (m splitPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Width < splitPaneMinWidth {
 			if m.focus == 0 {
 				m.left.resize(msg.Width, msg.Height)
+				m.left.SetInSplit(false)
 				return m.left, nil
 			}
 			m.right.resize(msg.Width, msg.Height)
 			m.right.SetActive(true)
+			m.right.SetInSplit(false)
 			return m.right, nil
 		}
 		m.resize(msg.Width, msg.Height)

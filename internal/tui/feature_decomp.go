@@ -10,7 +10,12 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-const blinkInterval = 500 * time.Millisecond
+const (
+	blinkInterval = 500 * time.Millisecond
+	// blinkHoldAfterMove is how long the cursor stays steadily "on" after the
+	// user moves the selection. Makes rapid navigation visually stable.
+	blinkHoldAfterMove = 500 * time.Millisecond
+)
 
 type blinkTickMsg struct{}
 
@@ -144,6 +149,8 @@ type featureDecompModel struct {
 	inputActive bool
 	active      bool
 	blinkOn     bool
+	inSplit     bool
+	steadyUntil time.Time
 	input       textinput.Model
 }
 
@@ -178,8 +185,13 @@ func (m *featureDecompModel) SetActive(active bool) {
 		// Start the blink in the "off" phase so the first visible change
 		// after activation is dot → invisible, not dot → (same) bright pink.
 		m.blinkOn = false
+		m.steadyUntil = time.Time{}
 	}
 	m.refreshColumns()
+}
+
+func (m *featureDecompModel) SetInSplit(v bool) {
+	m.inSplit = v
 }
 
 // mockBottomChromeRows is the number of rows consumed below the viewport:
@@ -224,7 +236,12 @@ func (m featureDecompModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case blinkTickMsg:
 		if m.active {
-			m.blinkOn = !m.blinkOn
+			if time.Now().Before(m.steadyUntil) {
+				// Hold the cursor on while the user is navigating.
+				m.blinkOn = true
+			} else {
+				m.blinkOn = !m.blinkOn
+			}
 			m.refreshColumns()
 		}
 		return m, blinkTick()
@@ -265,12 +282,16 @@ func (m featureDecompModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.focusedCol == 0 && m.selectedIdx > 0 {
 				m.selectedIdx--
+				m.blinkOn = true
+				m.steadyUntil = time.Now().Add(blinkHoldAfterMove)
 				m.refreshColumns()
 			}
 			return m, nil
 		case "down", "j":
 			if m.focusedCol == 0 && m.selectedIdx < len(mockTomlItems)-1 {
 				m.selectedIdx++
+				m.blinkOn = true
+				m.steadyUntil = time.Now().Add(blinkHoldAfterMove)
 				m.refreshColumns()
 			}
 			return m, nil
@@ -310,7 +331,7 @@ func (m featureDecompModel) View() tea.View {
 		lastLine = rendered + lipgloss.NewStyle().Background(bgMain).Render(strings.Repeat(" ", pad))
 	}
 
-	help := renderMockHelp(m.width, m.inputActive)
+	help := renderMockHelp(m.width, m.inputActive, m.inSplit)
 
 	v.Content = lipgloss.JoinVertical(lipgloss.Left,
 		top,
@@ -337,7 +358,7 @@ func renderMockPinRow(width int, pin string) string {
 	return pin + bgPad.Render(strings.Repeat(" ", width-pinW))
 }
 
-func renderMockHelp(width int, inputActive bool) string {
+func renderMockHelp(width int, inputActive, showTabSwitch bool) string {
 	keyStyle := lipgloss.NewStyle().Foreground(fgBright).Background(bgMain).Bold(true)
 	descStyle := lipgloss.NewStyle().Foreground(fgBody).Background(bgMain)
 	sepStyle := lipgloss.NewStyle().Foreground(mockSep).Background(bgMain)
@@ -355,6 +376,9 @@ func renderMockHelp(width int, inputActive bool) string {
 		bindings = []binding{
 			{"↑/↓", "navigate"},
 			{"←/→", "navigate"},
+		}
+		if showTabSwitch {
+			bindings = append(bindings, binding{"tab", "chat"})
 		}
 	}
 
