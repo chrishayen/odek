@@ -10,6 +10,16 @@ const viewPadX = 1
 
 var logoSmall = "ODEK"
 
+var kanjiPool = []rune("日月火水木金土山川風花雪心愛空東西南北春夏秋冬父母兄弟姉妹雨雲雷電林森竹松梅桜龍虎鳥魚馬犬猫")
+
+func kanjiAt(row, col int) rune {
+	h := (row*31 + col*17 + row*col*7) % len(kanjiPool)
+	if h < 0 {
+		h += len(kanjiPool)
+	}
+	return kanjiPool[h]
+}
+
 var (
 	border  = lipgloss.Color("241")
 	dim     = lipgloss.Color("241")

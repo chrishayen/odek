@@ -210,7 +210,7 @@ func (m chatModel) renderMessage(msg chatMessage, width int) string {
 		block := lipgloss.JoinVertical(lipgloss.Left, label, body)
 		return chatUserBlockStyle.Render(block)
 	case roleAssistant:
-		label := chatAssistantLabel.Render("odek")
+		label := chatAssistantLabel.Render("clank")
 		if msg.headline != "" {
 			pill := chatHeadlineStyle.Render(msg.headline)
 			label = lipgloss.JoinHorizontal(lipgloss.Top, label, "  ", pill)
@@ -232,13 +232,13 @@ func renderMarkdown(content string, width int) string {
 		idx := strings.Index(s, fence)
 		if idx == -1 {
 			if t := strings.TrimRight(s, "\n"); t != "" {
-				out.WriteString(chatAssistBodyStyle.Width(width).Render(t))
+				out.WriteString(chatAssistBodyStyle.Width(width).Render(renderInlineCode(t)))
 			}
 			break
 		}
 		// text before the fence
 		if before := strings.TrimRight(s[:idx], "\n"); before != "" {
-			out.WriteString(chatAssistBodyStyle.Width(width).Render(before))
+			out.WriteString(chatAssistBodyStyle.Width(width).Render(renderInlineCode(before)))
 			out.WriteString("\n")
 		}
 		rest := s[idx+3:]
@@ -259,6 +259,19 @@ func renderMarkdown(content string, width int) string {
 		s = rest[end+3:]
 	}
 	return strings.TrimRight(out.String(), "\n")
+}
+
+var (
+	inlineCodeRe    = regexp.MustCompile("`([^`\n]+)`")
+	inlineCodeStyle = lipgloss.NewStyle().
+			Foreground(fgBright).
+			Background(lipgloss.Color("#1e1e1e"))
+)
+
+func renderInlineCode(s string) string {
+	return inlineCodeRe.ReplaceAllStringFunc(s, func(match string) string {
+		return inlineCodeStyle.Render(match[1 : len(match)-1])
+	})
 }
 
 // codeBgAnsi is the ANSI true-colour escape for the code block background:
@@ -404,6 +417,19 @@ func (m chatModel) Update(msg tea.Msg) (chatModel, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+func (m chatModel) ViewportYOffset() int {
+	return m.viewport.YOffset()
+}
+
+func (m chatModel) ScrollLines(n int) chatModel {
+	if n > 0 {
+		m.viewport.ScrollDown(n)
+	} else if n < 0 {
+		m.viewport.ScrollUp(-n)
+	}
+	return m
 }
 
 func (m chatModel) StatusView() string {

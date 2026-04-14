@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -12,14 +13,21 @@ import (
 	openai "shotgun.dev/odek/openai"
 )
 
-const createFeatureChromeHeight = 4
+type kanjiTickMsg struct{}
+
+func kanjiTick() tea.Cmd {
+	return tea.Tick(80*time.Millisecond, func(time.Time) tea.Msg { return kanjiTickMsg{} })
+}
+
+const createFeatureChromeHeight = 6
 
 type createFeatureModel struct {
-	ctx    context.Context
-	client *openai.Client
-	width  int
-	height int
-	chat   chatModel
+	ctx         context.Context
+	client      *openai.Client
+	width       int
+	height      int
+	chat        chatModel
+	kanjiOffset int
 }
 
 func newCreateFeatureModel(ctx context.Context, client *openai.Client, width, height int) createFeatureModel {
@@ -52,11 +60,17 @@ func (m *createFeatureModel) resize(width, height int) {
 }
 
 func (m createFeatureModel) Init() tea.Cmd {
-	return m.chat.Init()
+	return tea.Batch(m.chat.Init(), kanjiTick())
 }
 
 func (m createFeatureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case kanjiTickMsg:
+		if m.chat.Busy() {
+			m.kanjiOffset += 2
+		}
+		return m, kanjiTick()
+
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
 		return m, nil
@@ -65,6 +79,12 @@ func (m createFeatureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
+		case "up":
+			m.chat = m.chat.ScrollLines(-1)
+			return m, nil
+		case "down":
+			m.chat = m.chat.ScrollLines(1)
+			return m, nil
 		case "esc":
 			if m.chat.Busy() {
 				return m, nil
@@ -76,6 +96,8 @@ func (m createFeatureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ctx:    m.ctx,
 				client: m.client,
 			}, nil
+		default:
+			m.kanjiOffset += 2
 		}
 	}
 
@@ -97,7 +119,10 @@ func (m createFeatureModel) View() tea.View {
 
 	helpBar := renderFormHelpBar(innerWidth)
 
-	body := header + "\n\n" + m.chat.View()
+	scrollOff := m.chat.ViewportYOffset() * 2
+	kanjiLine1 := renderKanjiLine(innerWidth, 2, m.kanjiOffset+scrollOff)
+	kanjiLine2 := renderKanjiLine(innerWidth, 3, -(m.kanjiOffset + scrollOff))
+	body := header + "\n\n" + kanjiLine1 + "\n" + kanjiLine2 + "\n" + m.chat.View()
 	bodyBlock := lipgloss.NewStyle().Height(m.height - 1).Render(body)
 
 	content := bodyBlock + "\n" + helpBar
@@ -106,6 +131,22 @@ func (m createFeatureModel) View() tea.View {
 	v.AltScreen = true
 	v.BackgroundColor = bgMain
 	return v
+}
+
+func renderKanjiLine(width, row, offset int) string {
+	kanjiStyle := lipgloss.NewStyle().Foreground(fgDim).Background(bgMain)
+	bgStyle := lipgloss.NewStyle().Background(bgMain)
+	var kb strings.Builder
+	cells := 0
+	for cells+2 <= width {
+		kb.WriteRune(kanjiAt(row, cells+offset))
+		cells += 2
+	}
+	line := kanjiStyle.Render(kb.String())
+	if cells < width {
+		line += bgStyle.Render(" ")
+	}
+	return line
 }
 
 func renderFormHelpBar(width int) string {
@@ -118,7 +159,8 @@ func renderFormHelpBar(width int) string {
 	bindings := []binding{
 		{"enter", "send"},
 		{"alt+enter", "new line"},
-		{"pgup/pgdn", "scroll"},
+		{"↑/↓", "scroll"},
+		{"pgup/pgdn", "page"},
 		{"esc", "back"},
 	}
 
