@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 
 	"charm.land/bubbles/v2/spinner"
@@ -8,6 +9,10 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/formatters"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
 )
 
 type chatRole int
@@ -50,20 +55,21 @@ type chatErrMsg struct {
 }
 
 const (
-	chatInputHeight  = 3
-	chatStatusHeight = 1
+	chatInputHeight   = 3
+	chatScrollReserve = 3 // topInd + blank below top + botInd
 )
 
 var (
 	chatUserLabel      = lipgloss.NewStyle().Foreground(accent).Bold(true)
-	chatAssistantLabel = lipgloss.NewStyle().Foreground(fgBright).Bold(true)
+	chatAssistantLabel = lipgloss.NewStyle().Foreground(accentSoft).Bold(true)
 	chatBodyStyle      = lipgloss.NewStyle().Foreground(fgBody)
-	chatSystemStyle    = lipgloss.NewStyle().Foreground(fgDim).Italic(true)
+	chatAssistBodyStyle = lipgloss.NewStyle().Foreground(fgBright)
+	chatSystemStyle    = lipgloss.NewStyle().Foreground(fgBody).Italic(true)
 	chatErrorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-	chatPendingStyle   = lipgloss.NewStyle().Foreground(fgDim).Italic(true)
+	chatPendingStyle   = lipgloss.NewStyle().Foreground(accent).Italic(true)
 
 	chatHeadlineStyle = lipgloss.NewStyle().
-				Foreground(fgBright).
+				Foreground(lipgloss.Color("0")).
 				Background(accent).
 				Bold(true).
 				Padding(0, 1)
@@ -164,7 +170,7 @@ func (m *chatModel) SetSize(width, height int) {
 	m.input.SetWidth(inputInner)
 	m.input.SetHeight(chatInputHeight)
 	m.viewport.SetWidth(width)
-	m.viewport.SetHeight(max(height-chatInputHeight-chatStatusHeight, 3))
+	m.viewport.SetHeight(max(height-chatInputHeight-chatScrollReserve, 3))
 	m.refreshContent()
 }
 
@@ -209,11 +215,104 @@ func (m chatModel) renderMessage(msg chatMessage, width int) string {
 			pill := chatHeadlineStyle.Render(msg.headline)
 			label = lipgloss.JoinHorizontal(lipgloss.Top, label, "  ", pill)
 		}
-		body := chatBodyStyle.Width(innerWidth).Render(msg.content)
+		body := renderMarkdown(msg.content, innerWidth)
 		block := lipgloss.JoinVertical(lipgloss.Left, label, body)
 		return chatAssistantBlockStyle.Render(block)
 	}
 	return ""
+}
+
+// renderMarkdown renders assistant message content, applying chroma syntax
+// highlighting to fenced code blocks and plain styling to surrounding text.
+func renderMarkdown(content string, width int) string {
+	const fence = "```"
+	var out strings.Builder
+	s := content
+	for {
+		idx := strings.Index(s, fence)
+		if idx == -1 {
+			if t := strings.TrimRight(s, "\n"); t != "" {
+				out.WriteString(chatAssistBodyStyle.Width(width).Render(t))
+			}
+			break
+		}
+		// text before the fence
+		if before := strings.TrimRight(s[:idx], "\n"); before != "" {
+			out.WriteString(chatAssistBodyStyle.Width(width).Render(before))
+			out.WriteString("\n")
+		}
+		rest := s[idx+3:]
+		end := strings.Index(rest, fence)
+		if end == -1 {
+			// unclosed fence — treat remainder as plain text
+			out.WriteString(chatAssistBodyStyle.Width(width).Render(strings.TrimRight(s[idx:], "\n")))
+			break
+		}
+		block := rest[:end]
+		lang, code := "", block
+		if nl := strings.Index(block, "\n"); nl >= 0 {
+			lang = strings.TrimSpace(block[:nl])
+			code = block[nl+1:]
+		}
+		out.WriteString(highlightCode(lang, strings.TrimRight(code, "\n"), width))
+		out.WriteString("\n")
+		s = rest[end+3:]
+	}
+	return strings.TrimRight(out.String(), "\n")
+}
+
+// codeBgAnsi is the ANSI true-colour escape for the code block background:
+// #1e1e1e (rgb 30,30,30), very slightly lighter than bgMain #171717 (rgb 23,23,23).
+const codeBgAnsi = "\x1b[48;2;30;30;30m"
+
+// chromaBgRe matches any ANSI background-colour escape so we can strip chroma's
+// own background (dracula uses #282a36) before injecting ours.
+var chromaBgRe = regexp.MustCompile(`\x1b\[48[;0-9]*m`)
+
+func highlightCode(lang, code string, width int) string {
+	lex := lexers.Get(lang)
+	if lex == nil {
+		lex = lexers.Analyse(code)
+	}
+	if lex == nil {
+		lex = lexers.Fallback
+	}
+	lex = chroma.Coalesce(lex)
+
+	style := styles.Get("dracula")
+	if style == nil {
+		style = styles.Fallback
+	}
+
+	formatter := formatters.Get("terminal16m")
+	iter, err := lex.Tokenise(nil, code)
+	if err != nil {
+		return " " + code
+	}
+	var buf strings.Builder
+	if err = formatter.Format(&buf, style, iter); err != nil {
+		return " " + code
+	}
+
+	// Strip chroma's own background (dracula uses #282a36) so only ours shows.
+	raw := chromaBgRe.ReplaceAllString(strings.TrimRight(buf.String(), "\n"), "")
+
+	// Process line-by-line: prefix each line with our background + 3-space margin,
+	// and re-inject the background after every reset within the line so token
+	// resets don't clobber it mid-line. Pad each line to full width so the
+	// background covers the entire row.
+	const reset = "\x1b[0m"
+	const margin = 3
+	blank := codeBgAnsi + strings.Repeat(" ", width) + reset
+	lines := strings.Split(raw, "\n")
+	for i, line := range lines {
+		line = strings.ReplaceAll(line, reset, reset+codeBgAnsi)
+		// Measure visible width of the ANSI-decorated content after the margin.
+		visibleWidth := lipgloss.Width(codeBgAnsi + "   " + line + reset)
+		pad := max(width-visibleWidth, 0)
+		lines[i] = codeBgAnsi + "   " + line + strings.Repeat(" ", pad) + reset
+	}
+	return blank + "\n" + strings.Join(lines, "\n") + "\n" + blank
 }
 
 // History returns a snapshot of the real chat turns (user + assistant),
@@ -307,19 +406,37 @@ func (m chatModel) Update(msg tea.Msg) (chatModel, tea.Cmd) {
 	return m, cmd
 }
 
-func (m chatModel) View() string {
-	var statusRow string
+func (m chatModel) StatusView() string {
 	switch m.status {
 	case chatSending:
-		statusRow = chatPendingStyle.Render(m.spinner.View() + " sending...")
+		return chatPendingStyle.Render(m.spinner.View())
 	case chatError:
-		statusRow = chatErrorStyle.Render("error: " + m.errMsg)
-	default:
-		statusRow = " "
+		return chatErrorStyle.Render("err: " + m.errMsg)
+	}
+	return ""
+}
+
+func (m chatModel) View() string {
+	var topInd, botInd string
+	if !m.viewport.AtBottom() {
+		topInd = chatScrollIndicator(true, m.viewport.Width())
+	}
+	if !m.viewport.AtTop() {
+		botInd = chatScrollIndicator(false, m.viewport.Width())
 	}
 	return lipgloss.JoinVertical(lipgloss.Left,
+		botInd,
+		"",
 		m.viewport.View(),
-		statusRow,
+		topInd,
 		chatInputFrame.Render(m.input.View()),
 	)
+}
+
+func chatScrollIndicator(up bool, width int) string {
+	arrow := "↑"
+	if up {
+		arrow = "↓"
+	}
+	return lipgloss.NewStyle().Foreground(fgDim).Width(width).Align(lipgloss.Right).Render(arrow)
 }

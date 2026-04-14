@@ -3,8 +3,8 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	"charm.land/bubbles/v2/help"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -12,14 +12,13 @@ import (
 	openai "shotgun.dev/odek/openai"
 )
 
-const createFeatureChromeHeight = 10
+const createFeatureChromeHeight = 4
 
 type createFeatureModel struct {
 	ctx    context.Context
 	client *openai.Client
 	width  int
 	height int
-	help   help.Model
 	chat   chatModel
 }
 
@@ -29,9 +28,7 @@ func newCreateFeatureModel(ctx context.Context, client *openai.Client, width, he
 		client: client,
 		width:  width,
 		height: height,
-		help:   newHelpModel(),
 	}
-	m.help.SetWidth(width - viewPadX*2)
 
 	sendHandler := makeFeatureSendHandler(ctx, client)
 	chatWidth := max(width-viewPadX*2, 20)
@@ -49,7 +46,6 @@ func newCreateFeatureModel(ctx context.Context, client *openai.Client, width, he
 func (m *createFeatureModel) resize(width, height int) {
 	m.width = width
 	m.height = height
-	m.help.SetWidth(width - viewPadX*2)
 	chatWidth := max(width-viewPadX*2, 20)
 	chatHeight := max(height-createFeatureChromeHeight, 5)
 	m.chat.SetSize(chatWidth, chatHeight)
@@ -90,9 +86,16 @@ func (m createFeatureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m createFeatureModel) View() tea.View {
 	innerWidth := m.width - viewPadX*2
-	header := renderGradientOnBg(" "+logoSmall, gradStops, "#1A1A1A", innerWidth)
 
-	helpBar := helpBarStyle.Render(m.help.View(formKeyMap{}))
+	logoText := "ODEK "
+	logoStyle := lipgloss.NewStyle().Foreground(accent).Background(bgMain).Bold(true)
+	padStyle := lipgloss.NewStyle().Background(bgMain)
+	statusStr := m.chat.StatusView()
+	statusWidth := lipgloss.Width(statusStr)
+	logoPad := max(innerWidth-len(logoText)-statusWidth, 0)
+	header := logoStyle.Render(logoText) + padStyle.Render(strings.Repeat(" ", logoPad)) + statusStr
+
+	helpBar := renderFormHelpBar(innerWidth)
 
 	body := header + "\n\n" + m.chat.View()
 	bodyBlock := lipgloss.NewStyle().Height(m.height - 1).Render(body)
@@ -103,6 +106,34 @@ func (m createFeatureModel) View() tea.View {
 	v.AltScreen = true
 	v.BackgroundColor = bgMain
 	return v
+}
+
+func renderFormHelpBar(width int) string {
+	keyStyle := lipgloss.NewStyle().Foreground(fgBright).Background(bgMain).Bold(true)
+	descStyle := lipgloss.NewStyle().Foreground(fgBody).Background(bgMain)
+	sepStyle := lipgloss.NewStyle().Foreground(fgDim).Background(bgMain)
+	padStyle := lipgloss.NewStyle().Background(bgMain)
+
+	type binding struct{ key, desc string }
+	bindings := []binding{
+		{"enter", "send"},
+		{"alt+enter", "new line"},
+		{"pgup/pgdn", "scroll"},
+		{"esc", "back"},
+	}
+
+	var b strings.Builder
+	for i, bind := range bindings {
+		if i > 0 {
+			b.WriteString(sepStyle.Render("  •  "))
+		}
+		b.WriteString(keyStyle.Render(bind.key))
+		b.WriteString(padStyle.Render(" "))
+		b.WriteString(descStyle.Render(bind.desc))
+	}
+	content := b.String()
+	pad := max(width-lipgloss.Width(content)-2, 0)
+	return padStyle.Render(" ") + content + padStyle.Render(strings.Repeat(" ", pad)+" ")
 }
 
 // makeFeatureSendHandler returns a SendHandler that routes the first submission
