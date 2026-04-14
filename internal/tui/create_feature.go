@@ -3,11 +3,8 @@ package tui
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"charm.land/bubbles/v2/help"
-	"charm.land/bubbles/v2/spinner"
-	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -15,93 +12,51 @@ import (
 	openai "shotgun.dev/odek/openai"
 )
 
-type effortState int
-
-const (
-	effortIdle effortState = iota
-	effortEstimating
-	effortDone
-	effortFailed
-)
-
-type effortDoneMsg struct{ result effort.Result }
-type effortErrMsg struct{ err error }
+const createFeatureChromeHeight = 10
 
 type createFeatureModel struct {
-	ctx        context.Context
-	client     *openai.Client
-	width      int
-	height     int
-	descInput  textarea.Model
-	help       help.Model
-	spinner    spinner.Model
-	state      effortState
-	result     effort.Result
-	estimateOf string
-	errMsg     string
+	ctx    context.Context
+	client *openai.Client
+	width  int
+	height int
+	help   help.Model
+	chat   chatModel
 }
 
 func newCreateFeatureModel(ctx context.Context, client *openai.Client, width, height int) createFeatureModel {
-	ta := textarea.New()
-	ta.Placeholder = "Describe the feature..."
-	ta.ShowLineNumbers = false
-	ta.Prompt = ""
-	ta.EndOfBufferCharacter = ' '
-	s := ta.Styles()
-	s.Focused.CursorLine = lipgloss.NewStyle()
-	s.Focused.Prompt = lipgloss.NewStyle()
-	s.Focused.EndOfBuffer = lipgloss.NewStyle()
-	s.Focused.Base = lipgloss.NewStyle()
-	s.Blurred.CursorLine = lipgloss.NewStyle()
-	s.Blurred.Prompt = lipgloss.NewStyle()
-	s.Blurred.EndOfBuffer = lipgloss.NewStyle()
-	s.Blurred.Base = lipgloss.NewStyle()
-	ta.SetStyles(s)
-	ta.KeyMap.InsertNewline.SetKeys("alt+enter")
-	ta.Focus()
-	ta.CharLimit = 2000
-
-	h := newHelpModel()
-	h.SetWidth(width - viewPadX*2)
-
-	sp := spinner.New()
-	sp.Style = lipgloss.NewStyle().Foreground(accent)
-
 	m := createFeatureModel{
-		ctx:       ctx,
-		client:    client,
-		width:     width,
-		height:    height,
-		descInput: ta,
-		help:      h,
-		spinner:   sp,
+		ctx:    ctx,
+		client: client,
+		width:  width,
+		height: height,
+		help:   newHelpModel(),
 	}
-	m.resize(width, height)
+	m.help.SetWidth(width - viewPadX*2)
+
+	sendHandler := makeFeatureSendHandler(ctx, client)
+	chatWidth := max(width-viewPadX*2, 20)
+	chatHeight := max(height-createFeatureChromeHeight, 5)
+	m.chat = newChatModel(
+		chatWidth,
+		chatHeight,
+		withChatPlaceholder("Describe the feature..."),
+		withChatSendHandler(sendHandler),
+		withChatWelcome("Describe your feature. I'll estimate effort first, then we can iterate."),
+	)
 	return m
 }
 
 func (m *createFeatureModel) resize(width, height int) {
 	m.width = width
 	m.height = height
-	m.descInput.SetWidth(max(width-viewPadX*2-4, 40))
-	m.descInput.SetHeight(max(height-12, 3))
 	m.help.SetWidth(width - viewPadX*2)
+	chatWidth := max(width-viewPadX*2, 20)
+	chatHeight := max(height-createFeatureChromeHeight, 5)
+	m.chat.SetSize(chatWidth, chatHeight)
 }
 
 func (m createFeatureModel) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, m.spinner.Tick)
-}
-
-func (m createFeatureModel) startEstimate(req string) tea.Cmd {
-	ctx := m.ctx
-	client := m.client
-	return func() tea.Msg {
-		res, err := effort.Estimate(ctx, client, req)
-		if err != nil {
-			return effortErrMsg{err: err}
-		}
-		return effortDoneMsg{result: res}
-	}
+	return m.chat.Init()
 }
 
 func (m createFeatureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -110,24 +65,14 @@ func (m createFeatureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resize(msg.Width, msg.Height)
 		return m, nil
 
-	case spinner.TickMsg:
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
-
-	case effortDoneMsg:
-		m.state = effortDone
-		m.result = msg.result
-		return m, nil
-
-	case effortErrMsg:
-		m.state = effortFailed
-		m.errMsg = msg.err.Error()
-		return m, nil
-
 	case tea.KeyPressMsg:
 		switch msg.String() {
+		case "ctrl+c":
+			return m, tea.Quit
 		case "esc":
+			if m.chat.Busy() {
+				return m, nil
+			}
 			return model{
 				width:  m.width,
 				height: m.height,
@@ -135,22 +80,11 @@ func (m createFeatureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ctx:    m.ctx,
 				client: m.client,
 			}, nil
-		case "ctrl+c":
-			return m, tea.Quit
-		case "enter":
-			req := strings.TrimSpace(m.descInput.Value())
-			if req == "" || m.state == effortEstimating || m.client == nil {
-				return m, nil
-			}
-			m.state = effortEstimating
-			m.estimateOf = req
-			m.errMsg = ""
-			return m, m.startEstimate(req)
 		}
 	}
 
 	var cmd tea.Cmd
-	m.descInput, cmd = m.descInput.Update(msg)
+	m.chat, cmd = m.chat.Update(msg)
 	return m, cmd
 }
 
@@ -158,15 +92,9 @@ func (m createFeatureModel) View() tea.View {
 	innerWidth := m.width - viewPadX*2
 	header := renderGradientOnBg(" "+logoSmall, gradStops, "#1A1A1A", innerWidth)
 
-	var form strings.Builder
-	form.WriteString(inputLabel.Render("Describe your feature") + "\n\n")
-	form.WriteString(m.descInput.View())
-	form.WriteString("\n")
-	form.WriteString(m.renderEffortBlock())
-
 	helpBar := helpBarStyle.Render(m.help.View(formKeyMap{}))
 
-	body := header + "\n\n" + form.String()
+	body := header + "\n\n" + m.chat.View()
 	bodyBlock := lipgloss.NewStyle().Height(m.height - 1).Render(body)
 
 	content := bodyBlock + "\n" + helpBar
@@ -177,22 +105,100 @@ func (m createFeatureModel) View() tea.View {
 	return v
 }
 
-var (
-	effortLabelStyle  = lipgloss.NewStyle().Foreground(fgBright).Background(accent).Bold(true).Padding(0, 1)
-	effortReasonStyle = lipgloss.NewStyle().Foreground(fgBody).Padding(0, 1)
-	effortErrorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
-)
+// makeFeatureSendHandler returns a SendHandler that routes the first submission
+// through effort.Estimate and subsequent submissions through client.Chat,
+// carrying the feature description and the initial effort estimate forward as
+// system context.
+func makeFeatureSendHandler(ctx context.Context, client *openai.Client) SendHandler {
+	return func(history []chatMessage, userInput string, id int) tea.Cmd {
+		if client == nil {
+			return func() tea.Msg {
+				return chatErrMsg{id: id, err: fmt.Errorf("chat offline: no client configured")}
+			}
+		}
+		if isFirstTurn(history) {
+			return func() tea.Msg {
+				res, err := effort.Estimate(ctx, client, userInput)
+				if err != nil {
+					return chatErrMsg{id: id, err: err}
+				}
+				return chatReplyMsg{
+					id:       id,
+					content:  res.Reason,
+					headline: fmt.Sprintf("Effort: %d/5", res.Level),
+				}
+			}
+		}
+		return func() tea.Msg {
+			req := buildFollowupRequest(history)
+			resp, err := client.Chat(ctx, req)
+			if err != nil {
+				return chatErrMsg{id: id, err: err}
+			}
+			if len(resp.Choices) == 0 {
+				return chatErrMsg{id: id, err: fmt.Errorf("empty response")}
+			}
+			return chatReplyMsg{
+				id:      id,
+				content: resp.Choices[0].Message.Content,
+			}
+		}
+	}
+}
 
-func (m createFeatureModel) renderEffortBlock() string {
-	switch m.state {
-	case effortEstimating:
-		return "\n" + m.spinner.View() + " estimating effort..."
-	case effortDone:
-		label := effortLabelStyle.Render(fmt.Sprintf("effort %d/5", m.result.Level))
-		return "\n" + label + effortReasonStyle.Render(m.result.Reason)
-	case effortFailed:
-		return "\n" + effortErrorStyle.Render("effort estimate failed: "+m.errMsg)
-	default:
-		return ""
+// isFirstTurn reports whether the just-submitted message is the very first
+// user turn — i.e. history contains only that user message, with no prior
+// assistant reply.
+func isFirstTurn(history []chatMessage) bool {
+	userCount := 0
+	for _, msg := range history {
+		if msg.role == roleUser {
+			userCount++
+		}
+		if msg.role == roleAssistant {
+			return false
+		}
+	}
+	return userCount == 1
+}
+
+func buildFollowupRequest(history []chatMessage) *openai.ChatCompletionRequest {
+	featureDesc := ""
+	effortHeadline := ""
+	effortReason := ""
+	for _, msg := range history {
+		if featureDesc == "" && msg.role == roleUser {
+			featureDesc = msg.content
+			continue
+		}
+		if effortHeadline == "" && msg.role == roleAssistant && msg.headline != "" {
+			effortHeadline = msg.headline
+			effortReason = msg.content
+		}
+	}
+
+	system := "You are Odek, a software feature design collaborator. "
+	system += fmt.Sprintf("The user is iterating on this feature: %q. ", featureDesc)
+	if effortHeadline != "" {
+		system += fmt.Sprintf("Prior effort estimate: %s — %s. ", effortHeadline, effortReason)
+	}
+	system += "Respond concisely and practically."
+
+	msgs := []openai.ChatMessage{{Role: "system", Content: system}}
+	for _, msg := range history {
+		role := "user"
+		content := msg.content
+		if msg.role == roleAssistant {
+			role = "assistant"
+			if msg.headline != "" {
+				content = msg.headline + " — " + msg.content
+			}
+		}
+		msgs = append(msgs, openai.ChatMessage{Role: role, Content: content})
+	}
+
+	return &openai.ChatCompletionRequest{
+		Model:    "default",
+		Messages: msgs,
 	}
 }

@@ -23,16 +23,13 @@ var (
 			Foreground(dim)
 
 	helpBarStyle = lipgloss.NewStyle().PaddingLeft(5)
-
-	inputLabel = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245")).
-			Bold(true)
 )
 
 var (
 	keyNew           = key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new"))
-	keyCreate        = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "create"))
+	keySend          = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send"))
 	keyNewLine       = key.NewBinding(key.WithKeys("alt+enter"), key.WithHelp("alt+enter", "new line"))
+	keyScroll        = key.NewBinding(key.WithKeys("pgup", "pgdown"), key.WithHelp("pgup/pgdn", "scroll"))
 	keyCancel        = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel"))
 	keyQuit          = key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit"))
 	keyDecomposition = key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "decomposition"))
@@ -48,7 +45,7 @@ func (splashKeyMap) FullHelp() [][]key.Binding { return nil }
 type formKeyMap struct{}
 
 func (formKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{keyCreate, keyNewLine, keyCancel}
+	return []key.Binding{keySend, keyNewLine, keyScroll, keyCancel}
 }
 func (formKeyMap) FullHelp() [][]key.Binding { return nil }
 
