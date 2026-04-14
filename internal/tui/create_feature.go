@@ -96,6 +96,14 @@ func (m createFeatureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				ctx:    m.ctx,
 				client: m.client,
 			}, nil
+		case "ctrl+enter", "ctrl+s":
+			if m.chat.Busy() {
+				return m, nil
+			}
+			pin := renderFeaturePin()
+			dest := newFeatureDecompModel(m.width, m.height, pin)
+			t := newTransition(m, dest, m.width, m.height, pin)
+			return t, t.Init()
 		default:
 			m.kanjiOffset += 2
 		}
