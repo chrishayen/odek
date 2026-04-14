@@ -4,7 +4,6 @@ import (
 	"regexp"
 	"strings"
 
-	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -55,8 +54,7 @@ type chatErrMsg struct {
 }
 
 const (
-	chatInputHeight   = 3
-	chatScrollReserve = 3 // topInd + blank below top + botInd
+	chatInputHeight = 3
 )
 
 var (
@@ -95,7 +93,6 @@ type chatModel struct {
 	height      int
 	input       textarea.Model
 	viewport    viewport.Model
-	spinner     spinner.Model
 	messages    []chatMessage
 	status      chatStatus
 	errMsg      string
@@ -143,15 +140,11 @@ func newChatModel(width, height int, opts ...chatOption) chatModel {
 	vp := viewport.New()
 	vp.SoftWrap = true
 
-	sp := spinner.New()
-	sp.Style = lipgloss.NewStyle().Foreground(accent)
-
 	m := chatModel{
 		width:    width,
 		height:   height,
 		input:    ta,
 		viewport: vp,
-		spinner:  sp,
 	}
 	for _, opt := range opts {
 		opt(&m)
@@ -170,7 +163,7 @@ func (m *chatModel) SetSize(width, height int) {
 	m.input.SetWidth(inputInner)
 	m.input.SetHeight(chatInputHeight)
 	m.viewport.SetWidth(width)
-	m.viewport.SetHeight(max(height-chatInputHeight-chatScrollReserve, 3))
+	m.viewport.SetHeight(max(height-chatInputHeight-2, 3))
 	m.refreshContent()
 }
 
@@ -208,7 +201,7 @@ func (m chatModel) renderMessage(msg chatMessage, width int) string {
 		label := chatUserLabel.Render("you")
 		body := chatBodyStyle.Width(innerWidth).Render(msg.content)
 		block := lipgloss.JoinVertical(lipgloss.Left, label, body)
-		return chatUserBlockStyle.Render(block)
+		return chatUserBlockStyle.MaxWidth(width).Render(block)
 	case roleAssistant:
 		label := chatAssistantLabel.Render("clank")
 		if msg.headline != "" {
@@ -217,7 +210,7 @@ func (m chatModel) renderMessage(msg chatMessage, width int) string {
 		}
 		body := renderMarkdown(msg.content, innerWidth)
 		block := lipgloss.JoinVertical(lipgloss.Left, label, body)
-		return chatAssistantBlockStyle.Render(block)
+		return chatAssistantBlockStyle.MaxWidth(width).Render(block)
 	}
 	return ""
 }
@@ -310,6 +303,10 @@ func highlightCode(lang, code string, width int) string {
 	// Strip chroma's own background (dracula uses #282a36) so only ours shows.
 	raw := chromaBgRe.ReplaceAllString(strings.TrimRight(buf.String(), "\n"), "")
 
+	// Expand tabs to 4 spaces to match lipgloss's internal getLines() expansion,
+	// so our width measurement and lipgloss's padding agree.
+	raw = strings.ReplaceAll(raw, "\t", "    ")
+
 	// Process line-by-line: prefix each line with our background + 3-space margin,
 	// and re-inject the background after every reset within the line so token
 	// resets don't clobber it mid-line. Pad each line to full width so the
@@ -351,14 +348,6 @@ func (m chatModel) Init() tea.Cmd {
 
 func (m chatModel) Update(msg tea.Msg) (chatModel, tea.Cmd) {
 	switch msg := msg.(type) {
-	case spinner.TickMsg:
-		if m.status != chatSending {
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
-
 	case chatReplyMsg:
 		if msg.id != m.pendingID {
 			return m, nil
@@ -402,11 +391,10 @@ func (m chatModel) Update(msg tea.Msg) (chatModel, tea.Cmd) {
 			m.refreshContent()
 			m.viewport.GotoBottom()
 			history := m.History()
-			cmds := []tea.Cmd{m.spinner.Tick}
 			if m.send != nil {
-				cmds = append(cmds, m.send(history, content, id))
+				return m, m.send(history, content, id)
 			}
-			return m, tea.Batch(cmds...)
+			return m, nil
 		case "pgup", "pgdown", "ctrl+u", "ctrl+d":
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
@@ -434,35 +422,20 @@ func (m chatModel) ScrollLines(n int) chatModel {
 
 func (m chatModel) StatusView() string {
 	switch m.status {
-	case chatSending:
-		return chatPendingStyle.Render(m.spinner.View())
 	case chatError:
 		return chatErrorStyle.Render("err: " + m.errMsg)
 	}
 	return ""
 }
 
+func (m chatModel) CanScrollUp() bool   { return !m.viewport.AtTop() }
+func (m chatModel) CanScrollDown() bool { return !m.viewport.AtBottom() }
+
 func (m chatModel) View() string {
-	var topInd, botInd string
-	if !m.viewport.AtBottom() {
-		topInd = chatScrollIndicator(true, m.viewport.Width())
-	}
-	if !m.viewport.AtTop() {
-		botInd = chatScrollIndicator(false, m.viewport.Width())
-	}
 	return lipgloss.JoinVertical(lipgloss.Left,
-		botInd,
 		"",
 		m.viewport.View(),
-		topInd,
+		"",
 		chatInputFrame.Render(m.input.View()),
 	)
-}
-
-func chatScrollIndicator(up bool, width int) string {
-	arrow := "↑"
-	if up {
-		arrow = "↓"
-	}
-	return lipgloss.NewStyle().Foreground(fgDim).Width(width).Align(lipgloss.Right).Render(arrow)
 }

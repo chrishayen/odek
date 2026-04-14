@@ -112,12 +112,17 @@ func (m createFeatureModel) View() tea.View {
 	logoText := "ODEK "
 	logoStyle := lipgloss.NewStyle().Foreground(accent).Background(bgMain).Bold(true)
 	padStyle := lipgloss.NewStyle().Background(bgMain)
+	arrowStyle := lipgloss.NewStyle().Foreground(fgDim).Background(bgMain)
 	statusStr := m.chat.StatusView()
 	statusWidth := lipgloss.Width(statusStr)
-	logoPad := max(innerWidth-len(logoText)-statusWidth, 0)
-	header := logoStyle.Render(logoText) + padStyle.Render(strings.Repeat(" ", logoPad)) + statusStr
+	upArrow := ""
+	if m.chat.CanScrollUp() {
+		upArrow = arrowStyle.Render("↑")
+	}
+	logoPad := max(innerWidth-len(logoText)-statusWidth-lipgloss.Width(upArrow), 0)
+	header := logoStyle.Render(logoText) + padStyle.Render(strings.Repeat(" ", logoPad)) + statusStr + upArrow
 
-	helpBar := renderFormHelpBar(innerWidth)
+	helpBar := renderFormHelpBar(innerWidth, m.chat.CanScrollDown())
 
 	scrollOff := m.chat.ViewportYOffset() * 2
 	kanjiLine1 := renderKanjiLine(innerWidth, 2, m.kanjiOffset+scrollOff)
@@ -149,7 +154,7 @@ func renderKanjiLine(width, row, offset int) string {
 	return line
 }
 
-func renderFormHelpBar(width int) string {
+func renderFormHelpBar(width int, scrollDown bool) string {
 	keyStyle := lipgloss.NewStyle().Foreground(fgBright).Background(bgMain).Bold(true)
 	descStyle := lipgloss.NewStyle().Foreground(fgBody).Background(bgMain)
 	sepStyle := lipgloss.NewStyle().Foreground(fgDim).Background(bgMain)
@@ -174,8 +179,12 @@ func renderFormHelpBar(width int) string {
 		b.WriteString(descStyle.Render(bind.desc))
 	}
 	content := b.String()
-	pad := max(width-lipgloss.Width(content)-2, 0)
-	return padStyle.Render(" ") + content + padStyle.Render(strings.Repeat(" ", pad)+" ")
+	trailing := padStyle.Render(" ")
+	if scrollDown {
+		trailing = lipgloss.NewStyle().Foreground(fgDim).Background(bgMain).Render("↓")
+	}
+	pad := max(width-lipgloss.Width(content)-1-lipgloss.Width(trailing), 0)
+	return padStyle.Render(" ") + content + padStyle.Render(strings.Repeat(" ", pad)) + trailing
 }
 
 // makeFeatureSendHandler returns a SendHandler that routes the first submission
