@@ -397,7 +397,10 @@ func renderMockHelp(width int, inputActive, showTabSwitch bool) string {
 }
 
 func renderMockTop(width, height, kanjiOffset int) string {
-	const logoText = "ODEK "
+	const (
+		logoText  = "ODEK "
+		runesText = "9 runes"
+	)
 	logoCells := len(logoText)
 	logoStyled := lipgloss.NewStyle().
 		Foreground(accent).
@@ -405,56 +408,47 @@ func renderMockTop(width, height, kanjiOffset int) string {
 		Bold(true).
 		Render(logoText)
 
-	kanjiStyle := lipgloss.NewStyle().Foreground(mockSep).Background(bgMain)
 	bgStyle := lipgloss.NewStyle().Background(bgMain)
+	textStyle := lipgloss.NewStyle().Foreground(fgBright).Background(bgMain)
 	blankLine := bgStyle.Render(strings.Repeat(" ", width))
+
+	// Row 0: logo + bg padding.
+	var logoRow strings.Builder
+	logoRow.WriteString(logoStyled)
+	if logoCells < width {
+		logoRow.WriteString(bgStyle.Render(strings.Repeat(" ", width-logoCells)))
+	}
+
+	renderTextLine := func(s string) string {
+		styled := textStyle.Render(s)
+		if pad := width - len(s); pad > 0 {
+			styled += bgStyle.Render(strings.Repeat(" ", pad))
+		}
+		return styled
+	}
 
 	textMax := max(min(width/2, 70), 20)
 	rawLines := wrapMockText(mockTopCopy, textMax)
-	textStyle := lipgloss.NewStyle().Foreground(fgBright).Background(bgMain)
-	const textStartRow = 2
-	const runesText = "9 runes"
-	runesRow := textStartRow + len(rawLines) + 2
 
-	lines := make([]string, height)
-	for row := range height {
-		switch row {
-		case 0:
-			var b strings.Builder
-			b.WriteString(logoStyled)
-			if logoCells < width {
-				b.WriteString(bgStyle.Render(strings.Repeat(" ", width-logoCells)))
-			}
-			lines[row] = b.String()
-			continue
-		case 1:
-			lines[row] = blankLine
-			continue
+	lines := make([]string, 0, height)
+	appendLine := func(s string) {
+		if len(lines) < height {
+			lines = append(lines, s)
 		}
+	}
 
-		var b strings.Builder
-		cells := 0
-		if idx := row - textStartRow; idx >= 0 && idx < len(rawLines) {
-			line := rawLines[idx]
-			b.WriteString(textStyle.Render(line))
-			cells = len(line)
-		} else if row == runesRow {
-			b.WriteString(textStyle.Render(runesText))
-			cells = len(runesText)
-		}
-
-		var kb strings.Builder
-		for cells+2 <= width {
-			kb.WriteRune(kanjiAt(row, cells+kanjiOffset))
-			cells += 2
-		}
-		if kb.Len() > 0 {
-			b.WriteString(kanjiStyle.Render(kb.String()))
-		}
-		if cells < width {
-			b.WriteString(bgStyle.Render(strings.Repeat(" ", width-cells)))
-		}
-		lines[row] = b.String()
+	appendLine(logoRow.String())
+	appendLine(blankLine)
+	appendLine(renderKanjiLine(width, 2, kanjiOffset))
+	appendLine(renderKanjiLine(width, 3, -kanjiOffset))
+	appendLine(blankLine)
+	for _, raw := range rawLines {
+		appendLine(renderTextLine(raw))
+	}
+	appendLine(blankLine)
+	appendLine(renderTextLine(runesText))
+	for len(lines) < height {
+		lines = append(lines, blankLine)
 	}
 	return strings.Join(lines, "\n")
 }
