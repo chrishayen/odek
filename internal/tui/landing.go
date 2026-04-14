@@ -1,12 +1,15 @@
 package tui
 
 import (
+	"context"
 	"strings"
 
 	"charm.land/bubbles/v2/help"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/lucasb-eyer/go-colorful"
+
+	openai "shotgun.dev/odek/openai"
 )
 
 var logoBig = `
@@ -51,6 +54,8 @@ type model struct {
 	width  int
 	height int
 	help   help.Model
+	ctx    context.Context
+	client *openai.Client
 }
 
 func (m model) Init() tea.Cmd {
@@ -67,7 +72,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "n", "N":
-			next := newCreateFeatureModel(m.width, m.height)
+			next := newCreateFeatureModel(m.ctx, m.client, m.width, m.height)
 			return next, next.Init()
 		case "d", "D":
 			d, groups := mockDecomposition()
@@ -170,8 +175,8 @@ func (m model) View() tea.View {
 	return v
 }
 
-func Run() {
-	teaModel := model{help: newHelpModel()}
+func Run(ctx context.Context, client *openai.Client) {
+	teaModel := model{help: newHelpModel(), ctx: ctx, client: client}
 	p := tea.NewProgram(teaModel)
 	if _, err := p.Run(); err != nil {
 		panic(err)

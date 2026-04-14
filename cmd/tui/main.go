@@ -159,8 +159,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		topH := m.height / 3
-		// layout below viewport: blank + bar + blank + blank = 4 rows; plus 1 row spacer above viewport.
-		bottomH := max(m.height-topH-5, 1)
+		// layout below viewport: blank + bar + blank + blank + help = 5 rows; plus 1 row spacer above viewport.
+		bottomH := max(m.height-topH-6, 1)
 		m.vp.SetWidth(m.width)
 		m.vp.SetHeight(bottomH)
 		m.refreshColumns()
@@ -242,6 +242,8 @@ func (m model) View() tea.View {
 		lastLine = rendered + lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", pad))
 	}
 
+	help := renderHelpBar(m.width, m.inputActive)
+
 	v.Content = lipgloss.JoinVertical(lipgloss.Left,
 		top,
 		blank,
@@ -250,8 +252,48 @@ func (m model) View() tea.View {
 		bar,
 		blank,
 		lastLine,
+		help,
 	)
 	return v
+}
+
+func renderHelpBar(width int, inputActive bool) string {
+	keyStyle := lipgloss.NewStyle().Foreground(textColor).Background(bg).Bold(true)
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Background(bg)
+	sepStyle := lipgloss.NewStyle().Foreground(sepColor).Background(bg)
+	padStyle := lipgloss.NewStyle().Background(bg)
+
+	type binding struct{ key, desc string }
+	var bindings []binding
+	if inputActive {
+		bindings = []binding{
+			{"enter", "submit"},
+			{"esc", "cancel"},
+			{"ctrl+c", "quit"},
+		}
+	} else {
+		bindings = []binding{
+			{"↑/k", "up"},
+			{"↓/j", "down"},
+			{"tab", "next col"},
+			{"shift+tab", "prev col"},
+			{"space", "search"},
+			{"q/esc", "quit"},
+		}
+	}
+
+	var b strings.Builder
+	for i, bind := range bindings {
+		if i > 0 {
+			b.WriteString(sepStyle.Render("  •  "))
+		}
+		b.WriteString(keyStyle.Render(bind.key))
+		b.WriteString(padStyle.Render(" "))
+		b.WriteString(descStyle.Render(bind.desc))
+	}
+	content := b.String()
+	pad := max(width-lipgloss.Width(content)-2, 0)
+	return padStyle.Render(" ") + content + padStyle.Render(strings.Repeat(" ", pad)+" ")
 }
 
 func renderBottomBar(width int) string {
