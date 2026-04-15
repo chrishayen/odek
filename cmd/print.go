@@ -82,9 +82,9 @@ func printRunesIndented(runes map[string]decomposer.Rune, indentLevel int) {
 			wrappedDesc := wrapText(r.Description, 70-len(descIndent))
 			fmt.Printf("%s│  └─ %s\n", descIndent, wrappedDesc)
 		}
-		if r.FunctionSig != "" {
+		if sig := decomposer.NormalizeFunctionSig(r.FunctionSig); sig != "" {
 			sigIndent := strings.Repeat("   ", indentLevel+1)
-			fmt.Printf("%s│     sig: %s\n", sigIndent, r.FunctionSig)
+			fmt.Printf("%s│     fn: %s\n", sigIndent, sig)
 		}
 	}
 }

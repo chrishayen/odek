@@ -25,19 +25,16 @@ func kanjiTick() tea.Cmd {
 const createFeatureChromeHeight = 6
 
 // decomposeState is a heap-allocated holder for the active decomposition
-// session plus the auto-decompose toggle. Shared between the chat model
-// and the decomposition page so both sides of the split pane see the same
-// Session, and so the send handler (a closure captured at construction
-// time) can read the toggle on every turn.
+// session, shared between the chat model and the decomposition page so both
+// sides of the split pane see the same Session.
 //
-// The `decomposing` flag is set synchronously when a /decompose-equivalent
-// operation starts — before the cmd is returned to Tea — so the right pane
-// can show an immediate loading indicator when the user sends a message,
-// without waiting for the LLM call to finish.
+// The `decomposing` flag is set synchronously when a decompose operation
+// starts — before the cmd is returned to Tea — so the right pane can show
+// an immediate loading indicator when the user sends a message, without
+// waiting for the LLM call to finish.
 type decomposeState struct {
 	mu          sync.Mutex
 	session     *decomposer.Session
-	auto        bool
 	decomposing bool
 }
 
@@ -48,24 +45,6 @@ func (s *decomposeState) get() *decomposer.Session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.session
-}
-
-// AutoDecompose reports whether auto-decompose is currently on.
-func (s *decomposeState) AutoDecompose() bool {
-	if s == nil {
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.auto
-}
-
-// toggleAuto flips the auto-decompose flag and returns the new value.
-func (s *decomposeState) toggleAuto() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.auto = !s.auto
-	return s.auto
 }
 
 // Decomposing reports whether a decompose is in flight. Read by the right
@@ -122,7 +101,7 @@ type createFeatureModel struct {
 }
 
 func newCreateFeatureModel(ctx context.Context, client *openai.Client, dec *decomposer.Decomposer, width, height int) createFeatureModel {
-	state := &decomposeState{auto: true}
+	state := &decomposeState{}
 	m := createFeatureModel{
 		ctx:        ctx,
 		client:     client,
@@ -140,7 +119,7 @@ func newCreateFeatureModel(ctx context.Context, client *openai.Client, dec *deco
 		chatHeight,
 		withChatPlaceholder("Describe the feature..."),
 		withChatSendHandler(sendHandler),
-		withChatWelcome("Describe your feature. Auto-decompose is on — each message updates the rune tree. Ctrl+T to toggle."),
+		withChatWelcome("Describe your feature. Chat freely — I'll update the rune tree when you change scope."),
 	)
 	return m
 }
@@ -249,11 +228,6 @@ func (m createFeatureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			dest := newFeatureDecompModel(m.width, m.height, sess, m.state)
 			t := newTransition(m, dest, m.width, m.height, pin)
 			return t, t.Init()
-		case "ctrl+t":
-			if m.state != nil {
-				m.state.toggleAuto()
-			}
-			return m, nil
 		default:
 			m.kanjiOffset += 2
 		}
@@ -280,7 +254,7 @@ func (m createFeatureModel) View() tea.View {
 	logoPad := max(innerWidth-len(logoText)-statusWidth-lipgloss.Width(upArrow), 0)
 	header := logoStyle.Render(logoText) + padStyle.Render(strings.Repeat(" ", logoPad)) + statusStr + upArrow
 
-	helpBar := renderFormHelpBar(innerWidth, m.chat.CanScrollDown(), m.inSplit, m.state.AutoDecompose())
+	helpBar := renderFormHelpBar(innerWidth, m.chat.CanScrollDown(), m.inSplit)
 
 	scrollOff := m.chat.ViewportYOffset() * 2
 	kanjiLine1 := renderKanjiLine(innerWidth, 2, m.kanjiOffset+scrollOff)
@@ -313,22 +287,17 @@ func renderKanjiLine(width, row, offset int) string {
 	return line
 }
 
-func renderFormHelpBar(width int, scrollDown, showTabSwitch, autoOn bool) string {
+func renderFormHelpBar(width int, scrollDown, showTabSwitch bool) string {
 	keyStyle := lipgloss.NewStyle().Foreground(fgBright).Background(bgMain).Bold(true)
 	descStyle := lipgloss.NewStyle().Foreground(fgBody).Background(bgMain)
 	sepStyle := lipgloss.NewStyle().Foreground(mockSep).Background(bgMain)
 	padStyle := lipgloss.NewStyle().Background(bgMain)
 
 	type binding struct{ key, desc string }
-	autoLabel := "live: off"
-	if autoOn {
-		autoLabel = "live: on"
-	}
 	bindings := []binding{
 		{"enter", "send"},
 		{"alt+enter", "new line"},
 		{"↑/↓", "scroll"},
-		{"ctrl+t", autoLabel},
 	}
 	if showTabSwitch {
 		bindings = append(bindings, binding{"tab", "runes"})
@@ -352,13 +321,11 @@ func renderFormHelpBar(width int, scrollDown, showTabSwitch, autoOn bool) string
 	return padStyle.Render(" ") + content + padStyle.Render(strings.Repeat(" ", pad)) + trailing
 }
 
-// makeFeatureSendHandler returns a SendHandler whose routing depends on
-// the auto-decompose toggle:
-//   - auto on  -> every turn runs the decomposer with the full chat
-//     history as refinement context; no chat LLM is involved.
-//   - auto off -> each turn goes through the chat LLM, which can respond
-//     in plain text or call the `decompose` tool. Tool calls run the
-//     decomposer; plain replies are shown as normal chat messages.
+// makeFeatureSendHandler returns a SendHandler that routes every user turn
+// through the chat LLM. The LLM replies in plain text for discussion, or
+// calls the `decompose` tool when the user's message revises the feature
+// spec; tool calls run the decomposer and the resulting summary is shown
+// as the assistant reply.
 func makeFeatureSendHandler(ctx context.Context, client *openai.Client, dec *decomposer.Decomposer, state *decomposeState) SendHandler {
 	return func(history []chatMessage, userInput string, id int) tea.Cmd {
 		// Set the decomposing flag synchronously (before returning a Cmd)
@@ -369,14 +336,11 @@ func makeFeatureSendHandler(ctx context.Context, client *openai.Client, dec *dec
 		state.setDecomposing(true)
 		startCmd := func() tea.Msg { return decomposeStartedMsg{id: id} }
 
-		if state.AutoDecompose() {
-			return tea.Batch(startCmd, autoDecomposeHandler(ctx, dec, state, id, history))
-		}
 		if client == nil {
 			state.setDecomposing(false)
 			return offlineReply(id)
 		}
-		return tea.Batch(startCmd, manualChatHandler(ctx, client, dec, state, id, history))
+		return tea.Batch(startCmd, chatHandler(ctx, client, dec, state, id, history))
 	}
 }
 
@@ -487,26 +451,13 @@ func pumpExpansionCmd(ch <-chan decomposer.ExpansionEvent) tea.Cmd {
 	}
 }
 
-// autoDecomposeHandler runs on every user turn when auto-decompose is on.
-// It bypasses the chat LLM entirely: the user's message is added to the
-// refinement discussion and the decomposer produces a fresh session, which
-// replaces the prior one.
-func autoDecomposeHandler(ctx context.Context, dec *decomposer.Decomposer, state *decomposeState, id int, history []chatMessage) tea.Cmd {
+// chatHandler runs on every user turn. It forwards the chat history to the
+// chat LLM with the `decompose` tool available. If the model calls the tool,
+// we run the decomposer with the tool's arguments. Otherwise the model's
+// text reply is shown as a normal chat reply.
+func chatHandler(ctx context.Context, client *openai.Client, dec *decomposer.Decomposer, state *decomposeState, id int, history []chatMessage) tea.Cmd {
 	return func() tea.Msg {
-		req := extractRequirement(history)
-		discussion := buildDiscussion(history)
-		return runDecompose(ctx, dec, state, id, req, discussion, defaultAutoLevels, defaultAutoEffort)
-	}
-}
-
-// manualChatHandler runs on every user turn when auto-decompose is off.
-// It forwards the chat history to the chat LLM with the `decompose` tool
-// available. If the model calls the tool, we run the decomposer with the
-// tool's arguments. Otherwise the model's text reply is shown as a normal
-// chat reply.
-func manualChatHandler(ctx context.Context, client *openai.Client, dec *decomposer.Decomposer, state *decomposeState, id int, history []chatMessage) tea.Cmd {
-	return func() tea.Msg {
-		messages := buildManualChatMessages(history)
+		messages := buildChatMessages(history)
 		resp, err := client.Chat(ctx, &openai.ChatCompletionRequest{
 			Model:      openai.DefaultModel,
 			Messages:   messages,
@@ -640,14 +591,14 @@ const (
 	defaultAutoEffort = 2
 )
 
-// chatDecomposeTool is the tool definition given to the chat LLM in manual
-// mode. The LLM calls this when the user's request implies they want a
-// decomposition.
+// chatDecomposeTool is the tool definition given to the chat LLM. The LLM
+// calls this when the user's latest message revises the feature spec —
+// i.e. a scope or requirement change, not a question or discussion.
 var chatDecomposeTool = openai.Tool{
 	Type: openai.ToolTypeFunction,
 	Function: &openai.FunctionDefinition{
 		Name:        "decompose",
-		Description: "Run the real decomposition pipeline on the current feature. Call this when the user indicates they want a decomposition — e.g. 'decompose this', 'break it down', 'show me the structure', 'let's build it', 'generate the runes'. The tool uses the full conversation history as context. Do not call it for general design discussion.",
+		Description: "Apply a scope or requirement change to the feature spec. Call this whenever the user's latest message revises what the library should do — adds, removes, or renames capabilities, tightens or relaxes scope, or otherwise changes the requirements. Do NOT call it for questions, clarifications, or design discussion that doesn't change what the library does. The tool runs the decomposition pipeline using the full conversation history as context.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -668,15 +619,27 @@ var chatDecomposeTool = openai.Tool{
 	},
 }
 
-// buildManualChatMessages builds the conversation sent to the chat LLM in
-// manual mode. Includes a system prompt that explains the LLM's role and
-// how to trigger decomposition via the tool.
-func buildManualChatMessages(history []chatMessage) []openai.ChatMessage {
-	system := `You are Odek, a software feature design collaborator. The user is iterating on a feature, and you help them refine scope, names, tradeoffs, and edge cases in plain text.
+// buildChatMessages builds the conversation sent to the chat LLM. Includes
+// a system prompt that explains the LLM's role and the decomposition-vs-
+// discussion classification it's responsible for.
+func buildChatMessages(history []chatMessage) []openai.ChatMessage {
+	system := `You are Odek, a software library design collaborator. The user is iterating on a library spec, and on every turn you either discuss it or update it.
 
-When the user indicates they want a decomposition — e.g. "decompose this", "break it down", "show me the structure", "let's build it", "generate the runes" — call the ` + "`decompose`" + ` tool. You do not need to reply with text before calling it. The tool runs the real decomposition pipeline on the current feature using the full conversation history as context.
+Classify the user's latest message by intent:
 
-Otherwise, respond in plain text. Be concise and practical. Do not paste rune trees yourself; let the tool produce them.`
+1. **Spec change** — the user is revising what the library should do: adding/removing/renaming capabilities, tightening or relaxing scope, changing the library's purpose. Call the ` + "`decompose`" + ` tool. Do not reply with text before calling it; the tool's output becomes the reply.
+
+2. **Discussion** — the user is asking a question, exploring tradeoffs, clarifying how something works, or giving feedback that doesn't change what the library does. Reply in plain text. Be concise and practical. Do not paste rune trees yourself.
+
+Examples:
+- "make it a scientific calculator" → spec change, call the tool.
+- "also support matrices" → spec change, call the tool.
+- "drop the divide function" → spec change, call the tool.
+- "how does logarithm work?" → discussion, reply in text.
+- "what should divide-by-zero return?" → discussion, reply in text (until the user picks a behavior).
+- "what's the tradeoff between X and Y?" → discussion, reply in text.
+
+When in doubt, prefer discussion: it's cheap to follow up with a spec change, but a spurious rewrite costs the user their prior structure.`
 
 	msgs := []openai.ChatMessage{{Role: openai.RoleSystem, Content: system}}
 	for _, msg := range history {

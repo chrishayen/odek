@@ -45,10 +45,11 @@ var (
 const (
 	decompNumCols       = 2
 	decompNavigableCols = decompNumCols - 1 // rightmost column is the summary/detail pane, not navigable
-	decompColW          = 30
+	decompColW          = 30                // minimum width of the left column; it grows to fit the longest name
+	decompMinRightW     = 24                // keep this much room for the detail pane even when names are long
 )
 
-const emptyTopCopy = "Describe your feature in the chat. Auto-decompose updates this pane as you iterate."
+const emptyTopCopy = "Describe your feature in the chat. This pane updates when you change scope."
 
 type featureDecompModel struct {
 	width       int
@@ -493,8 +494,8 @@ func renderRuneInfo(name string, r decomposer.Rune, status decomposer.RuneStatus
 		lines = append(lines, summaryStyle.Render(r.Description))
 		lines = append(lines, "")
 	}
-	if r.FunctionSig != "" {
-		lines = append(lines, sigStyle.Render("@ "+r.FunctionSig))
+	if sig := decomposer.NormalizeFunctionSig(r.FunctionSig); sig != "" {
+		lines = append(lines, sigStyle.Render("fn "+sig))
 	}
 	if len(r.PositiveTests) > 0 || len(r.NegativeTests) > 0 {
 		if len(lines) > 0 {
@@ -527,7 +528,20 @@ func renderRuneInfo(name string, r decomposer.Rune, status decomposer.RuneStatus
 
 func buildColumns(innerW, innerH, selectedIdx, focusedCol int, active, blinkOn, decomposing bool, snap decomposer.Snapshot) string {
 	const sepWidth = 3
-	widths := []int{decompColW, max(innerW-decompColW-sepWidth, decompColW)}
+	// Grow the left column to fit the longest header/name so lipgloss's
+	// Width() never soft-wraps a row. Glyph prefix ("◆ "/"• ") is 2 cells;
+	// add 2 more for the column's outer Padding(0, 1).
+	leftContentW := 2 + len(nonEmptyOr(snap.PackageName, "(empty)"))
+	for _, name := range snap.TopLevelNames {
+		if need := 2 + len(name); need > leftContentW {
+			leftContentW = need
+		}
+	}
+	leftW := max(leftContentW+2, decompColW)
+	if ceiling := innerW - sepWidth - decompMinRightW; ceiling >= decompColW && leftW > ceiling {
+		leftW = ceiling
+	}
+	widths := []int{leftW, max(innerW-leftW-sepWidth, decompMinRightW)}
 
 	textStyle := lipgloss.NewStyle().Foreground(fgBright).Background(bgMain)
 	dimStyle := lipgloss.NewStyle().Foreground(mockSep).Background(bgMain)
@@ -596,7 +610,7 @@ func buildColumns(innerW, innerH, selectedIdx, focusedCol int, active, blinkOn, 
 		case 1:
 			if len(snap.TopLevelNames) == 0 {
 				titleText := "(no decomposition)"
-				bodyText := "Describe your feature in the chat. Each message refines the tree while auto-decompose is on."
+				bodyText := "Describe your feature in the chat. Scope changes refine the tree; questions stay in chat."
 				if decomposing {
 					titleText = "decomposing…"
 					bodyText = "Asking the model to decompose the feature. This usually takes a few seconds."

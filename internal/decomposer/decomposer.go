@@ -35,7 +35,10 @@ func initToolSchemas() {
 		"type": "object",
 		"properties": map[string]any{
 			"description":        map[string]any{"type": "string"},
-			"function_signature": map[string]any{"type": "string"},
+			"function_signature": map[string]any{
+				"type":        "string",
+				"description": "Bare type signature only, e.g. '(a: i32, b: i32) -> result[i32, string]'. Do NOT include any marker prefix like 'fn' or '@'; those are visual markers in the tree format, not part of the value.",
+			},
 			"positive_tests":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"negative_tests":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"assumptions":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
@@ -233,6 +236,10 @@ func (d *Decomposer) Decompose(ctx context.Context, messages []openai.ChatMessag
 			var dr DecompositionResponse
 			if err := json.Unmarshal([]byte(call.Function.Arguments), &dr); err != nil {
 				return "", true, fmt.Errorf("parsing decompose arguments: %w (raw: %s)", err, call.Function.Arguments)
+			}
+			normalizePackageSignatures(&dr.ProjectPackage)
+			if dr.StdPackage != nil {
+				normalizePackageSignatures(dr.StdPackage)
 			}
 			parsed = &dr
 			return "decomposition recorded", true, nil

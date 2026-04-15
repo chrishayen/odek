@@ -53,7 +53,7 @@ Tree shape:
       std.slice
         std.slice.component
           std.slice.component.leaf_unit
-            @ (input: type) -> return_type
+            fn (input: type) -> return_type
             + unit test
             - unit failure
             ? default value chosen since unspecified
@@ -63,7 +63,7 @@ Tree shape:
       project_name.slice
         -> std.some.unit
         project_name.slice.leaf_unit
-          @ (input: type) -> return_type
+          fn (input: type) -> return_type
           + test for this unit
           - failure case
           ? errors logged to stderr, not a file
@@ -89,7 +89,7 @@ Types can be nested: result[list[i32], string]
 
 1. STDLIB FIRST. Decompose generic capabilities before the feature. Ask: could another feature use this without modification? If yes → std.*
 2. The tree structure IS the composition. Parent nodes compose their children. Indentation shows nesting.
-3. Every leaf node MUST have a signature (@ line) and test cases (except -> references). Package (non-leaf) nodes are organizational groupings and MUST NOT have signatures or test cases. Include every meaningful positive (+) and negative (-) test case — not just one of each. Cover edge cases, boundary values, and error variants.
+3. Every leaf node MUST have a signature (fn line) and test cases (except -> references). Package (non-leaf) nodes are organizational groupings and MUST NOT have signatures or test cases. Include every meaningful positive (+) and negative (-) test case — not just one of each. Cover edge cases, boundary values, and error variants.
 4. Every node SHOULD list assumptions (? lines) — decisions you made to fill gaps the user didn't specify. These are behaviors, defaults, scope choices, or strategies you chose on their behalf. The user will review these and refine. Examples: "default port 8080", "graceful shutdown with 5s timeout", "serves index.html at directory root", "plaintext logging, not JSON". Omit ? lines only when the requirement fully specifies the node's behavior.
 5. Every leaf node MUST have a responsibility tag (# line) — a short snake_case label for the functional concern it serves (e.g., "input_handling", "rendering", "network_io"). Nodes that work together toward the same concern share the same label. Choose labels that describe what the user would evaluate as a group when reviewing completeness.
 6. std.* test cases must be feature-agnostic. Never mention a feature name or use feature-specific example values in std tests. The FIRST positive test case becomes the rune's description — it must describe the generic capability.
@@ -107,6 +107,7 @@ Types can be nested: result[list[i32], string]
 13. The root nodes (std, project_name) are package containers — they MUST have at least one child unit. Do not put executable behavior directly on a root node. Decompose into the minimum necessary child units — avoid unnecessary nesting depth.
 14. NO DUPLICATION. Every rune name appears in exactly ONE package. If a unit lives in std, the project package does NOT redefine it — use `-> std.path.to.unit` to reference. Same applies within a package: pick one name per function, never two synonyms for the same thing.
 15. NO INVENTED SCOPE. Decompose exactly what the user asked for. If they asked for "hello world", do not also invent `say_hello_with_name` or `say_hello_multiple_times`. If they asked for "add two integers", do not also invent `add_signed` and `add_unsigned`. The user gets what they specified — no more, no less.
+16. The `function_signature` JSON field in the `decompose` tool call contains ONLY the type signature — e.g. `(a: i32, b: i32) -> i32` or `() -> string`. The `fn` marker shown in the tree format above is a visual marker for the human reader of this prompt and the example corpus; it is NOT part of the signature string. Do not include `fn`, `@`, or any other prefix in `function_signature`.
 
 # Refinement
 
@@ -148,7 +149,7 @@ std: (all units exist)
 
 greeter
   greeter.greet
-    @ () -> string
+    fn () -> string
     + returns the string "Hello, world!"
     ? greeting is hardcoded; no parameter
     # greeting
@@ -162,35 +163,35 @@ The project layer is just two entry points; the real work lives in std primitive
 std
   std.encoding
     std.encoding.base64url_encode
-      @ (data: bytes) -> string
+      fn (data: bytes) -> string
       + encodes bytes to base64url without padding
       + returns "" for empty input
       # encoding
     std.encoding.base64url_decode
-      @ (encoded: string) -> result[bytes, string]
+      fn (encoded: string) -> result[bytes, string]
       + decodes base64url with or without padding
       - returns error on characters outside the base64url alphabet
       # encoding
   std.crypto
     std.crypto.hmac_sha256
-      @ (key: bytes, data: bytes) -> bytes
+      fn (key: bytes, data: bytes) -> bytes
       + computes HMAC-SHA256 of data under key
       + returns 32 bytes
       # cryptography
   std.json
     std.json.parse_object
-      @ (raw: string) -> result[map[string, string], string]
+      fn (raw: string) -> result[map[string, string], string]
       + parses a JSON object into a string-to-string map
       - returns error on invalid JSON or non-object root
       # serialization
     std.json.encode_object
-      @ (obj: map[string, string]) -> string
+      fn (obj: map[string, string]) -> string
       + encodes a string-to-string map as JSON
       # serialization
 
 jwt
   jwt.sign
-    @ (payload: map[string, string], secret: string) -> result[string, string]
+    fn (payload: map[string, string], secret: string) -> result[string, string]
     + returns a JWT in "header.payload.signature" format
     - returns error when secret is empty
     # token_signing
@@ -198,7 +199,7 @@ jwt
     -> std.encoding.base64url_encode
     -> std.crypto.hmac_sha256
   jwt.verify
-    @ (token: string, secret: string) -> result[map[string, string], string]
+    fn (token: string, secret: string) -> result[map[string, string], string]
     + returns the payload when signature is valid
     - returns error when the token does not have exactly three segments
     - returns error when the signature does not match
@@ -216,50 +217,50 @@ Six project operations at the feature boundary; all substantive plumbing — bcr
 std
   std.bcrypt
     std.bcrypt.hash
-      @ (password: string) -> result[string, string]
+      fn (password: string) -> result[string, string]
       + returns a bcrypt hash of the password with a random salt
       - returns error when password exceeds 72 bytes
       # cryptography
     std.bcrypt.verify
-      @ (password: string, hash: string) -> bool
+      fn (password: string, hash: string) -> bool
       + returns true when the password matches the hash
       # cryptography
   std.jwt
     std.jwt.sign
-      @ (payload: map[string, string], secret: string) -> result[string, string]
+      fn (payload: map[string, string], secret: string) -> result[string, string]
       + signs a payload with HS256 and returns a JWT
       # token_signing
     std.jwt.verify
-      @ (token: string, secret: string) -> result[map[string, string], string]
+      fn (token: string, secret: string) -> result[map[string, string], string]
       + verifies a JWT and returns its payload
       - returns error on bad signature or expired token
       # token_verification
   std.websocket
     std.websocket.upgrade
-      @ (req: http_request) -> result[websocket_conn, string]
+      fn (req: http_request) -> result[websocket_conn, string]
       + upgrades an HTTP request to a WebSocket connection
       # networking
     std.websocket.send
-      @ (c: websocket_conn, data: bytes) -> result[void, string]
+      fn (c: websocket_conn, data: bytes) -> result[void, string]
       + sends a binary or text frame on the connection
       # networking
   std.sql
     std.sql.query
-      @ (conn: db_conn, sql: string, args: list[any]) -> result[list[row], string]
+      fn (conn: db_conn, sql: string, args: list[any]) -> result[list[row], string]
       + executes a parameterized query and returns the result rows
       - returns error on syntax error or constraint violation
       # persistence
 
 chat
   chat.create_user
-    @ (creds: credentials) -> result[user_id, string]
+    fn (creds: credentials) -> result[user_id, string]
     + registers a new user with the password stored as a bcrypt hash
     - returns error when the username is already taken
     # account_management
     -> std.bcrypt.hash
     -> std.sql.query
   chat.authenticate
-    @ (creds: credentials) -> result[session_token, string]
+    fn (creds: credentials) -> result[session_token, string]
     + verifies the password and returns a signed session token
     - returns error on bad password or unknown user
     # account_management
@@ -267,26 +268,26 @@ chat
     -> std.jwt.sign
     -> std.sql.query
   chat.create_room
-    @ (token: session_token, name: string) -> result[room_id, string]
+    fn (token: session_token, name: string) -> result[room_id, string]
     + creates a new chat room owned by the authenticated user
     # room_management
     -> std.jwt.verify
     -> std.sql.query
   chat.join_room
-    @ (token: session_token, room_id: room_id) -> result[void, string]
+    fn (token: session_token, room_id: room_id) -> result[void, string]
     + adds the authenticated caller to the room
     # room_management
     -> std.jwt.verify
     -> std.sql.query
   chat.send_message
-    @ (token: session_token, room_id: room_id, body: string) -> result[message_id, string]
+    fn (token: session_token, room_id: room_id, body: string) -> result[message_id, string]
     + stores the message and broadcasts it to connected room members
     # messaging
     -> std.jwt.verify
     -> std.sql.query
     -> std.websocket.send
   chat.fetch_messages
-    @ (token: session_token, room_id: room_id, since: i64) -> result[list[message], string]
+    fn (token: session_token, room_id: room_id, since: i64) -> result[list[message], string]
     + returns messages posted to the room since the given unix timestamp
     # messaging
     -> std.jwt.verify
