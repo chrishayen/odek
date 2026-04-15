@@ -5,47 +5,47 @@ Parses an HTML document and its embedded stylesheets, then folds matching CSS de
 std
   std.html
     std.html.parse
-      @ (source: string) -> result[dom_node, string]
+      fn (source: string) -> result[dom_node, string]
       + parses an HTML document into a DOM tree
       - returns error on malformed input
       # html_parse
     std.html.serialize
-      @ (root: dom_node) -> string
+      fn (root: dom_node) -> string
       + serializes a DOM tree back to HTML
       # html_serialize
     std.html.get_attribute
-      @ (node: dom_node, name: string) -> optional[string]
+      fn (node: dom_node, name: string) -> optional[string]
       + returns the attribute value if present
       # dom
     std.html.set_attribute
-      @ (node: dom_node, name: string, value: string) -> dom_node
+      fn (node: dom_node, name: string, value: string) -> dom_node
       + returns a node with the attribute set
       # dom
   std.css
     std.css.parse_stylesheet
-      @ (source: string) -> result[list[css_rule], string]
+      fn (source: string) -> result[list[css_rule], string]
       + parses CSS into a list of (selector, declarations) rules
       - returns error on unterminated block
       # css_parse
     std.css.match_selector
-      @ (selector: string, node: dom_node) -> bool
+      fn (selector: string, node: dom_node) -> bool
       + returns true when the selector matches the element
       # css_match
     std.css.declarations_to_string
-      @ (decls: list[css_declaration]) -> string
+      fn (decls: list[css_declaration]) -> string
       + serializes declarations as a single "prop: value; ..." string
       # css_serialize
 
 inliner
   inliner.extract_stylesheets
-    @ (root: dom_node) -> tuple[dom_node, list[css_rule]]
+    fn (root: dom_node) -> tuple[dom_node, list[css_rule]]
     + removes every <style> element from the tree and returns the parsed rules
     + returns the root unchanged when no <style> elements exist
     # extraction
     -> std.html.parse
     -> std.css.parse_stylesheet
   inliner.apply_rules
-    @ (root: dom_node, rules: list[css_rule]) -> dom_node
+    fn (root: dom_node, rules: list[css_rule]) -> dom_node
     + walks the tree and appends matching declarations to each element's existing style attribute
     + preserves existing inline declarations when a rule and the element both set the same property
     # application
@@ -54,7 +54,7 @@ inliner
     -> std.html.set_attribute
     -> std.css.declarations_to_string
   inliner.inline
-    @ (html: string) -> result[string, string]
+    fn (html: string) -> result[string, string]
     + parses, extracts stylesheets, applies them inline, and serializes the result
     - returns error on malformed HTML
     # pipeline

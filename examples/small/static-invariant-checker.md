@@ -6,22 +6,22 @@ std: (all units exist)
 
 static_assert
   static_assert.size_eq
-    @ (type_size_bytes: i32, expected: i32) -> result[void, string]
+    fn (type_size_bytes: i32, expected: i32) -> result[void, string]
     + succeeds when type_size_bytes equals expected
     - returns an error message "expected size N, got M" otherwise
     # size
   static_assert.size_le
-    @ (type_size_bytes: i32, max: i32) -> result[void, string]
+    fn (type_size_bytes: i32, max: i32) -> result[void, string]
     + succeeds when type_size_bytes is at most max
     - returns error otherwise
     # size
   static_assert.const_eq
-    @ (actual: i64, expected: i64, label: string) -> result[void, string]
+    fn (actual: i64, expected: i64, label: string) -> result[void, string]
     + succeeds when actual equals expected
     - returns an error message including label otherwise
     # equality
   static_assert.all
-    @ (checks: list[result[void, string]]) -> result[void, string]
+    fn (checks: list[result[void, string]]) -> result[void, string]
     + succeeds when every check succeeds
     - returns the first failing check's error, prefixed with its index
     # composition

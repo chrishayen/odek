@@ -5,13 +5,13 @@ A single check the caller can use to refuse elevated execution.
 std
   std.os
     std.os.effective_uid
-      @ () -> i32
+      fn () -> i32
       + returns the effective user id of the current process
       # os
 
 sudo_block
   sudo_block.is_root
-    @ () -> bool
+    fn () -> bool
     + returns true when the effective user id is 0
     - returns false for any non-zero uid
     # privilege_check

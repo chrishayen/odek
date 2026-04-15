@@ -6,20 +6,20 @@ std: (all units exist)
 
 optional_box
   optional_box.some
-    @ (value: string) -> optional[string]
+    fn (value: string) -> optional[string]
     + wraps a value as a present optional
     # construction
   optional_box.none
-    @ () -> optional[string]
+    fn () -> optional[string]
     + returns an empty optional
     # construction
   optional_box.unwrap_or
-    @ (opt: optional[string], fallback: string) -> string
+    fn (opt: optional[string], fallback: string) -> string
     + returns the inner value when present
     - returns fallback when the optional is empty
     # access
   optional_box.map
-    @ (opt: optional[string], transform: function[string, string]) -> optional[string]
+    fn (opt: optional[string], transform: function[string, string]) -> optional[string]
     + applies transform when present
     - returns an empty optional when input is empty
     # transformation

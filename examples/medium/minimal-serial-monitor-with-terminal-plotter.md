@@ -5,38 +5,38 @@ The library exposes a small monitor state: it ingests text lines from a serial s
 std
   std.text
     std.text.split_lines
-      @ (input: string) -> list[string]
+      fn (input: string) -> list[string]
       + splits on \n, dropping a trailing empty line
       # text
     std.text.parse_f64
-      @ (s: string) -> optional[f64]
+      fn (s: string) -> optional[f64]
       + parses decimal numbers, optionally signed
       - returns empty on non-numeric input
       # parsing
 
 serial_plot
   serial_plot.new
-    @ (capacity: i32) -> plotter_state
+    fn (capacity: i32) -> plotter_state
     + returns a plotter that retains the most recent capacity samples
     ? older samples are dropped as a ring buffer
     # construction
   serial_plot.ingest_line
-    @ (state: plotter_state, line: string) -> plotter_state
+    fn (state: plotter_state, line: string) -> plotter_state
     + appends a sample when the line is numeric
     - leaves state unchanged when the line is not numeric
     # ingestion
     -> std.text.parse_f64
   serial_plot.ingest_chunk
-    @ (state: plotter_state, chunk: string) -> plotter_state
+    fn (state: plotter_state, chunk: string) -> plotter_state
     + splits the chunk into lines and ingests each
     # ingestion
     -> std.text.split_lines
   serial_plot.samples
-    @ (state: plotter_state) -> list[f64]
+    fn (state: plotter_state) -> list[f64]
     + returns samples in insertion order, oldest first
     # accessor
   serial_plot.render
-    @ (state: plotter_state, width: i32, height: i32) -> string
+    fn (state: plotter_state, width: i32, height: i32) -> string
     + returns a multi-line ASCII plot scaled to the buffer's min/max
     + returns a blank canvas of the requested size when no samples exist
     ? each row is exactly width characters wide, rows separated by \n

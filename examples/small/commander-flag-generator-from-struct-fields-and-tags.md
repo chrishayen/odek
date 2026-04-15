@@ -6,20 +6,20 @@ std: (all units exist)
 
 commandeer
   commandeer.describe_struct
-    @ (type_name: string, fields: list[field_meta]) -> struct_desc
+    fn (type_name: string, fields: list[field_meta]) -> struct_desc
     + records field names, types, default values, and tag metadata
     # reflection
   commandeer.build_parser
-    @ (desc: struct_desc) -> flag_parser
+    fn (desc: struct_desc) -> flag_parser
     + creates a flag parser whose options mirror the struct's fields
     # construction
   commandeer.parse_args
-    @ (parser: flag_parser, args: list[string]) -> result[map[string, string], string]
+    fn (parser: flag_parser, args: list[string]) -> result[map[string, string], string]
     + parses the argument list into field values, applying defaults for missing flags
     - returns error on unknown flag
     - returns error on missing value for a required flag
     # parsing
   commandeer.render_usage
-    @ (parser: flag_parser) -> string
+    fn (parser: flag_parser) -> string
     + produces a human-readable usage block listing every flag with its default
     # usage

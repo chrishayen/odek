@@ -6,7 +6,7 @@ std: (all units exist)
 
 quadratic
   quadratic.roots
-    @ (a: f64, b: f64, c: f64) -> result[list[f64], string]
+    fn (a: f64, b: f64, c: f64) -> result[list[f64], string]
     + returns both roots when the discriminant is positive
     + returns a single root when the discriminant is zero
     - returns an empty list when the discriminant is negative

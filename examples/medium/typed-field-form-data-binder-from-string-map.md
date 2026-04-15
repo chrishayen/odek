@@ -6,36 +6,36 @@ std: (all units exist)
 
 bind
   bind.new_schema
-    @ () -> schema_state
+    fn () -> schema_state
     + creates an empty target schema
     # construction
   bind.field_string
-    @ (schema: schema_state, name: string, required: bool) -> schema_state
+    fn (schema: schema_state, name: string, required: bool) -> schema_state
     + declares a string field by form key
     # schema
   bind.field_int
-    @ (schema: schema_state, name: string, required: bool) -> schema_state
+    fn (schema: schema_state, name: string, required: bool) -> schema_state
     + declares an integer field that will be parsed from its string value
     # schema
   bind.field_bool
-    @ (schema: schema_state, name: string, required: bool) -> schema_state
+    fn (schema: schema_state, name: string, required: bool) -> schema_state
     + declares a bool field (accepts "true"/"false"/"1"/"0")
     # schema
   bind.bind_form
-    @ (schema: schema_state, form: map[string, string]) -> result[bound_values, list[bind_error]]
+    fn (schema: schema_state, form: map[string, string]) -> result[bound_values, list[bind_error]]
     + returns populated values when every required field is present and parses cleanly
     - returns errors listing each missing required field
     - returns errors listing each field that failed to parse
     # binding
   bind.get_string
-    @ (values: bound_values, name: string) -> optional[string]
+    fn (values: bound_values, name: string) -> optional[string]
     + returns the bound string for the field if it was set
     # access
   bind.get_int
-    @ (values: bound_values, name: string) -> optional[i64]
+    fn (values: bound_values, name: string) -> optional[i64]
     + returns the bound integer for the field if it was set
     # access
   bind.get_bool
-    @ (values: bound_values, name: string) -> optional[bool]
+    fn (values: bound_values, name: string) -> optional[bool]
     + returns the bound bool for the field if it was set
     # access

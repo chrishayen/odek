@@ -5,82 +5,82 @@ Resources are described by schemas; the library derives list, create, read, upda
 std
   std.json
     std.json.parse
-      @ (raw: string) -> result[json_value, string]
+      fn (raw: string) -> result[json_value, string]
       + parses JSON into a generic value tree
       - returns error on malformed input
       # serialization
     std.json.encode
-      @ (value: json_value) -> string
+      fn (value: json_value) -> string
       + serializes a generic value tree
       # serialization
   std.html
     std.html.escape
-      @ (text: string) -> string
+      fn (text: string) -> string
       + escapes characters unsafe in HTML text nodes
       # html
     std.html.render_form
-      @ (fields: list[form_field]) -> string
+      fn (fields: list[form_field]) -> string
       + produces a form element with inputs per field
       # html
   std.http
     std.http.parse_request
-      @ (raw: bytes) -> result[http_request, string]
+      fn (raw: bytes) -> result[http_request, string]
       + parses an HTTP/1.1 request
       - returns error on malformed input
       # parsing
     std.http.encode_response
-      @ (status: i32, headers: map[string,string], body: bytes) -> bytes
+      fn (status: i32, headers: map[string,string], body: bytes) -> bytes
       + serializes an HTTP/1.1 response
       # serialization
 
 adminbro
   adminbro.resource_new
-    @ (name: string, schema: resource_schema) -> resource_def
+    fn (name: string, schema: resource_schema) -> resource_def
     + describes a resource and its fields
     # construction
   adminbro.panel_new
-    @ () -> panel_state
+    fn () -> panel_state
     + creates an empty admin panel
     # construction
   adminbro.register
-    @ (panel: panel_state, resource: resource_def, store: resource_store) -> panel_state
+    fn (panel: panel_state, resource: resource_def, store: resource_store) -> panel_state
     + attaches a resource and its persistent store to the panel
     # registration
   adminbro.list_action
-    @ (panel: panel_state, resource_name: string, query: map[string,string]) -> result[list[record], string]
+    fn (panel: panel_state, resource_name: string, query: map[string,string]) -> result[list[record], string]
     + returns the matching records for the resource
     # actions
   adminbro.get_action
-    @ (panel: panel_state, resource_name: string, id: string) -> result[record, string]
+    fn (panel: panel_state, resource_name: string, id: string) -> result[record, string]
     + fetches a single record by id
     - returns error when not found
     # actions
   adminbro.create_action
-    @ (panel: panel_state, resource_name: string, values: map[string,string]) -> result[record, string]
+    fn (panel: panel_state, resource_name: string, values: map[string,string]) -> result[record, string]
     + validates and persists a new record
     - returns error when required fields are missing
     # actions
   adminbro.update_action
-    @ (panel: panel_state, resource_name: string, id: string, values: map[string,string]) -> result[record, string]
+    fn (panel: panel_state, resource_name: string, id: string, values: map[string,string]) -> result[record, string]
     + merges the values into the existing record
     - returns error when the id is unknown
     # actions
   adminbro.delete_action
-    @ (panel: panel_state, resource_name: string, id: string) -> result[void, string]
+    fn (panel: panel_state, resource_name: string, id: string) -> result[void, string]
     + removes the record from the store
     # actions
   adminbro.render_list_page
-    @ (panel: panel_state, resource_name: string, records: list[record]) -> string
+    fn (panel: panel_state, resource_name: string, records: list[record]) -> string
     + renders an HTML table for the records
     # rendering
     -> std.html.escape
   adminbro.render_edit_page
-    @ (panel: panel_state, resource_name: string, record: record) -> string
+    fn (panel: panel_state, resource_name: string, record: record) -> string
     + renders a form prefilled with the record's values
     # rendering
     -> std.html.render_form
   adminbro.handle
-    @ (panel: panel_state, request_raw: bytes) -> result[bytes, string]
+    fn (panel: panel_state, request_raw: bytes) -> result[bytes, string]
     + routes the HTTP request to the matching action and returns a response
     - returns error on malformed request
     # dispatch

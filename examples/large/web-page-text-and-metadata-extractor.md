@@ -5,53 +5,53 @@ Fetches a URL, parses the HTML into a tree, removes boilerplate (navigation, ads
 std
   std.http
     std.http.get
-      @ (url: string) -> result[http_response, string]
+      fn (url: string) -> result[http_response, string]
       + performs an HTTP GET and returns status, headers, and body
       - returns error on transport failure
       # http_client
   std.html
     std.html.parse
-      @ (source: string) -> result[html_node, string]
+      fn (source: string) -> result[html_node, string]
       + returns the document root of a parsed HTML tree
       - returns error on a fundamentally broken document
       # parsing
 
 content_extractor
   content_extractor.clean_tree
-    @ (root: html_node) -> html_node
+    fn (root: html_node) -> html_node
     + returns a copy with script, style, nav, header, footer, and aside elements removed
     # cleaning
   content_extractor.score_blocks
-    @ (root: html_node) -> map[string, f64]
+    fn (root: html_node) -> map[string, f64]
     + assigns a content score to each candidate block based on text density and link ratio
     ? nodes with many links relative to text are penalized
     # scoring
   content_extractor.pick_main_block
-    @ (root: html_node, scores: map[string, f64]) -> optional[html_node]
+    fn (root: html_node, scores: map[string, f64]) -> optional[html_node]
     + returns the highest-scoring block
     - returns none when no block scores above the threshold
     # selection
     -> content_extractor.score_blocks
   content_extractor.extract_text
-    @ (node: html_node) -> string
+    fn (node: html_node) -> string
     + returns the concatenated text of the node with paragraphs separated by blank lines
     # extraction
   content_extractor.extract_title
-    @ (root: html_node) -> optional[string]
+    fn (root: html_node) -> optional[string]
     + returns the document title from <title>, falling back to the first h1
     - returns none when neither exists
     # metadata
   content_extractor.extract_meta
-    @ (root: html_node) -> map[string, string]
+    fn (root: html_node) -> map[string, string]
     + returns name/content pairs from <meta> tags (description, author, og:*, article:*)
     # metadata
   content_extractor.extract_language
-    @ (root: html_node) -> optional[string]
+    fn (root: html_node) -> optional[string]
     + returns the value of the html lang attribute
     - returns none when absent
     # metadata
   content_extractor.extract
-    @ (html_source: string) -> result[extracted, string]
+    fn (html_source: string) -> result[extracted, string]
     + parses, cleans, picks the main block, and returns text together with title, meta, and language
     - returns error when parsing fails
     # orchestration
@@ -63,7 +63,7 @@ content_extractor
     -> content_extractor.extract_meta
     -> content_extractor.extract_language
   content_extractor.extract_from_url
-    @ (url: string) -> result[extracted, string]
+    fn (url: string) -> result[extracted, string]
     + fetches the URL then runs extraction on the response body
     - returns error on transport failure or parse failure
     # orchestration

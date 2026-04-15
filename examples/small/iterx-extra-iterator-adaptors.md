@@ -6,25 +6,25 @@ std: (all units exist)
 
 iterx
   iterx.chunks
-    @ (items: list[string], size: i32) -> result[list[list[string]], string]
+    fn (items: list[string], size: i32) -> result[list[list[string]], string]
     + splits items into consecutive chunks of the given size, with a possibly shorter final chunk
     - returns error when size is less than 1
     # chunking
   iterx.windows
-    @ (items: list[string], size: i32) -> result[list[list[string]], string]
+    fn (items: list[string], size: i32) -> result[list[list[string]], string]
     + returns all consecutive overlapping windows of the given size
     + returns an empty list when the input is shorter than size
     - returns error when size is less than 1
     # windowing
   iterx.unique
-    @ (items: list[string]) -> list[string]
+    fn (items: list[string]) -> list[string]
     + returns items in input order with duplicates removed
     # deduplication
   iterx.interleave
-    @ (a: list[string], b: list[string]) -> list[string]
+    fn (a: list[string], b: list[string]) -> list[string]
     + returns items taken alternately from a and b, continuing with the leftover tail when lengths differ
     # merging
   iterx.group_by
-    @ (items: list[string], key_of: fn(string) -> string) -> map[string, list[string]]
+    fn (items: list[string], key_of: fn(string) -> string) -> map[string, list[string]]
     + groups items into buckets keyed by key_of, preserving input order inside each bucket
     # grouping

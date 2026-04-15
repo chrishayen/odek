@@ -6,7 +6,7 @@ std: (all units exist)
 
 string_utils
   string_utils.reverse
-    @ (s: string) -> string
+    fn (s: string) -> string
     + returns "olleh" when given "hello"
     + returns "" when given ""
     + reverses by grapheme cluster, not by byte, to handle utf-8 correctly

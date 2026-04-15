@@ -6,22 +6,22 @@ std: (all units exist)
 
 asciiart
   asciiart.builtin_fonts
-    @ () -> list[string]
+    fn () -> list[string]
     + returns the names of the built-in fonts
     # fonts
   asciiart.load_font
-    @ (name: string) -> result[font_state, string]
+    fn (name: string) -> result[font_state, string]
     + loads a built-in font by name
     - returns error when the font is unknown
     # fonts
   asciiart.render
-    @ (text: string, font: font_state) -> string
+    fn (text: string, font: font_state) -> string
     + returns a multi-line string where each character in text is rendered in the font and concatenated horizontally
     + returns a newline between font rows
     - unsupported characters are replaced with blank space of the same width
     # rendering
   asciiart.render_colored
-    @ (text: string, font: font_state, color: string) -> string
+    fn (text: string, font: font_state, color: string) -> string
     + like render but wraps each line with an ANSI color escape
     - returns the uncolored rendering when color is empty
     # rendering

@@ -6,6 +6,6 @@ std: (all units exist)
 
 minimal
   minimal.version
-    @ () -> string
+    fn () -> string
     + returns a semver string identifying the library release
     # metadata

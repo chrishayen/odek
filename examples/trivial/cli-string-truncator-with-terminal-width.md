@@ -6,7 +6,7 @@ std: (all units exist)
 
 cli_truncate
   cli_truncate.truncate
-    @ (text: string, columns: i32) -> string
+    fn (text: string, columns: i32) -> string
     + returns text unchanged when its display width is at most columns
     + returns a truncated prefix ending in an ellipsis when text is wider than columns
     + counts east-asian wide characters as 2 columns and skips ANSI escape sequences

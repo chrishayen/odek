@@ -6,25 +6,25 @@ std: (all units exist)
 
 cli_parser
   cli_parser.new
-    @ (program_name: string) -> parser_state
+    fn (program_name: string) -> parser_state
     + creates an empty parser with no registered commands
     # construction
   cli_parser.register_command
-    @ (state: parser_state, name: string, summary: string) -> parser_state
+    fn (state: parser_state, name: string, summary: string) -> parser_state
     + registers a top-level subcommand with a short summary
     # registration
   cli_parser.register_flag
-    @ (state: parser_state, command: string, flag: string, takes_value: bool) -> result[parser_state, string]
+    fn (state: parser_state, command: string, flag: string, takes_value: bool) -> result[parser_state, string]
     + attaches a flag to the named command
     - returns error when the command has not been registered
     # registration
   cli_parser.parse
-    @ (state: parser_state, argv: list[string]) -> result[parsed_invocation, string]
+    fn (state: parser_state, argv: list[string]) -> result[parsed_invocation, string]
     + returns the matched command name, its flag map, and positional arguments
     - returns error when argv names an unknown command
     - returns error when a flag that requires a value is missing one
     # parsing
   cli_parser.render_help
-    @ (state: parser_state) -> string
+    fn (state: parser_state) -> string
     + returns a human-readable help summary listing commands and their flags
     # help_text

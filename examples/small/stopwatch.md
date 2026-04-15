@@ -5,25 +5,25 @@ Three operations on an opaque state value. Uses std monotonic-clock reads so tes
 std
   std.time
     std.time.now_nanos
-      @ () -> i64
+      fn () -> i64
       + returns monotonic time in nanoseconds, not wall-clock time
       ? monotonic clock only moves forward and is immune to ntp adjustments
       # time
 
 stopwatch
   stopwatch.start
-    @ () -> stopwatch_state
+    fn () -> stopwatch_state
     + returns a running stopwatch with the current monotonic time captured
     # lifecycle
     -> std.time.now_nanos
   stopwatch.stop
-    @ (s: stopwatch_state) -> stopwatch_state
+    fn (s: stopwatch_state) -> stopwatch_state
     + freezes elapsed time and marks the stopwatch stopped
     + stopping an already-stopped stopwatch is a no-op
     # lifecycle
     -> std.time.now_nanos
   stopwatch.elapsed_seconds
-    @ (s: stopwatch_state) -> f64
+    fn (s: stopwatch_state) -> f64
     + returns elapsed seconds as f64
     + works on both running and stopped stopwatches
     # measurement

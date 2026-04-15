@@ -5,34 +5,34 @@ Tracks installed versions on disk and maintains a pointer to the currently activ
 std
   std.fs
     std.fs.list_dir
-      @ (path: string) -> result[list[string], string]
+      fn (path: string) -> result[list[string], string]
       + returns the immediate entries of a directory
       - returns error when the directory does not exist
       # filesystem
     std.fs.symlink
-      @ (target: string, link_path: string) -> result[void, string]
+      fn (target: string, link_path: string) -> result[void, string]
       + creates or replaces a symbolic link pointing at target
       # filesystem
     std.fs.read_link
-      @ (link_path: string) -> result[string, string]
+      fn (link_path: string) -> result[string, string]
       + returns the target path of a symbolic link
       - returns error when the path is not a link
       # filesystem
 
 version_switch
   version_switch.list_installed
-    @ (install_root: string) -> result[list[string], string]
+    fn (install_root: string) -> result[list[string], string]
     + returns every version directory under install_root
     # query
     -> std.fs.list_dir
   version_switch.current
-    @ (current_link: string) -> result[string, string]
+    fn (current_link: string) -> result[string, string]
     + returns the version currently pointed to by the active link
     - returns error when no version is active
     # query
     -> std.fs.read_link
   version_switch.activate
-    @ (install_root: string, version: string, current_link: string) -> result[void, string]
+    fn (install_root: string, version: string, current_link: string) -> result[void, string]
     + points current_link at install_root/version
     - returns error when the version is not installed
     # mutation

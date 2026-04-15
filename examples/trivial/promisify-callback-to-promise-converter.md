@@ -6,7 +6,7 @@ std: (all units exist)
 
 promisify
   promisify.wrap
-    @ (fn: callable) -> callable
+    fn (fn: callable) -> callable
     + returns a new function that, when called, invokes fn and resolves the promise with the callback's result
     + rejects the promise when the callback receives a non-null error
     ? the wrapped function's last parameter must be an error-first callback

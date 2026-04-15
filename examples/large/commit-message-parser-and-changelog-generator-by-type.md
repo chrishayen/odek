@@ -5,41 +5,41 @@ Parses conventional-style commit headers, classifies them, groups them by sectio
 std
   std.strings
     std.strings.split_lines
-      @ (s: string) -> list[string]
+      fn (s: string) -> list[string]
       + splits on newline characters
       # strings
     std.strings.trim
-      @ (s: string) -> string
+      fn (s: string) -> string
       + removes leading and trailing whitespace
       # strings
     std.strings.starts_with
-      @ (s: string, prefix: string) -> bool
+      fn (s: string, prefix: string) -> bool
       + returns true when s begins with prefix
       # strings
     std.strings.index_of
-      @ (s: string, needle: string) -> i32
+      fn (s: string, needle: string) -> i32
       + returns the first byte offset of needle, or -1 when absent
       # strings
   std.regex
     std.regex.compile
-      @ (pattern: string) -> result[regex, string]
+      fn (pattern: string) -> result[regex, string]
       + compiles the pattern for repeated use
       - returns error on invalid pattern
       # regex
     std.regex.match
-      @ (re: regex, input: string) -> optional[list[string]]
+      fn (re: regex, input: string) -> optional[list[string]]
       + returns captured groups on match
       - returns none otherwise
       # regex
   std.time
     std.time.now_iso_date
-      @ () -> string
+      fn () -> string
       + returns today's date in ISO 8601 form
       # time
 
 commit_changelog
   commit_changelog.parse_commit
-    @ (raw: string) -> result[commit, string]
+    fn (raw: string) -> result[commit, string]
     + returns a commit with type, optional scope, subject, and body
     - returns error when the header line cannot be classified
     # parsing
@@ -47,37 +47,37 @@ commit_changelog
     -> std.strings.trim
     -> std.regex.match
   commit_changelog.classify
-    @ (c: commit) -> string
+    fn (c: commit) -> string
     + returns a section id such as "features", "fixes", "breaking", or "other"
     + flags a commit as breaking when its body contains a breaking marker
     # classification
     -> std.strings.index_of
     -> std.strings.starts_with
   commit_changelog.group_by_section
-    @ (commits: list[commit]) -> map[string, list[commit]]
+    fn (commits: list[commit]) -> map[string, list[commit]]
     + buckets commits into sections in stable order
     # grouping
   commit_changelog.new_template
-    @ (sections: list[string]) -> changelog_template
+    fn (sections: list[string]) -> changelog_template
     + creates a template that emits the given sections in order
     # construction
   commit_changelog.render
-    @ (tpl: changelog_template, version: string, grouped: map[string, list[commit]]) -> string
+    fn (tpl: changelog_template, version: string, grouped: map[string, list[commit]]) -> string
     + produces a versioned changelog with a date header and one block per section
     + skips empty sections
     # rendering
     -> std.time.now_iso_date
   commit_changelog.diff_commits
-    @ (old_commits: list[commit], new_commits: list[commit]) -> list[commit]
+    fn (old_commits: list[commit], new_commits: list[commit]) -> list[commit]
     + returns commits present in new_commits but not in old_commits by subject
     # diff
   commit_changelog.validate
-    @ (c: commit) -> result[void, string]
+    fn (c: commit) -> result[void, string]
     + accepts commits whose type is one of the recognized set
     - returns error with the offending type name otherwise
     # validation
   commit_changelog.suggest_next_version
-    @ (current: string, commits: list[commit]) -> result[string, string]
+    fn (current: string, commits: list[commit]) -> result[string, string]
     + bumps major on any breaking commit, minor on any feature, patch otherwise
     - returns error when current is not a valid semantic version
     # versioning

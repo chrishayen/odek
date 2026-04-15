@@ -5,31 +5,31 @@ Builds the SEPA payload string, encodes it as a QR code, and renders to either A
 std
   std.qr
     std.qr.encode
-      @ (data: string, ecc_level: string) -> result[list[list[bool]], string]
+      fn (data: string, ecc_level: string) -> result[list[list[bool]], string]
       + returns a square matrix of modules for the given payload
       - returns error when payload exceeds capacity for the chosen ecc level
       # qr_encoding
   std.image
     std.image.write_png
-      @ (pixels: list[list[bool]], scale: i32) -> bytes
+      fn (pixels: list[list[bool]], scale: i32) -> bytes
       + returns PNG bytes with each true module drawn as a black square
       ? scale is pixels per module
       # image_encoding
 
 sepa_qr
   sepa_qr.build_payload
-    @ (beneficiary: string, iban: string, amount_cents: i64, reference: string) -> result[string, string]
+    fn (beneficiary: string, iban: string, amount_cents: i64, reference: string) -> result[string, string]
     + returns the SEPA credit transfer payload following the EPC QR guidelines
     - returns error when iban is empty or amount is negative
     # payload_construction
   sepa_qr.render_ascii
-    @ (beneficiary: string, iban: string, amount_cents: i64, reference: string) -> result[string, string]
+    fn (beneficiary: string, iban: string, amount_cents: i64, reference: string) -> result[string, string]
     + returns a multi-line string where each module is two characters wide
     - returns error when the payload cannot be encoded
     # ascii_rendering
     -> std.qr.encode
   sepa_qr.render_png
-    @ (beneficiary: string, iban: string, amount_cents: i64, reference: string, scale: i32) -> result[bytes, string]
+    fn (beneficiary: string, iban: string, amount_cents: i64, reference: string, scale: i32) -> result[bytes, string]
     + returns PNG bytes encoding the SEPA payment QR
     - returns error when scale is less than 1
     # png_rendering

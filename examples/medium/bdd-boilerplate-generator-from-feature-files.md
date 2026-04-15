@@ -5,17 +5,17 @@ Parses Gherkin-style feature text into a structured form, then renders a test sk
 std
   std.strings
     std.strings.split_lines
-      @ (s: string) -> list[string]
+      fn (s: string) -> list[string]
       + splits on \n, dropping the trailing empty segment if present
       # strings
     std.strings.trim
-      @ (s: string) -> string
+      fn (s: string) -> string
       + returns s with leading and trailing whitespace removed
       # strings
 
 bdd_gen
   bdd_gen.parse_feature
-    @ (source: string) -> result[feature_doc, string]
+    fn (source: string) -> result[feature_doc, string]
     + returns a feature with its title, scenarios, and steps
     - returns error when no Feature: header is found
     - returns error on a step outside any scenario
@@ -23,15 +23,15 @@ bdd_gen
     -> std.strings.split_lines
     -> std.strings.trim
   bdd_gen.step_signature
-    @ (step: feature_step) -> string
+    fn (step: feature_step) -> string
     + returns a canonical function-name-safe identifier for a step
     ? punctuation is stripped; spaces become underscores
     # naming
   bdd_gen.render_skeleton
-    @ (feature: feature_doc) -> string
+    fn (feature: feature_doc) -> string
     + returns source text with an empty test stub per scenario and per unique step
     # generation
   bdd_gen.extract_steps
-    @ (feature: feature_doc) -> list[feature_step]
+    fn (feature: feature_doc) -> list[feature_step]
     + returns the deduplicated list of steps across all scenarios
     # analysis

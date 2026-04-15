@@ -5,45 +5,45 @@ A host loads wasm modules, maps them to routes, and invokes exported entry point
 std
   std.wasm
     std.wasm.instantiate
-      @ (module_bytes: bytes) -> result[wasm_instance, string]
+      fn (module_bytes: bytes) -> result[wasm_instance, string]
       + returns an instance ready to call exported functions
       - returns error when the module is malformed
       # wasm
     std.wasm.call_export
-      @ (instance: wasm_instance, name: string, input: bytes) -> result[bytes, string]
+      fn (instance: wasm_instance, name: string, input: bytes) -> result[bytes, string]
       + calls the named exported function with input bytes and returns its output bytes
       - returns error when the export is missing
       - returns error when the guest traps
       # wasm
   std.http
     std.http.parse_request
-      @ (raw: bytes) -> result[http_request, string]
+      fn (raw: bytes) -> result[http_request, string]
       + parses method, path, headers, and body from raw request bytes
       - returns error on malformed request line
       # http
     std.http.format_response
-      @ (status: i32, headers: map[string, string], body: bytes) -> bytes
+      fn (status: i32, headers: map[string, string], body: bytes) -> bytes
       + serializes a status, headers, and body into wire-format bytes
       # http
 
 wasm_host
   wasm_host.new_host
-    @ () -> host_state
+    fn () -> host_state
     + returns an empty host with no modules or routes
     # construction
   wasm_host.load_module
-    @ (host: host_state, name: string, module_bytes: bytes) -> result[host_state, string]
+    fn (host: host_state, name: string, module_bytes: bytes) -> result[host_state, string]
     + instantiates the module and registers it under the given name
     - returns error when the module fails to instantiate
     # loading
     -> std.wasm.instantiate
   wasm_host.route
-    @ (host: host_state, method: string, path: string, module_name: string, export: string) -> result[host_state, string]
+    fn (host: host_state, method: string, path: string, module_name: string, export: string) -> result[host_state, string]
     + maps (method, path) to an exported function of a loaded module
     - returns error when the module name is unknown
     # routing
   wasm_host.invoke
-    @ (host: host_state, raw: bytes) -> result[bytes, string]
+    fn (host: host_state, raw: bytes) -> result[bytes, string]
     + parses the request, finds the matching route, calls the module, and returns a response
     - returns a 404 response when no route matches
     - returns a 500 response when the guest traps

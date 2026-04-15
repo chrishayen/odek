@@ -5,46 +5,46 @@ Catalogs named "skills" (review checklists, debug playbooks, workflow snippets) 
 std
   std.fs
     std.fs.read_all
-      @ (path: string) -> result[bytes, string]
+      fn (path: string) -> result[bytes, string]
       + reads the full contents of a file
       - returns error when the path does not exist
       # filesystem
   std.json
     std.json.parse_object
-      @ (raw: string) -> result[map[string, string], string]
+      fn (raw: string) -> result[map[string, string], string]
       + parses a JSON object into a string-to-string map
       - returns error on invalid JSON
       # serialization
 
 skills
   skills.new_catalog
-    @ () -> catalog_state
+    fn () -> catalog_state
     + creates an empty skills catalog
     # construction
   skills.load_from_dir
-    @ (state: catalog_state, dir: string) -> result[catalog_state, string]
+    fn (state: catalog_state, dir: string) -> result[catalog_state, string]
     + scans a directory for skill manifests and loads them
     - returns error when the directory is missing
     # loading
     -> std.fs.read_all
     -> std.json.parse_object
   skills.register
-    @ (state: catalog_state, name: string, category: string, body: string) -> catalog_state
+    fn (state: catalog_state, name: string, category: string, body: string) -> catalog_state
     + adds a skill in-memory under a category
     # registry
   skills.list_by_category
-    @ (state: catalog_state, category: string) -> list[string]
+    fn (state: catalog_state, category: string) -> list[string]
     + returns skill names in a category
     # registry
   skills.find
-    @ (state: catalog_state, name: string) -> optional[string]
+    fn (state: catalog_state, name: string) -> optional[string]
     + returns the body of a skill by name
     # registry
   skills.run_review
-    @ (state: catalog_state, code: string) -> list[string]
+    fn (state: catalog_state, code: string) -> list[string]
     + runs every skill tagged "review" against the code and collects their findings
     # review
   skills.run_debug
-    @ (state: catalog_state, error_message: string, context: string) -> list[string]
+    fn (state: catalog_state, error_message: string, context: string) -> list[string]
     + runs every skill tagged "debug" and returns suggested next actions
     # debug

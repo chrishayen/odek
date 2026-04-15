@@ -5,56 +5,56 @@ A static file server plus a watcher that pushes reload events to connected brows
 std
   std.fs
     std.fs.read_all
-      @ (path: string) -> result[bytes, string]
+      fn (path: string) -> result[bytes, string]
       + returns file contents as bytes
       - returns error when path does not exist
       # filesystem
     std.fs.watch_tree
-      @ (root: string) -> result[watch_handle, string]
+      fn (root: string) -> result[watch_handle, string]
       + returns a handle that emits paths on change
       - returns error when root is not a directory
       # filesystem
     std.fs.next_change
-      @ (handle: watch_handle) -> optional[string]
+      fn (handle: watch_handle) -> optional[string]
       + returns the next changed path, none when handle closed
       # filesystem
   std.http
     std.http.serve
-      @ (addr: string, handler: http_handler) -> result[server_handle, string]
+      fn (addr: string, handler: http_handler) -> result[server_handle, string]
       + starts listening and dispatches requests to handler
       - returns error when addr is already bound
       # networking
     std.http.write_sse_event
-      @ (conn: http_conn, event: string, data: string) -> result[void, string]
+      fn (conn: http_conn, event: string, data: string) -> result[void, string]
       + writes a server-sent event frame to the connection
       # networking
 
 live_server
   live_server.new
-    @ (root: string, addr: string) -> result[live_server_state, string]
+    fn (root: string, addr: string) -> result[live_server_state, string]
     + returns a server rooted at the given directory bound to addr
     - returns error when root is not a directory
     # construction
   live_server.start
-    @ (state: live_server_state) -> result[live_server_state, string]
+    fn (state: live_server_state) -> result[live_server_state, string]
     + begins watching the root and serving files
     + opens an sse endpoint at /__livereload for browsers
     # lifecycle
     -> std.http.serve
     -> std.fs.watch_tree
   live_server.handle_request
-    @ (state: live_server_state, path: string) -> http_response
+    fn (state: live_server_state, path: string) -> http_response
     + serves matching file from root with correct content type
     + for html responses, injects a script that subscribes to /__livereload
     - returns 404 when the file does not exist under root
     # request_handling
     -> std.fs.read_all
   live_server.notify_reload
-    @ (state: live_server_state, changed_path: string) -> void
+    fn (state: live_server_state, changed_path: string) -> void
     + pushes a reload event to every connected sse client
     # reload
     -> std.http.write_sse_event
   live_server.stop
-    @ (state: live_server_state) -> void
+    fn (state: live_server_state) -> void
     + closes the listener and watcher
     # lifecycle

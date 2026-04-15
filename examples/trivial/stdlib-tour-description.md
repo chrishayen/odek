@@ -6,7 +6,7 @@ std: (all units exist)
 
 stdlib_tour
   stdlib_tour.describe
-    @ () -> string
+    fn () -> string
     + returns a short description of a tour of standard library topics
     ? content is a fixed literal; no parameters
     # description

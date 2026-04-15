@@ -6,7 +6,7 @@ std: (all units exist)
 
 chain
   chain.compose
-    @ (middlewares: list[middleware], base: handler) -> handler
+    fn (middlewares: list[middleware], base: handler) -> handler
     + returns a handler that invokes middlewares in list order, outermost first
     + returns the base handler unchanged when the list is empty
     # composition

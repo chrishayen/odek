@@ -6,7 +6,7 @@ std: (all units exist)
 
 term_link
   term_link.format
-    @ (text: string, url: string) -> string
+    fn (text: string, url: string) -> string
     + returns the text wrapped in OSC 8 escape sequences referencing the URL
     + returns the plain text when url is empty
     # formatting

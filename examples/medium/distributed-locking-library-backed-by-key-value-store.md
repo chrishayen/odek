@@ -5,33 +5,33 @@ Locks are acquired by conditional writes to a shared key-value store with lease 
 std
   std.time
     std.time.now_millis
-      @ () -> i64
+      fn () -> i64
       + returns current unix time in milliseconds
       # time
   std.id
     std.id.random_token
-      @ (length: i32) -> string
+      fn (length: i32) -> string
       + returns a random hex token of the given length
       # identity
   std.kv
     std.kv.put_if_absent
-      @ (key: string, value: bytes, ttl_ms: i64) -> result[bool, string]
+      fn (key: string, value: bytes, ttl_ms: i64) -> result[bool, string]
       + returns true when the key was written, false when the key already exists
       - returns error on store failure
       # storage
     std.kv.get
-      @ (key: string) -> result[optional[bytes], string]
+      fn (key: string) -> result[optional[bytes], string]
       + returns the stored value or none when absent
       # storage
     std.kv.delete_if_equal
-      @ (key: string, expected: bytes) -> result[bool, string]
+      fn (key: string, expected: bytes) -> result[bool, string]
       + deletes the key only when the current value matches expected
       - returns false when the value differs
       # storage
 
 distlock
   distlock.acquire
-    @ (key: string, lease_ms: i64) -> result[optional[lock_handle], string]
+    fn (key: string, lease_ms: i64) -> result[optional[lock_handle], string]
     + returns a handle with an owner token when the lock is acquired
     - returns none when another owner holds the lock and the lease is still valid
     # lock_acquire
@@ -39,13 +39,13 @@ distlock
     -> std.id.random_token
     -> std.time.now_millis
   distlock.release
-    @ (handle: lock_handle) -> result[bool, string]
+    fn (handle: lock_handle) -> result[bool, string]
     + releases the lock only when the stored owner token still matches
     - returns false when the lease already expired and someone else holds it
     # lock_release
     -> std.kv.delete_if_equal
   distlock.refresh
-    @ (handle: lock_handle, extend_ms: i64) -> result[lock_handle, string]
+    fn (handle: lock_handle, extend_ms: i64) -> result[lock_handle, string]
     + extends the lease when the current owner still holds the lock
     - returns error when the owner token no longer matches
     # lock_refresh

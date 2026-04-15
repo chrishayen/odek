@@ -6,21 +6,21 @@ std: (all units exist)
 
 container
   container.new
-    @ () -> container_state
+    fn () -> container_state
     + returns an empty container
     # construction
   container.register_value
-    @ (state: container_state, name: string, value: bytes) -> container_state
+    fn (state: container_state, name: string, value: bytes) -> container_state
     + stores a ready-made dependency under the given name
     + replaces any existing binding with the same name
     # binding
   container.register_factory
-    @ (state: container_state, name: string, factory: fn(container_state) -> result[bytes, string]) -> container_state
+    fn (state: container_state, name: string, factory: fn(container_state) -> result[bytes, string]) -> container_state
     + stores a lazy factory that builds the dependency on first resolve
     ? factories are invoked at most once; the result is cached
     # binding
   container.resolve
-    @ (state: container_state, name: string) -> result[tuple[bytes, container_state], string]
+    fn (state: container_state, name: string) -> result[tuple[bytes, container_state], string]
     + returns the stored value for a registered name
     + invokes and caches the factory on first resolve
     - returns error when the name is not registered

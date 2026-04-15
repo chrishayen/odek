@@ -6,28 +6,28 @@ std: (all units exist)
 
 hasgo
   hasgo.take
-    @ (xs: list[i64], n: i32) -> list[i64]
+    fn (xs: list[i64], n: i32) -> list[i64]
     + returns the first n elements
     + returns the whole list when n is greater than the length
     + returns an empty list when n is zero or negative
     # slicing
   hasgo.drop
-    @ (xs: list[i64], n: i32) -> list[i64]
+    fn (xs: list[i64], n: i32) -> list[i64]
     + returns the list without the first n elements
     + returns an empty list when n is greater than the length
     # slicing
   hasgo.take_while
-    @ (xs: list[i64], pred: fn(i64) -> bool) -> list[i64]
+    fn (xs: list[i64], pred: fn(i64) -> bool) -> list[i64]
     + returns the longest prefix whose elements satisfy pred
     - stops at the first element that fails pred
     # filtering
   hasgo.group_by
-    @ (xs: list[i64], eq: fn(i64, i64) -> bool) -> list[list[i64]]
+    fn (xs: list[i64], eq: fn(i64, i64) -> bool) -> list[list[i64]]
     + returns runs of adjacent elements that are equal under eq
     + returns an empty outer list for an empty input
     # grouping
   hasgo.scanl
-    @ (xs: list[i64], seed: i64, step: fn(i64, i64) -> i64) -> list[i64]
+    fn (xs: list[i64], seed: i64, step: fn(i64, i64) -> i64) -> list[i64]
     + returns each intermediate accumulator value, starting with seed
     + has length equal to xs length plus one
     # reduction

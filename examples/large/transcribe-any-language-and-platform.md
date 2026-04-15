@@ -5,45 +5,45 @@ A speech-to-text pipeline. The std layer provides generic audio decoding and mod
 std
   std.fs
     std.fs.read_all
-      @ (path: string) -> result[bytes, string]
+      fn (path: string) -> result[bytes, string]
       + reads entire file contents
       - returns error when the path cannot be opened
       # io
     std.fs.write_all
-      @ (path: string, data: bytes) -> result[void, string]
+      fn (path: string, data: bytes) -> result[void, string]
       + writes bytes to the given path
       - returns error when the path cannot be created
       # io
   std.audio
     std.audio.decode_container
-      @ (data: bytes) -> result[audio_stream, string]
+      fn (data: bytes) -> result[audio_stream, string]
       + returns an audio stream from a container file (wav, mp3, mp4, mkv)
       - returns error when no audio track is present
       # audio
     std.audio.resample
-      @ (stream: audio_stream, target_hz: i32, target_channels: i32) -> audio_stream
+      fn (stream: audio_stream, target_hz: i32, target_channels: i32) -> audio_stream
       + returns a new stream at the target sample rate and channel count
       # audio
     std.audio.to_mono_f32
-      @ (stream: audio_stream) -> list[f32]
+      fn (stream: audio_stream) -> list[f32]
       + returns interleaved samples mixed to a single channel as float32 in [-1, 1]
       # audio
   std.text
     std.text.detect_language
-      @ (sample: string) -> string
+      fn (sample: string) -> string
       + returns an ISO 639-1 code guessed from character frequency
       + returns "und" when the sample is too short
       # language
 
 transcribe
   transcribe.load_model
-    @ (path: string) -> result[model_handle, string]
+    fn (path: string) -> result[model_handle, string]
     + loads a speech recognition model from disk
     - returns error when the file is not a recognized model format
     # model
     -> std.fs.read_all
   transcribe.prepare_audio
-    @ (path: string) -> result[list[f32], string]
+    fn (path: string) -> result[list[f32], string]
     + reads, demuxes, resamples to 16 kHz mono, and returns float samples
     - returns error when the file has no audio stream
     # preprocessing
@@ -52,37 +52,37 @@ transcribe
     -> std.audio.resample
     -> std.audio.to_mono_f32
   transcribe.run
-    @ (model: model_handle, samples: list[f32], language_hint: optional[string]) -> result[transcript, string]
+    fn (model: model_handle, samples: list[f32], language_hint: optional[string]) -> result[transcript, string]
     + returns a transcript with segments, timestamps, and confidence scores
     - returns error when the model rejects the audio length
     ? language_hint=none triggers automatic language detection
     # inference
     -> std.text.detect_language
   transcribe.file
-    @ (model: model_handle, path: string, language_hint: optional[string]) -> result[transcript, string]
+    fn (model: model_handle, path: string, language_hint: optional[string]) -> result[transcript, string]
     + convenience wrapper combining prepare_audio and run
     - returns error when either step fails
     # pipeline
   transcribe.to_srt
-    @ (transcript: transcript) -> string
+    fn (transcript: transcript) -> string
     + returns the transcript formatted as an SRT subtitle file
     # formatting
   transcribe.to_vtt
-    @ (transcript: transcript) -> string
+    fn (transcript: transcript) -> string
     + returns the transcript formatted as a WebVTT file
     # formatting
   transcribe.to_plain_text
-    @ (transcript: transcript) -> string
+    fn (transcript: transcript) -> string
     + returns the concatenated segment text separated by spaces
     # formatting
   transcribe.save
-    @ (transcript: transcript, path: string, format: string) -> result[void, string]
+    fn (transcript: transcript, path: string, format: string) -> result[void, string]
     + writes the transcript in the requested format ("srt", "vtt", or "txt")
     - returns error when the format is unknown
     # io
     -> std.fs.write_all
   transcribe.translate_to_english
-    @ (model: model_handle, samples: list[f32]) -> result[transcript, string]
+    fn (model: model_handle, samples: list[f32]) -> result[transcript, string]
     + returns an English transcript regardless of source language
     - returns error when the model does not support translation
     # translation

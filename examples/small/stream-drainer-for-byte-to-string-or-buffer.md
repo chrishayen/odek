@@ -5,7 +5,7 @@ Drains a stream handle by repeated reads into a growable buffer, then returns th
 std
   std.io
     std.io.read_chunk
-      @ (stream: stream_handle, max: i32) -> result[bytes, string]
+      fn (stream: stream_handle, max: i32) -> result[bytes, string]
       + reads up to max bytes from the stream
       + returns empty bytes at end of stream
       - returns error on read failure
@@ -13,14 +13,14 @@ std
 
 stream_drain
   stream_drain.read_all_bytes
-    @ (stream: stream_handle) -> result[bytes, string]
+    fn (stream: stream_handle) -> result[bytes, string]
     + reads the stream until end-of-stream and returns the concatenated bytes
     - returns error on any read failure
     ? callers are responsible for closing the stream
     # draining
     -> std.io.read_chunk
   stream_drain.read_all_string
-    @ (stream: stream_handle) -> result[string, string]
+    fn (stream: stream_handle) -> result[string, string]
     + reads the stream until end-of-stream and returns the bytes as a string
     - returns error on any read failure
     # draining

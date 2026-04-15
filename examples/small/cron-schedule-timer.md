@@ -5,28 +5,28 @@ Parse a cron expression once, then repeatedly compute the next matching instant.
 std
   std.time
     std.time.now_seconds
-      @ () -> i64
+      fn () -> i64
       + returns current unix time in seconds
       # time
     std.time.components
-      @ (unix_seconds: i64) -> time_parts
+      fn (unix_seconds: i64) -> time_parts
       + returns (minute, hour, day_of_month, month, day_of_week) in UTC
       # time
 
 cron_ticker
   cron_ticker.parse
-    @ (expression: string) -> result[cron_spec, string]
+    fn (expression: string) -> result[cron_spec, string]
     + parses a five-field cron expression with numbers, ranges, lists, and steps
     - returns error when any field is out of range or malformed
     # parsing
   cron_ticker.next_after
-    @ (spec: cron_spec, from_unix: i64) -> i64
+    fn (spec: cron_spec, from_unix: i64) -> i64
     + returns the first unix timestamp strictly after from_unix whose components all match
     ? result is aligned to a whole minute
     # scheduling
     -> std.time.components
   cron_ticker.next
-    @ (spec: cron_spec) -> i64
+    fn (spec: cron_spec) -> i64
     + returns the next firing time after the current clock
     # scheduling
     -> std.time.now_seconds

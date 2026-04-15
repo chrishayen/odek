@@ -6,33 +6,33 @@ std: (all units exist)
 
 http_mock
   http_mock.new
-    @ () -> mock_registry
+    fn () -> mock_registry
     + returns a registry with no registered mocks
     # construction
   http_mock.expect
-    @ (registry: mock_registry, method: string, url_pattern: string) -> mock_builder
+    fn (registry: mock_registry, method: string, url_pattern: string) -> mock_builder
     + returns a builder scoped to a new mock for (method, url_pattern)
     ? url_pattern supports glob-style wildcards (*)
     # matching
   http_mock.with_header
-    @ (builder: mock_builder, name: string, value: string) -> mock_builder
+    fn (builder: mock_builder, name: string, value: string) -> mock_builder
     + adds a required header constraint to the mock under construction
     # matching
   http_mock.with_body
-    @ (builder: mock_builder, substring: string) -> mock_builder
+    fn (builder: mock_builder, substring: string) -> mock_builder
     + adds a required body-substring constraint to the mock under construction
     # matching
   http_mock.reply
-    @ (builder: mock_builder, status: i32, body: string) -> mock_registry
+    fn (builder: mock_builder, status: i32, body: string) -> mock_registry
     + finalizes the mock with the given response and returns the updated registry
     # registration
   http_mock.dispatch
-    @ (registry: mock_registry, method: string, url: string, headers: map[string, string], body: string) -> result[tuple[i32, string], string]
+    fn (registry: mock_registry, method: string, url: string, headers: map[string, string], body: string) -> result[tuple[i32, string], string]
     + returns (status, body) from the first mock whose constraints all match the request
     - returns error when no mock matches
     # dispatch
   http_mock.unmatched_count
-    @ (registry: mock_registry) -> i32
+    fn (registry: mock_registry) -> i32
     + returns the number of registered mocks that have not yet been dispatched
     ? useful for asserting all registered mocks were exercised
     # introspection

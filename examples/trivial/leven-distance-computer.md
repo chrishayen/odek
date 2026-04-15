@@ -6,7 +6,7 @@ std: (all units exist)
 
 leven
   leven.distance
-    @ (a: string, b: string) -> i32
+    fn (a: string, b: string) -> i32
     + returns the minimum number of single-character edits between the two strings
     + returns 0 when the strings are equal
     + returns len(b) when a is empty

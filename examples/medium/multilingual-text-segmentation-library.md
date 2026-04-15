@@ -5,43 +5,43 @@ Tokenizes text into words using a dictionary with frequency weights, supporting 
 std
   std.unicode
     std.unicode.is_whitespace
-      @ (cp: i32) -> bool
+      fn (cp: i32) -> bool
       + returns true for unicode whitespace code points
       # unicode
     std.unicode.is_cjk
-      @ (cp: i32) -> bool
+      fn (cp: i32) -> bool
       + returns true for CJK unified ideograph ranges
       # unicode
     std.unicode.decode_utf8
-      @ (data: bytes) -> result[list[i32], string]
+      fn (data: bytes) -> result[list[i32], string]
       + decodes a UTF-8 byte sequence into code points
       - returns error on invalid UTF-8
       # unicode
 
 segmenter
   segmenter.new
-    @ () -> segmenter_state
+    fn () -> segmenter_state
     + returns a segmenter with an empty dictionary
     # construction
   segmenter.load_dictionary
-    @ (state: segmenter_state, entries: list[tuple[string, f64]]) -> segmenter_state
+    fn (state: segmenter_state, entries: list[tuple[string, f64]]) -> segmenter_state
     + adds (term, frequency) entries to the dictionary
     ? frequency is a weight used during maximum-likelihood segmentation
     # dictionary
   segmenter.cut_whitespace
-    @ (state: segmenter_state, text: string) -> list[string]
+    fn (state: segmenter_state, text: string) -> list[string]
     + splits on whitespace runs for languages with explicit word boundaries
     # segmentation
     -> std.unicode.is_whitespace
     -> std.unicode.decode_utf8
   segmenter.cut_dag
-    @ (state: segmenter_state, text: string) -> list[string]
+    fn (state: segmenter_state, text: string) -> list[string]
     + builds a directed acyclic graph of dictionary matches and returns the most-probable segmentation
     ? uses dynamic programming over log-frequencies
     # segmentation
     -> std.unicode.decode_utf8
   segmenter.cut
-    @ (state: segmenter_state, text: string) -> list[string]
+    fn (state: segmenter_state, text: string) -> list[string]
     + dispatches to whitespace or DAG segmentation based on script detection
     + returns the concatenation when no dictionary matches are found
     # segmentation

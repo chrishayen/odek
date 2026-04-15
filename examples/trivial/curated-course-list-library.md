@@ -6,7 +6,7 @@ std: (all units exist)
 
 courses
   courses.all
-    @ () -> list[tuple[string, string]]
+    fn () -> list[tuple[string, string]]
     + returns every course as (title, url) pairs
     ? list is hardcoded at compile time
     # catalogue

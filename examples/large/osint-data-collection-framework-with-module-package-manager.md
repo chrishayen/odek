@@ -5,45 +5,45 @@ Modules are downloadable scripts that read a seed database, emit findings, and w
 std
   std.http
     std.http.get
-      @ (url: string) -> result[bytes, string]
+      fn (url: string) -> result[bytes, string]
       + fetches a URL and returns the response body
       - returns error on non-2xx or network failure
       # http
   std.fs
     std.fs.read_all
-      @ (path: string) -> result[bytes, string]
+      fn (path: string) -> result[bytes, string]
       + reads the full contents of a file
       - returns error when the path is missing
       # filesystem
     std.fs.write_all
-      @ (path: string, data: bytes) -> result[void, string]
+      fn (path: string, data: bytes) -> result[void, string]
       + writes bytes to a file, creating parents as needed
       # filesystem
   std.crypto
     std.crypto.sha256_hex
-      @ (data: bytes) -> string
+      fn (data: bytes) -> string
       + returns the lowercase hex SHA-256 digest
       # cryptography
   std.script
     std.script.eval
-      @ (source: string, inputs: map[string,string]) -> result[map[string,string], string]
+      fn (source: string, inputs: map[string,string]) -> result[map[string,string], string]
       + executes a scripted module with named inputs and returns its outputs
       - returns error on script failure
       # scripting
 
 osint
   osint.new_workspace
-    @ (root: string) -> workspace_state
+    fn (root: string) -> workspace_state
     + creates a workspace rooted at a directory with empty module registry
     # construction
   osint.registry_sync
-    @ (state: workspace_state, index_url: string) -> result[workspace_state, string]
+    fn (state: workspace_state, index_url: string) -> result[workspace_state, string]
     + downloads the remote module index and caches it locally
     - returns error when the index is unreachable or malformed
     # package_index
     -> std.http.get
   osint.install_module
-    @ (state: workspace_state, name: string) -> result[workspace_state, string]
+    fn (state: workspace_state, name: string) -> result[workspace_state, string]
     + downloads a module by name, verifies its digest, and records it as installed
     - returns error when the digest does not match the index entry
     # package_install
@@ -51,28 +51,28 @@ osint
     -> std.crypto.sha256_hex
     -> std.fs.write_all
   osint.remove_module
-    @ (state: workspace_state, name: string) -> workspace_state
+    fn (state: workspace_state, name: string) -> workspace_state
     + removes a module from the workspace; no-op if not installed
     # package_remove
   osint.list_modules
-    @ (state: workspace_state) -> list[string]
+    fn (state: workspace_state) -> list[string]
     + returns the names of installed modules
     # introspection
   osint.add_seed
-    @ (state: workspace_state, kind: string, value: string) -> workspace_state
+    fn (state: workspace_state, kind: string, value: string) -> workspace_state
     + inserts a seed entity of kind (domain, ip, email, etc) into the workspace
     # seeding
   osint.run_module
-    @ (state: workspace_state, name: string, filter: map[string,string]) -> result[list[finding], string]
+    fn (state: workspace_state, name: string, filter: map[string,string]) -> result[list[finding], string]
     + runs an installed module against seeds matching filter and returns new findings
     - returns error when the module is not installed
     # execution
     -> std.script.eval
   osint.findings
-    @ (state: workspace_state, kind: string) -> list[finding]
+    fn (state: workspace_state, kind: string) -> list[finding]
     + returns findings of the given entity kind
     # query
   osint.export_json
-    @ (state: workspace_state) -> string
+    fn (state: workspace_state) -> string
     + serializes all findings and seeds as a JSON document
     # export

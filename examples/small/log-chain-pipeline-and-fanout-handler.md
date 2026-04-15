@@ -6,20 +6,20 @@ std: (all units exist)
 
 log_chain
   log_chain.pipeline
-    @ (middleware: list[log_middleware], terminal: log_handler) -> log_handler
+    fn (middleware: list[log_middleware], terminal: log_handler) -> log_handler
     + returns a handler that runs each middleware in order before invoking terminal
     ? middleware may transform or drop the record; dropping short-circuits the chain
     # composition
   log_chain.fanout
-    @ (handlers: list[log_handler]) -> log_handler
+    fn (handlers: list[log_handler]) -> log_handler
     + returns a handler that forwards each record to every handler in the list
     + continues to remaining handlers when one returns an error
     # composition
   log_chain.filter
-    @ (predicate: fn(log_record) -> bool) -> log_middleware
+    fn (predicate: fn(log_record) -> bool) -> log_middleware
     + returns middleware that passes records matching the predicate and drops the rest
     # middleware
   log_chain.map
-    @ (transform: fn(log_record) -> log_record) -> log_middleware
+    fn (transform: fn(log_record) -> log_record) -> log_middleware
     + returns middleware that rewrites each record before forwarding
     # middleware

@@ -6,38 +6,38 @@ std: (all units exist)
 
 json_value
   json_value.parse
-    @ (raw: string) -> result[json_value, string]
+    fn (raw: string) -> result[json_value, string]
     + parses any valid JSON document into a json_value
     - returns error with position on malformed input
     # parsing
   json_value.encode
-    @ (value: json_value) -> string
+    fn (value: json_value) -> string
     + returns the canonical JSON text for value
     # encoding
   json_value.kind
-    @ (value: json_value) -> string
+    fn (value: json_value) -> string
     + returns one of "null", "bool", "number", "string", "array", "object"
     # introspection
   json_value.get
-    @ (value: json_value, path: string) -> optional[json_value]
+    fn (value: json_value, path: string) -> optional[json_value]
     + returns the nested value at a dotted path like "a.b.0.c"
     - returns none when any segment is missing
     # navigation
   json_value.set
-    @ (value: json_value, path: string, new_value: json_value) -> result[json_value, string]
+    fn (value: json_value, path: string, new_value: json_value) -> result[json_value, string]
     + returns a new document with new_value set at path
     - returns error when a path segment type conflicts with new_value
     # mutation
   json_value.as_string
-    @ (value: json_value) -> optional[string]
+    fn (value: json_value) -> optional[string]
     + returns the string payload when value is a string
     - returns none for any other kind
     # accessors
   json_value.as_i64
-    @ (value: json_value) -> optional[i64]
+    fn (value: json_value) -> optional[i64]
     + returns the integer payload when value is a whole number
     # accessors
   json_value.as_array
-    @ (value: json_value) -> optional[list[json_value]]
+    fn (value: json_value) -> optional[list[json_value]]
     + returns the array payload when value is an array
     # accessors

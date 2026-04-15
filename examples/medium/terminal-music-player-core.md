@@ -5,64 +5,64 @@ Queue, playback state, and UI snapshot. Audio decode and rendering are the calle
 std
   std.time
     std.time.now_millis
-      @ () -> i64
+      fn () -> i64
       + returns current unix time in milliseconds
       # time
 
 player
   player.new
-    @ () -> player_state
+    fn () -> player_state
     + creates a player with an empty queue, stopped, at position 0
     # construction
   player.enqueue
-    @ (state: player_state, track: track_info) -> void
+    fn (state: player_state, track: track_info) -> void
     + appends a track to the end of the play queue
     # queue
   player.enqueue_next
-    @ (state: player_state, track: track_info) -> void
+    fn (state: player_state, track: track_info) -> void
     + inserts a track immediately after the currently playing item
     # queue
   player.remove_at
-    @ (state: player_state, index: i32) -> result[void, string]
+    fn (state: player_state, index: i32) -> result[void, string]
     + removes the track at the given queue index
     - returns error when the index is out of range
     # queue
   player.play
-    @ (state: player_state) -> result[void, string]
+    fn (state: player_state) -> result[void, string]
     + starts or resumes playback of the current track
     - returns error when the queue is empty
     # playback_control
     -> std.time.now_millis
   player.pause
-    @ (state: player_state) -> void
+    fn (state: player_state) -> void
     + pauses playback and freezes the current position
     # playback_control
     -> std.time.now_millis
   player.next_track
-    @ (state: player_state) -> optional[track_info]
+    fn (state: player_state) -> optional[track_info]
     + advances to the next track, respecting the current repeat mode
     + returns none when the queue has been exhausted and repeat is off
     # playback_control
   player.prev_track
-    @ (state: player_state) -> optional[track_info]
+    fn (state: player_state) -> optional[track_info]
     + moves to the previous track if one exists
     # playback_control
   player.seek
-    @ (state: player_state, position_millis: i64) -> result[void, string]
+    fn (state: player_state, position_millis: i64) -> result[void, string]
     + sets playback position within the current track
     - returns error when position is negative or past the track length
     # playback_control
   player.set_repeat_mode
-    @ (state: player_state, mode: string) -> result[void, string]
+    fn (state: player_state, mode: string) -> result[void, string]
     + sets repeat mode to "off", "one", or "all"
     - returns error on unknown mode
     # mode
   player.toggle_shuffle
-    @ (state: player_state) -> bool
+    fn (state: player_state) -> bool
     + toggles shuffle and returns the new state
     # mode
   player.snapshot
-    @ (state: player_state) -> player_snapshot
+    fn (state: player_state) -> player_snapshot
     + returns current track, position, queue contents, repeat mode, and shuffle flag
     # inspection
     -> std.time.now_millis

@@ -6,18 +6,18 @@ std: (all units exist)
 
 middleware
   middleware.new_chain
-    @ () -> chain_state
+    fn () -> chain_state
     + returns an empty chain
     # construction
   middleware.use
-    @ (chain: chain_state, middleware_id: string) -> chain_state
+    fn (chain: chain_state, middleware_id: string) -> chain_state
     + appends a middleware to the chain
     # composition
   middleware.then
-    @ (chain: chain_state, handler_id: string) -> handler_id
+    fn (chain: chain_state, handler_id: string) -> handler_id
     + returns a handler that runs every middleware in order before the terminal handler
     # composition
   middleware.run
-    @ (handler: handler_id, request: http_request) -> http_response
+    fn (handler: handler_id, request: http_request) -> http_response
     + executes the composed chain for a request and returns the response
     # dispatch

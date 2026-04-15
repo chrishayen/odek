@@ -6,23 +6,23 @@ std: (all units exist)
 
 cli_parser
   cli_parser.new_spec
-    @ (program_name: string) -> cli_spec
+    fn (program_name: string) -> cli_spec
     + creates an empty argument spec with the given program name
     # construction
   cli_parser.add_flag
-    @ (spec: cli_spec, long_name: string, short_name: string, help: string) -> cli_spec
+    fn (spec: cli_spec, long_name: string, short_name: string, help: string) -> cli_spec
     + registers a boolean flag
     # construction
   cli_parser.add_option
-    @ (spec: cli_spec, long_name: string, short_name: string, default_value: string, help: string) -> cli_spec
+    fn (spec: cli_spec, long_name: string, short_name: string, default_value: string, help: string) -> cli_spec
     + registers a string-valued option with a default
     # construction
   cli_parser.add_positional
-    @ (spec: cli_spec, name: string, required: bool, help: string) -> cli_spec
+    fn (spec: cli_spec, name: string, required: bool, help: string) -> cli_spec
     + appends a positional argument to the spec in declaration order
     # construction
   cli_parser.parse
-    @ (spec: cli_spec, argv: list[string]) -> result[parsed_args, string]
+    fn (spec: cli_spec, argv: list[string]) -> result[parsed_args, string]
     + returns parsed flags, options, and positionals when argv matches the spec
     + accepts both "--name value" and "--name=value" forms
     + treats "--" as the end of option parsing
@@ -30,18 +30,18 @@ cli_parser
     - returns error when an unknown option is supplied
     # parsing
   cli_parser.get_flag
-    @ (args: parsed_args, long_name: string) -> bool
+    fn (args: parsed_args, long_name: string) -> bool
     + returns whether the named flag was present
     # access
   cli_parser.get_option
-    @ (args: parsed_args, long_name: string) -> string
+    fn (args: parsed_args, long_name: string) -> string
     + returns the option value, falling back to its declared default
     # access
   cli_parser.get_positional
-    @ (args: parsed_args, name: string) -> optional[string]
+    fn (args: parsed_args, name: string) -> optional[string]
     + returns the positional value by declared name or none
     # access
   cli_parser.render_help
-    @ (spec: cli_spec) -> string
+    fn (spec: cli_spec) -> string
     + returns a formatted usage string listing the program, options, and positionals
     # help

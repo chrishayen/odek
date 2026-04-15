@@ -5,64 +5,64 @@ Test registry, runner, a minimal HTTP server, and a file-watcher loop. Networkin
 std
   std.fs
     std.fs.read_all
-      @ (path: string) -> result[bytes, string]
+      fn (path: string) -> result[bytes, string]
       + returns full file contents
       - returns error when path cannot be read
       # filesystem
     std.fs.walk
-      @ (root: string) -> result[list[string], string]
+      fn (root: string) -> result[list[string], string]
       + returns absolute paths of all files under root
       - returns error when root cannot be opened
       # filesystem
     std.fs.mtime
-      @ (path: string) -> result[i64, string]
+      fn (path: string) -> result[i64, string]
       + returns the modification time as unix seconds
       - returns error when path cannot be stat'd
       # filesystem
   std.http
     std.http.serve
-      @ (addr: string, handler: fn(http_request) -> http_response) -> result[void, string]
+      fn (addr: string, handler: fn(http_request) -> http_response) -> result[void, string]
       + binds addr and dispatches each request to handler until shutdown
       - returns error when bind fails
       # networking
     std.http.response_ok
-      @ (body: string, content_type: string) -> http_response
+      fn (body: string, content_type: string) -> http_response
       + builds a 200 response with the given body and content type
       # networking
   std.json
     std.json.encode
-      @ (value: json_value) -> string
+      fn (value: json_value) -> string
       + encodes any json value as a compact string
       # serialization
 
 bdd_web
   bdd_web.new_registry
-    @ () -> bdd_registry
+    fn () -> bdd_registry
     + returns an empty test registry
     # construction
   bdd_web.register
-    @ (reg: bdd_registry, name: string, body: fn() -> test_result) -> void
+    fn (reg: bdd_registry, name: string, body: fn() -> test_result) -> void
     + adds a named test case to the registry
     # registration
   bdd_web.run_all
-    @ (reg: bdd_registry) -> run_report
+    fn (reg: bdd_registry) -> run_report
     + runs every registered test and returns pass/fail counts and per-test results
     + captures panics as failed results with the panic message
     # execution
   bdd_web.report_to_json
-    @ (report: run_report) -> string
+    fn (report: run_report) -> string
     + encodes a run_report as JSON for the dashboard
     # serialization
     -> std.json.encode
   bdd_web.watch_sources
-    @ (root: string, on_change: fn() -> void) -> result[void, string]
+    fn (root: string, on_change: fn() -> void) -> result[void, string]
     + polls files under root and invokes on_change when any mtime advances
     - returns error when root cannot be walked
     # watching
     -> std.fs.walk
     -> std.fs.mtime
   bdd_web.serve_dashboard
-    @ (addr: string, reg: bdd_registry) -> result[void, string]
+    fn (addr: string, reg: bdd_registry) -> result[void, string]
     + serves an HTML page and a /results endpoint that returns the latest report
     - returns error when the address cannot be bound
     # dashboard
@@ -70,7 +70,7 @@ bdd_web
     -> std.http.response_ok
     -> std.fs.read_all
   bdd_web.run_with_live_reload
-    @ (addr: string, root: string, reg: bdd_registry) -> result[void, string]
+    fn (addr: string, root: string, reg: bdd_registry) -> result[void, string]
     + starts the dashboard and re-runs all tests whenever any source under root changes
     - returns error when the dashboard cannot start
     # orchestration

@@ -6,20 +6,20 @@ std: (all units exist)
 
 bridge
   bridge.new
-    @ () -> bridge_state
+    fn () -> bridge_state
     + creates a bridge with no registered handlers
     # construction
   bridge.register
-    @ (state: bridge_state, name: string, handler: callback) -> bridge_state
+    fn (state: bridge_state, name: string, handler: callback) -> bridge_state
     + registers a named handler that accepts a cell-range argument and returns a value
     # registration
   bridge.call_from_sheet
-    @ (state: bridge_state, name: string, args: list[string]) -> result[string, string]
+    fn (state: bridge_state, name: string, args: list[string]) -> result[string, string]
     + invokes the named handler and returns its stringified result
     - returns error when the name is not registered
     # sheet_to_runtime
   bridge.write_range
-    @ (state: bridge_state, sheet: string, cell: string, values: list[list[string]]) -> result[void, string]
+    fn (state: bridge_state, sheet: string, cell: string, values: list[list[string]]) -> result[void, string]
     + pushes a 2D block of values to a named range
     - returns error on malformed cell reference
     # runtime_to_sheet

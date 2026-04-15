@@ -6,7 +6,7 @@ std: (all units exist)
 
 markdown
   markdown.to_html
-    @ (md: string) -> string
+    fn (md: string) -> string
     + converts "# Title" to "<h1>Title</h1>"
     + converts "**bold**" to "<p><strong>bold</strong></p>"
     + handles nested lists and fenced code blocks
@@ -15,11 +15,11 @@ markdown
     ? raw HTML passthrough is NOT supported; angle brackets in text are escaped
     # rendering
   markdown.parse_block
-    @ (line: string) -> markdown_block
+    fn (line: string) -> markdown_block
     + classifies a line as heading / list-item / code-fence / paragraph
     # parsing
   markdown.render_inline
-    @ (text: string) -> string
+    fn (text: string) -> string
     + renders bold, italic, links, and code spans into HTML
     + escapes <, >, and & in non-code text
     # rendering

@@ -6,48 +6,48 @@ std: (all units exist)
 
 fp
   fp.option_some
-    @ (value: bytes) -> option_val
+    fn (value: bytes) -> option_val
     + returns a Some wrapping the value
     # option
   fp.option_none
-    @ () -> option_val
+    fn () -> option_val
     + returns the None variant
     # option
   fp.option_map
-    @ (opt: option_val, f: fn[bytes, bytes]) -> option_val
+    fn (opt: option_val, f: fn[bytes, bytes]) -> option_val
     + applies f to the inner value when present
     - returns None unchanged when the input is None
     # option
   fp.option_unwrap_or
-    @ (opt: option_val, default: bytes) -> bytes
+    fn (opt: option_val, default: bytes) -> bytes
     + returns the inner value or the default
     # option
   fp.result_ok
-    @ (value: bytes) -> result_val
+    fn (value: bytes) -> result_val
     + returns an Ok variant
     # result
   fp.result_err
-    @ (err: string) -> result_val
+    fn (err: string) -> result_val
     + returns an Err variant
     # result
   fp.result_map
-    @ (r: result_val, f: fn[bytes, bytes]) -> result_val
+    fn (r: result_val, f: fn[bytes, bytes]) -> result_val
     + maps the Ok branch
     - returns the Err unchanged
     # result
   fp.result_and_then
-    @ (r: result_val, f: fn[bytes, result_val]) -> result_val
+    fn (r: result_val, f: fn[bytes, result_val]) -> result_val
     + chains a fallible step on the Ok branch
     # result
   fp.either_left
-    @ (value: bytes) -> either_val
+    fn (value: bytes) -> either_val
     + returns a Left variant
     # either
   fp.either_right
-    @ (value: bytes) -> either_val
+    fn (value: bytes) -> either_val
     + returns a Right variant
     # either
   fp.either_fold
-    @ (e: either_val, on_left: fn[bytes, bytes], on_right: fn[bytes, bytes]) -> bytes
+    fn (e: either_val, on_left: fn[bytes, bytes], on_right: fn[bytes, bytes]) -> bytes
     + applies on_left or on_right depending on the variant
     # either

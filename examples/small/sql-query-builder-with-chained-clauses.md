@@ -6,26 +6,26 @@ std: (all units exist)
 
 query
   query.select
-    @ (table: string, columns: list[string]) -> query_state
+    fn (table: string, columns: list[string]) -> query_state
     + creates a builder with the given table and projection
     ? empty columns list means "SELECT *"
     # construction
   query.where_eq
-    @ (q: query_state, column: string, value: string) -> query_state
+    fn (q: query_state, column: string, value: string) -> query_state
     + appends an equality condition, ANDed with existing ones
     # filtering
   query.order_by
-    @ (q: query_state, column: string, direction: string) -> result[query_state, string]
+    fn (q: query_state, column: string, direction: string) -> result[query_state, string]
     + appends ORDER BY with "asc" or "desc"
     - returns error when direction is not "asc" or "desc"
     # ordering
   query.limit
-    @ (q: query_state, n: i64) -> result[query_state, string]
+    fn (q: query_state, n: i64) -> result[query_state, string]
     + sets LIMIT n
     - returns error when n < 0
     # pagination
   query.build
-    @ (q: query_state) -> tuple[string, list[string]]
+    fn (q: query_state) -> tuple[string, list[string]]
     + returns the final SQL string and the positional parameters
     + placeholders are numbered "$1", "$2", ... in the order conditions were added
     # compilation

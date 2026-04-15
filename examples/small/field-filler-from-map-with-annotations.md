@@ -6,15 +6,15 @@ std: (all units exist)
 
 field_filler
   field_filler.new_schema
-    @ () -> fill_schema
+    fn () -> fill_schema
     + returns an empty schema
     # construction
   field_filler.add_field
-    @ (schema: fill_schema, name: string, default_value: string, required: bool) -> fill_schema
+    fn (schema: fill_schema, name: string, default_value: string, required: bool) -> fill_schema
     + returns a schema with the field added
     # registration
   field_filler.fill
-    @ (schema: fill_schema, inputs: map[string, string]) -> result[map[string, string], string]
+    fn (schema: fill_schema, inputs: map[string, string]) -> result[map[string, string], string]
     + returns a record with each field populated from inputs or defaults
     - returns error when a required field is missing from inputs
     # filling

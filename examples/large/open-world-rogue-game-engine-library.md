@@ -5,85 +5,85 @@ Tile-based world, player and entity state, turn loop, procedural map generation,
 std
   std.random
     std.random.new_rng
-      @ (seed: u64) -> rng_state
+      fn (seed: u64) -> rng_state
       + creates a deterministic pseudorandom generator from a seed
       # random
     std.random.next_int
-      @ (rng: rng_state, max_exclusive: i32) -> tuple[i32, rng_state]
+      fn (rng: rng_state, max_exclusive: i32) -> tuple[i32, rng_state]
       + returns a uniform integer in [0, max_exclusive) and the advanced rng
       # random
   std.grid
     std.grid.new
-      @ (width: i32, height: i32, fill: i32) -> grid_state
+      fn (width: i32, height: i32, fill: i32) -> grid_state
       + creates a rectangular grid populated with the fill value
       # grid
     std.grid.get
-      @ (grid: grid_state, x: i32, y: i32) -> optional[i32]
+      fn (grid: grid_state, x: i32, y: i32) -> optional[i32]
       + returns the tile at (x,y), or None when out of bounds
       # grid
     std.grid.set
-      @ (grid: grid_state, x: i32, y: i32, value: i32) -> grid_state
+      fn (grid: grid_state, x: i32, y: i32, value: i32) -> grid_state
       + returns a new grid with the tile at (x,y) replaced
       # grid
 
 rogue
   rogue.new_world
-    @ (seed: u64, width: i32, height: i32) -> world_state
+    fn (seed: u64, width: i32, height: i32) -> world_state
     + creates a world with a procedurally generated map from the given seed
     # construction
     -> std.random.new_rng
     -> std.grid.new
   rogue.generate_map
-    @ (world: world_state) -> world_state
+    fn (world: world_state) -> world_state
     + carves rooms and corridors into the world's grid using its rng
     # world_generation
     -> std.random.next_int
     -> std.grid.set
   rogue.spawn_player
-    @ (world: world_state, x: i32, y: i32) -> result[world_state, string]
+    fn (world: world_state, x: i32, y: i32) -> result[world_state, string]
     + places the player at (x,y) with default stats
     - returns error when the tile is not walkable
     # player
     -> std.grid.get
   rogue.spawn_entity
-    @ (world: world_state, kind: string, x: i32, y: i32) -> result[tuple[string, world_state], string]
+    fn (world: world_state, kind: string, x: i32, y: i32) -> result[tuple[string, world_state], string]
     + adds an entity of the given kind and returns its id
     - returns error when the tile is occupied or out of bounds
     # entities
     -> std.grid.get
   rogue.move_player
-    @ (world: world_state, dx: i32, dy: i32) -> result[world_state, string]
+    fn (world: world_state, dx: i32, dy: i32) -> result[world_state, string]
     + moves the player by (dx, dy) and consumes one turn
     - returns error when the destination is blocked
     # movement
     -> std.grid.get
   rogue.attack
-    @ (world: world_state, target_id: string) -> result[world_state, string]
+    fn (world: world_state, target_id: string) -> result[world_state, string]
     + resolves a melee attack against target_id, applying damage via the rng
     - returns error when target_id is unknown or out of range
     # combat
     -> std.random.next_int
   rogue.pickup_item
-    @ (world: world_state, item_id: string) -> result[world_state, string]
+    fn (world: world_state, item_id: string) -> result[world_state, string]
     + moves the item from the ground into the player's inventory
     - returns error when the item is not on the player's tile
     # inventory
   rogue.use_item
-    @ (world: world_state, item_id: string) -> result[world_state, string]
+    fn (world: world_state, item_id: string) -> result[world_state, string]
     + applies the item's effect and removes it from inventory if consumable
     - returns error when the item is not in the player's inventory
     # inventory
   rogue.tick
-    @ (world: world_state) -> world_state
+    fn (world: world_state) -> world_state
     + advances all non-player entities by one turn using their simple ai
     # turn_loop
     -> std.random.next_int
   rogue.visible_tiles
-    @ (world: world_state, radius: i32) -> list[tuple[i32, i32]]
+    fn (world: world_state, radius: i32) -> list[tuple[i32, i32]]
     + returns the tiles visible to the player within radius using line-of-sight
     # field_of_view
     -> std.grid.get
   rogue.register_tile_kind
-    @ (world: world_state, kind: string, walkable: bool, glyph: string) -> world_state
+    fn (world: world_state, kind: string, walkable: bool, glyph: string) -> world_state
     + defines a new tile kind so maps can include custom terrain
     # extensibility

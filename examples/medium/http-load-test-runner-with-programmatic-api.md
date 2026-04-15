@@ -5,42 +5,42 @@ Define a scenario (requests, concurrency, duration or request count), run it, an
 std
   std.http
     std.http.request
-      @ (method: string, url: string, headers: map[string, string], body: bytes) -> result[http_response, string]
+      fn (method: string, url: string, headers: map[string, string], body: bytes) -> result[http_response, string]
       + performs a single HTTP request and returns the response
       - returns error on connection failure
       # http
   std.time
     std.time.now_nanos
-      @ () -> i64
+      fn () -> i64
       + returns current monotonic time in nanoseconds
       # time
   std.concurrency
     std.concurrency.run_workers
-      @ (worker_count: i32, task: fn(i32) -> void) -> void
+      fn (worker_count: i32, task: fn(i32) -> void) -> void
       + runs task concurrently across worker_count workers and waits for all to finish
       # concurrency
 
 loadtest
   loadtest.new_scenario
-    @ (name: string) -> scenario
+    fn (name: string) -> scenario
     + creates an empty scenario with the given name
     # construction
   loadtest.add_step
-    @ (s: scenario, method: string, url: string, headers: map[string, string], body: bytes) -> scenario
+    fn (s: scenario, method: string, url: string, headers: map[string, string], body: bytes) -> scenario
     + appends a request step; workers iterate the step list in order
     # scenario
   loadtest.configure
-    @ (s: scenario, concurrency: i32, duration_ms: i64, max_requests: i32) -> scenario
+    fn (s: scenario, concurrency: i32, duration_ms: i64, max_requests: i32) -> scenario
     + sets the worker count and stop condition; a zero duration means "until max_requests is reached"
     # scenario
   loadtest.run
-    @ (s: scenario) -> run_report
+    fn (s: scenario) -> run_report
     + executes the scenario, measuring latency per request and counting outcomes per status class
     # execution
     -> std.concurrency.run_workers
     -> std.http.request
     -> std.time.now_nanos
   loadtest.summarize
-    @ (report: run_report) -> summary
+    fn (report: run_report) -> summary
     + computes mean, p50, p95, p99 latency, requests per second, and error rate
     # reporting

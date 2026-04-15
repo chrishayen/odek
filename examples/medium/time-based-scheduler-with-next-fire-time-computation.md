@@ -5,39 +5,39 @@ A task has a cron-like schedule and a name. The scheduler is pure: given the cur
 std
   std.time
     std.time.now_seconds
-      @ () -> i64
+      fn () -> i64
       + returns current unix time in seconds
       # time
 
 scheduler
   scheduler.new
-    @ () -> scheduler_state
+    fn () -> scheduler_state
     + creates an empty scheduler
     # construction
   scheduler.parse_schedule
-    @ (expr: string) -> result[schedule, string]
+    fn (expr: string) -> result[schedule, string]
     + parses a five-field cron expression into a schedule
     + supports "*", exact values, ranges "a-b", and steps "*/n"
     - returns error on malformed expression
     - returns error when any field is out of range
     # parsing
   scheduler.register
-    @ (state: scheduler_state, name: string, sched: schedule) -> result[scheduler_state, string]
+    fn (state: scheduler_state, name: string, sched: schedule) -> result[scheduler_state, string]
     + adds a task with a schedule
     - returns error when the name is already registered
     # registration
   scheduler.next_fire
-    @ (sched: schedule, after: i64) -> i64
+    fn (sched: schedule, after: i64) -> i64
     + returns the next unix second at which the schedule matches strictly after the given time
     # scheduling
   scheduler.due
-    @ (state: scheduler_state, now: i64) -> tuple[list[string], scheduler_state]
+    fn (state: scheduler_state, now: i64) -> tuple[list[string], scheduler_state]
     + returns the names of tasks whose next fire time is at or before now, and the updated state
     ? last-fire times are advanced so a task fires at most once per match
     # scheduling
     -> std.time.now_seconds
   scheduler.remove
-    @ (state: scheduler_state, name: string) -> result[scheduler_state, string]
+    fn (state: scheduler_state, name: string) -> result[scheduler_state, string]
     + removes a registered task
     - returns error when the name is not registered
     # registration

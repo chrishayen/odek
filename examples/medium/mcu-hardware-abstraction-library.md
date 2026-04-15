@@ -6,48 +6,48 @@ std: (all units exist)
 
 mcu
   mcu.new_mmio
-    @ () -> mmio_state
+    fn () -> mmio_state
     + returns a zeroed memory-mapped IO state
     # construction
   mcu.read_reg
-    @ (state: mmio_state, addr: u32) -> u32
+    fn (state: mmio_state, addr: u32) -> u32
     + returns the value at the register address
     # mmio
   mcu.write_reg
-    @ (state: mmio_state, addr: u32, value: u32) -> mmio_state
+    fn (state: mmio_state, addr: u32, value: u32) -> mmio_state
     + stores value at the register address
     # mmio
   mcu.gpio_set_mode
-    @ (state: mmio_state, pin: i32, mode: i32) -> mmio_state
+    fn (state: mmio_state, pin: i32, mode: i32) -> mmio_state
     + configures a GPIO pin as input, output, or alternate function
     - returns unchanged state when pin is out of range
     # gpio
   mcu.gpio_write
-    @ (state: mmio_state, pin: i32, high: bool) -> mmio_state
+    fn (state: mmio_state, pin: i32, high: bool) -> mmio_state
     + drives a pin high or low
     # gpio
   mcu.gpio_read
-    @ (state: mmio_state, pin: i32) -> bool
+    fn (state: mmio_state, pin: i32) -> bool
     + returns the logical level of a pin
     # gpio
   mcu.timer_configure
-    @ (state: mmio_state, timer_id: i32, period_ticks: u32) -> mmio_state
+    fn (state: mmio_state, timer_id: i32, period_ticks: u32) -> mmio_state
     + configures a hardware timer with the given period
     # timer
   mcu.timer_elapsed
-    @ (state: mmio_state, timer_id: i32) -> bool
+    fn (state: mmio_state, timer_id: i32) -> bool
     + returns true when the timer has reached its configured period
     # timer
   mcu.uart_configure
-    @ (state: mmio_state, uart_id: i32, baud: u32) -> mmio_state
+    fn (state: mmio_state, uart_id: i32, baud: u32) -> mmio_state
     + configures a UART peripheral
     # uart
   mcu.uart_write_byte
-    @ (state: mmio_state, uart_id: i32, byte: u8) -> mmio_state
+    fn (state: mmio_state, uart_id: i32, byte: u8) -> mmio_state
     + writes a byte to the UART transmit register
     # uart
   mcu.uart_read_byte
-    @ (state: mmio_state, uart_id: i32) -> optional[u8]
+    fn (state: mmio_state, uart_id: i32) -> optional[u8]
     + returns the next received byte when available
     - returns none when the receive register is empty
     # uart

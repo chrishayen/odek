@@ -5,45 +5,45 @@ Loads per-locale message dictionaries from json, looks up keys, and fills placeh
 std
   std.fs
     std.fs.read_all
-      @ (path: string) -> result[string, string]
+      fn (path: string) -> result[string, string]
       + reads a file as text
       # filesystem
     std.fs.write_all
-      @ (path: string, contents: string) -> result[void, string]
+      fn (path: string, contents: string) -> result[void, string]
       + writes text, creating parent directories
       # filesystem
   std.json
     std.json.parse_string_map
-      @ (raw: string) -> result[map[string, string], string]
+      fn (raw: string) -> result[map[string, string], string]
       + parses a flat string-to-string json object
       - returns error on malformed input
       # serialization
     std.json.encode_string_map
-      @ (m: map[string, string]) -> string
+      fn (m: map[string, string]) -> string
       + encodes a flat string map as pretty-printed json
       # serialization
 
 i18n
   i18n.new_catalog
-    @ () -> catalog_state
+    fn () -> catalog_state
     + creates an empty catalog with no locales loaded
     # construction
   i18n.load_locale
-    @ (state: catalog_state, locale: string, path: string) -> result[catalog_state, string]
+    fn (state: catalog_state, locale: string, path: string) -> result[catalog_state, string]
     + reads the json file and installs it as the dictionary for the locale
     - returns error when the file is missing or malformed
     # loading
     -> std.fs.read_all
     -> std.json.parse_string_map
   i18n.save_locale
-    @ (state: catalog_state, locale: string, path: string) -> result[void, string]
+    fn (state: catalog_state, locale: string, path: string) -> result[void, string]
     + serializes the dictionary for the locale and writes it to disk
     - returns error when the locale is not loaded
     # persistence
     -> std.json.encode_string_map
     -> std.fs.write_all
   i18n.translate
-    @ (state: catalog_state, locale: string, key: string, vars: map[string, string]) -> tuple[string, catalog_state]
+    fn (state: catalog_state, locale: string, key: string, vars: map[string, string]) -> tuple[string, catalog_state]
     + returns the template rendered with `{{ name }}` placeholders from vars
     + when the key is missing, falls back to the key itself and adds it to the dictionary
     ? dictionaries mutate on miss so tests can detect new strings

@@ -5,18 +5,18 @@ A simpler, rule-less HTML-to-Markdown converter: tokenize, walk, emit.
 std
   std.html
     std.html.tokenize
-      @ (source: string) -> result[list[html_token], string]
+      fn (source: string) -> result[list[html_token], string]
       + tokenizes text, start tags, end tags, and comments
       - returns error on unclosed tags
       # parsing
     std.html.decode_entities
-      @ (text: string) -> string
+      fn (text: string) -> string
       + decodes named and numeric HTML entities
       # parsing
 
 html2text
   html2text.convert
-    @ (html: string) -> result[string, string]
+    fn (html: string) -> result[string, string]
     + renders headings h1..h6 with leading "#" characters
     + renders paragraphs separated by blank lines
     + renders <a href="u">t</a> as "[t](u)"

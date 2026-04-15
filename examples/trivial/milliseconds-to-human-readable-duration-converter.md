@@ -6,7 +6,7 @@ std: (all units exist)
 
 pretty_ms
   pretty_ms.humanize
-    @ (ms: i64) -> string
+    fn (ms: i64) -> string
     + formats 1337000000 as "15d 11h 23m 20s"
     + formats 0 as "0ms"
     + omits zero-valued units except when the entire duration is zero

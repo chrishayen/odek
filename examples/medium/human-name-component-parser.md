@@ -5,21 +5,21 @@ Splits a raw name into title, first, middle, last, suffix, and nickname using cl
 std
   std.strings
     std.strings.split
-      @ (s: string, sep: string) -> list[string]
+      fn (s: string, sep: string) -> list[string]
       + splits s on every occurrence of sep
       # strings
     std.strings.trim
-      @ (s: string) -> string
+      fn (s: string) -> string
       + strips leading and trailing ASCII whitespace
       # strings
     std.strings.to_lower
-      @ (s: string) -> string
+      fn (s: string) -> string
       + returns an ASCII-lowercased copy
       # strings
 
 humanname
   humanname.parse
-    @ (raw: string) -> human_name
+    fn (raw: string) -> human_name
     + extracts title, first, middle, last, suffix, and nickname
     + handles "Last, First" comma-ordered input
     ? returns empty strings for absent components rather than none
@@ -27,25 +27,25 @@ humanname
     -> std.strings.split
     -> std.strings.trim
   humanname.is_title
-    @ (token: string) -> bool
+    fn (token: string) -> bool
     + returns true for recognized honorifics like "Dr.", "Mrs."
     # classification
     -> std.strings.to_lower
   humanname.is_suffix
-    @ (token: string) -> bool
+    fn (token: string) -> bool
     + returns true for generational or credential suffixes like "Jr.", "PhD"
     # classification
     -> std.strings.to_lower
   humanname.is_last_name_particle
-    @ (token: string) -> bool
+    fn (token: string) -> bool
     + returns true for particles like "van", "de", "von"
     # classification
     -> std.strings.to_lower
   humanname.extract_nickname
-    @ (raw: string) -> tuple[string, string]
+    fn (raw: string) -> tuple[string, string]
     + returns (raw_without_nickname, nickname) when a quoted or parenthesized nickname is present
     # extraction
   humanname.format
-    @ (n: human_name) -> string
+    fn (n: human_name) -> string
     + reassembles components into a display form
     # formatting

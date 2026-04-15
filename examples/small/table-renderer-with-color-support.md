@@ -6,20 +6,20 @@ std: (all units exist)
 
 table
   table.new
-    @ (headers: list[string]) -> table_state
+    fn (headers: list[string]) -> table_state
     + returns an empty table with the given column headers
     # construction
   table.add_row
-    @ (t: table_state, cells: list[string]) -> result[table_state, string]
+    fn (t: table_state, cells: list[string]) -> result[table_state, string]
     + appends the row to the table
     - returns error when the cell count does not match the header count
     # rows
   table.set_column_color
-    @ (t: table_state, column: i32, color: string) -> table_state
+    fn (t: table_state, column: i32, color: string) -> table_state
     + returns a table with the color applied to cells in the column
     # styling
   table.render
-    @ (t: table_state) -> string
+    fn (t: table_state) -> string
     + returns a formatted, padded, color-annotated string
     ? columns are padded to the width of the widest cell
     # rendering

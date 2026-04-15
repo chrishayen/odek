@@ -6,7 +6,7 @@ std: (all units exist)
 
 round_to
   round_to.round
-    @ (value: f64, decimals: i32) -> f64
+    fn (value: f64, decimals: i32) -> f64
     + returns value rounded to the requested number of decimal places
     + rounds 1.234 with decimals=1 to 1.2
     + handles negative values symmetrically

@@ -5,38 +5,38 @@ The library exposes a watch loop that consumers drive; process start/stop is del
 std
   std.fs
     std.fs.watch_dir
-      @ (path: string, recursive: bool) -> watcher_state
+      fn (path: string, recursive: bool) -> watcher_state
       + returns a handle that emits filesystem change events
       # filesystem
     std.fs.next_event
-      @ (w: watcher_state) -> optional[string]
+      fn (w: watcher_state) -> optional[string]
       + returns the next changed path, or none when the buffer is empty
       # filesystem
   std.proc
     std.proc.spawn
-      @ (command: string, args: list[string]) -> result[i32, string]
+      fn (command: string, args: list[string]) -> result[i32, string]
       + starts a child process and returns its pid
       - returns error when the command cannot be executed
       # process
     std.proc.kill
-      @ (pid: i32) -> void
+      fn (pid: i32) -> void
       + terminates the process identified by pid
       # process
 
 auto_restart
   auto_restart.new
-    @ (watch_path: string, command: string, args: list[string]) -> auto_restart_state
+    fn (watch_path: string, command: string, args: list[string]) -> auto_restart_state
     + creates a supervisor bound to the watch path and restart command
     # construction
     -> std.fs.watch_dir
   auto_restart.start
-    @ (s: auto_restart_state) -> result[auto_restart_state, string]
+    fn (s: auto_restart_state) -> result[auto_restart_state, string]
     + launches the child for the first time
     - returns error when spawn fails
     # lifecycle
     -> std.proc.spawn
   auto_restart.tick
-    @ (s: auto_restart_state) -> auto_restart_state
+    fn (s: auto_restart_state) -> auto_restart_state
     + consumes pending filesystem events and restarts the child when any arrive
     # supervision
     -> std.fs.next_event

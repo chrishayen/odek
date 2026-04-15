@@ -6,7 +6,7 @@ std: (all units exist)
 
 event_venue
   event_venue.lookup
-    @ (year: i32) -> result[string, string]
+    fn (year: i32) -> result[string, string]
     + returns the host city for a known year
     - returns error when the year has no registered venue
     # lookup

@@ -6,7 +6,7 @@ std: (all units exist)
 
 slug
   slug.from_string
-    @ (input: string) -> string
+    fn (input: string) -> string
     + returns "hello-world" for "Hello World"
     + returns "foo-bar-baz" for "  foo   bar   baz  "
     + collapses consecutive whitespace into a single hyphen

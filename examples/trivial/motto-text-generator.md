@@ -6,7 +6,7 @@ std: (all units exist)
 
 motto
   motto.get
-    @ () -> string
+    fn () -> string
     + returns a short fixed motivational string
     ? text is hardcoded; no parameter
     # motto

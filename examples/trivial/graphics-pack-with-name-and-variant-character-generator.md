@@ -6,7 +6,7 @@ std: (all units exist)
 
 graphics_pack
   graphics_pack.get
-    @ (character: string, variant: string) -> optional[bytes]
+    fn (character: string, variant: string) -> optional[bytes]
     + returns the artwork bytes for a (character, variant) pair
     - returns none when either the character or the variant is unknown
     # catalog

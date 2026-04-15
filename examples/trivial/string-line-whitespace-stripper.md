@@ -6,7 +6,7 @@ std: (all units exist)
 
 stripindent
   stripindent.strip
-    @ (text: string) -> string
+    fn (text: string) -> string
     + removes the longest common leading whitespace prefix shared by non-empty lines
     + ignores blank lines when computing the shared prefix
     + returns the input unchanged when no common indent exists

@@ -6,21 +6,21 @@ std: (all units exist)
 
 pipeline
   pipeline.new
-    @ (stages: list[bus_state]) -> result[bus_state, string]
+    fn (stages: list[bus_state]) -> result[bus_state, string]
     + wires stages end-to-end into one duplex stream
     - returns error when stages is empty
     # construction
   pipeline.write
-    @ (pipe: bus_state, chunk: bytes) -> result[i32, string]
+    fn (pipe: bus_state, chunk: bytes) -> result[i32, string]
     + forwards the chunk to the head stage and returns bytes accepted
     - returns error when any stage has failed
     # io
   pipeline.read
-    @ (pipe: bus_state, max: i32) -> result[bytes, string]
+    fn (pipe: bus_state, max: i32) -> result[bytes, string]
     + returns up to max bytes from the tail stage
     - returns error when any stage has failed
     # io
   pipeline.close
-    @ (pipe: bus_state) -> result[void, string]
+    fn (pipe: bus_state) -> result[void, string]
     + closes every stage in order and surfaces the first error
     # lifecycle

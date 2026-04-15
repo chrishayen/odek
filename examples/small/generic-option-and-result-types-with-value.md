@@ -6,22 +6,22 @@ std: (all units exist)
 
 valor
   valor.some
-    @ (value: string) -> optional[string]
+    fn (value: string) -> optional[string]
     + wraps a value as a present optional
     # option_construction
   valor.none
-    @ () -> optional[string]
+    fn () -> optional[string]
     + returns an empty optional
     # option_construction
   valor.unwrap_or
-    @ (opt: optional[string], default_value: string) -> string
+    fn (opt: optional[string], default_value: string) -> string
     + returns the inner value when present, otherwise the default
     # option_inspection
   valor.ok
-    @ (value: string) -> result[string, string]
+    fn (value: string) -> result[string, string]
     + wraps a value as a success result
     # result_construction
   valor.err
-    @ (message: string) -> result[string, string]
+    fn (message: string) -> result[string, string]
     + wraps a message as an error result
     # result_construction

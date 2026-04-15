@@ -6,7 +6,7 @@ std: (all units exist)
 
 arithmetic
   arithmetic.add
-    @ (a: i32, b: i32) -> i32
+    fn (a: i32, b: i32) -> i32
     + returns 5 when given 2 and 3
     + returns 0 when given 0 and 0
     + returns -5 when given -2 and -3

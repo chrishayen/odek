@@ -6,7 +6,7 @@ std: (all units exist)
 
 venue
   venue.describe
-    @ () -> string
+    fn () -> string
     + returns a fixed venue description string
     ? the description is hardcoded; no parameters
     # lookup

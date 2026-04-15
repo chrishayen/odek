@@ -5,21 +5,21 @@ A table-driven LL(1) parser with a hand-rolled lexer. std provides a small token
 std
   std.text
     std.text.is_alpha
-      @ (c: u8) -> bool
+      fn (c: u8) -> bool
       + returns true for ascii letters
       # text
     std.text.is_digit
-      @ (c: u8) -> bool
+      fn (c: u8) -> bool
       + returns true for ascii digits 0-9
       # text
     std.text.is_whitespace
-      @ (c: u8) -> bool
+      fn (c: u8) -> bool
       + returns true for spaces, tabs, newlines, and carriage returns
       # text
 
 ll1
   ll1.tokenize
-    @ (source: string) -> result[list[token], string]
+    fn (source: string) -> result[list[token], string]
     + produces tokens with kind, lexeme, and byte offset
     - returns error at an unexpected character
     # lexing
@@ -27,25 +27,25 @@ ll1
     -> std.text.is_digit
     -> std.text.is_whitespace
   ll1.parse_grammar
-    @ (text: string) -> result[grammar, string]
+    fn (text: string) -> result[grammar, string]
     + reads a BNF grammar description into productions and non-terminal sets
     - returns error on undefined non-terminals
     # grammar
   ll1.first_sets
-    @ (g: grammar) -> map[string, list[string]]
+    fn (g: grammar) -> map[string, list[string]]
     + computes FIRST sets for every non-terminal in the grammar
     # analysis
   ll1.follow_sets
-    @ (g: grammar, first: map[string, list[string]]) -> map[string, list[string]]
+    fn (g: grammar, first: map[string, list[string]]) -> map[string, list[string]]
     + computes FOLLOW sets given the grammar and FIRST sets
     # analysis
   ll1.build_table
-    @ (g: grammar) -> result[parse_table, string]
+    fn (g: grammar) -> result[parse_table, string]
     + constructs the LL(1) parse table
     - returns error when the grammar has a conflict between two productions for one cell
     # table_construction
   ll1.parse
-    @ (table: parse_table, tokens: list[token]) -> result[parse_tree, string]
+    fn (table: parse_table, tokens: list[token]) -> result[parse_tree, string]
     + drives the predictive parser and returns the parse tree
     - returns error on an unexpected token with expected set
     # parsing

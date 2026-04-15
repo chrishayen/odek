@@ -6,7 +6,7 @@ std: (all units exist)
 
 bytesize
   bytesize.format
-    @ (bytes: i64) -> string
+    fn (bytes: i64) -> string
     + returns a compact form like "10K", "2M", "3G" using 1024-based units
     + returns "0B" for 0
     + returns "1023B" for 1023
@@ -14,12 +14,12 @@ bytesize
     ? chooses the largest unit that yields an integer or short decimal
     # formatting
   bytesize.format_precision
-    @ (bytes: i64, decimals: i32) -> string
+    fn (bytes: i64, decimals: i32) -> string
     + like format but keeps the given number of decimal places
     + returns "1.50K" for 1536 with decimals=2
     # formatting
   bytesize.parse
-    @ (s: string) -> result[i64, string]
+    fn (s: string) -> result[i64, string]
     + parses "10K", "2M", "3G", "512B", "1.5G"
     + accepts both uppercase and lowercase suffixes
     - returns error on unknown suffix

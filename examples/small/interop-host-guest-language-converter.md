@@ -6,21 +6,21 @@ std: (all units exist)
 
 interop
   interop.to_dynamic
-    @ (value: host_value) -> dynamic_value
+    fn (value: host_value) -> dynamic_value
     + converts a host value into the dynamic representation
     ? integers become numbers; maps become objects; lists become arrays
     # conversion
   interop.from_dynamic
-    @ (value: dynamic_value, expected: type_hint) -> result[host_value, string]
+    fn (value: dynamic_value, expected: type_hint) -> result[host_value, string]
     + converts a dynamic value into the expected host type
     - returns error when the dynamic value cannot satisfy the expected type
     # conversion
   interop.encode_call
-    @ (fn_name: string, args: list[host_value]) -> dynamic_value
+    fn (fn_name: string, args: list[host_value]) -> dynamic_value
     + builds a dynamic call payload {fn, args} for the guest
     # bridging
   interop.decode_return
-    @ (payload: dynamic_value, expected: type_hint) -> result[host_value, string]
+    fn (payload: dynamic_value, expected: type_hint) -> result[host_value, string]
     + decodes a guest return payload into a host value
     - returns error on type mismatch
     # bridging

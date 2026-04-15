@@ -5,35 +5,35 @@ Text was an editor extension, but the reusable library is a benchmark parser and
 std
   std.text
     std.text.split_lines
-      @ (raw: string) -> list[string]
+      fn (raw: string) -> list[string]
       + splits on "\n" or "\r\n" and drops the trailing empty line
       # text
     std.text.split_whitespace
-      @ (line: string) -> list[string]
+      fn (line: string) -> list[string]
       + splits a line on runs of whitespace and drops empty tokens
       # text
 
 benchmark_profile
   benchmark_profile.parse
-    @ (raw: string) -> result[list[bench_result], string]
+    fn (raw: string) -> result[list[bench_result], string]
     + parses a benchmark log into a list of (name, iterations, ns_per_op, bytes_per_op, allocs_per_op)
     - returns error when no benchmark lines are found
     # parsing
     -> std.text.split_lines
     -> std.text.split_whitespace
   benchmark_profile.find
-    @ (results: list[bench_result], name: string) -> optional[bench_result]
+    fn (results: list[bench_result], name: string) -> optional[bench_result]
     + returns the result with the given name or none
     # lookup
   benchmark_profile.compare
-    @ (before: list[bench_result], after: list[bench_result]) -> list[bench_delta]
+    fn (before: list[bench_result], after: list[bench_result]) -> list[bench_delta]
     + returns a delta per benchmark present in both sides, with percent change in ns_per_op and bytes_per_op
     # comparison
   benchmark_profile.classify
-    @ (delta: bench_delta, threshold_pct: f64) -> string
+    fn (delta: bench_delta, threshold_pct: f64) -> string
     + returns "improved", "regressed", or "unchanged" based on the threshold
     # classification
   benchmark_profile.format_table
-    @ (deltas: list[bench_delta]) -> string
+    fn (deltas: list[bench_delta]) -> string
     + returns a fixed-width text table with name, before, after, and change columns
     # rendering

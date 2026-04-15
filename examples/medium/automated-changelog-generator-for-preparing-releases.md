@@ -5,52 +5,52 @@ Collects change entries from a directory, groups them by kind, and renders a rel
 std
   std.fs
     std.fs.list_dir
-      @ (path: string) -> result[list[string], string]
+      fn (path: string) -> result[list[string], string]
       + returns file names in the directory
       - returns error when path does not exist
       # filesystem
     std.fs.read_all
-      @ (path: string) -> result[string, string]
+      fn (path: string) -> result[string, string]
       + reads the full file contents as a string
       - returns error on missing file or permission denied
       # filesystem
     std.fs.write_all
-      @ (path: string, contents: string) -> result[void, string]
+      fn (path: string, contents: string) -> result[void, string]
       + writes contents to path, replacing any existing file
       # filesystem
   std.time
     std.time.today_iso
-      @ () -> string
+      fn () -> string
       + returns the current date as YYYY-MM-DD
       # time
 
 changelog
   changelog.entry_parse
-    @ (raw: string) -> result[change_entry, string]
+    fn (raw: string) -> result[change_entry, string]
     + parses a single change entry with kind and body fields
     - returns error when the kind field is missing
     # parsing
   changelog.collect_unreleased
-    @ (dir: string) -> result[list[change_entry], string]
+    fn (dir: string) -> result[list[change_entry], string]
     + reads all entry files in dir and returns the parsed entries
     - returns error when any entry fails to parse
     # aggregation
     -> std.fs.list_dir
     -> std.fs.read_all
   changelog.group_by_kind
-    @ (entries: list[change_entry]) -> map[string, list[change_entry]]
+    fn (entries: list[change_entry]) -> map[string, list[change_entry]]
     + returns entries grouped by their kind (added, changed, fixed, removed)
     + preserves input order within each group
     # grouping
   changelog.render_release
-    @ (version: string, groups: map[string, list[change_entry]]) -> string
+    fn (version: string, groups: map[string, list[change_entry]]) -> string
     + returns a markdown section titled with version and date
     + emits one subsection per non-empty kind
     ? kind order is fixed: added, changed, fixed, removed
     # rendering
     -> std.time.today_iso
   changelog.prepend_release
-    @ (changelog_path: string, release_section: string) -> result[void, string]
+    fn (changelog_path: string, release_section: string) -> result[void, string]
     + inserts the new release section near the top of an existing changelog file
     - returns error when the file cannot be read or written
     # update

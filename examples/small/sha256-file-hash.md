@@ -5,13 +5,13 @@ One project function that wires together two std primitives. Both primitives are
 std
   std.hash
     std.hash.sha256
-      @ (data: bytes) -> bytes
+      fn (data: bytes) -> bytes
       + returns the 32-byte sha256 digest of the input
       + the known digest for empty input is returned for empty input
       # hashing
   std.fs
     std.fs.read_all
-      @ (path: string) -> result[bytes, string]
+      fn (path: string) -> result[bytes, string]
       + reads the entire file at path into bytes
       - returns error when file does not exist
       - returns error when file is not readable
@@ -19,7 +19,7 @@ std
 
 file_hash
   file_hash.sha256_of_file
-    @ (path: string) -> result[bytes, string]
+    fn (path: string) -> result[bytes, string]
     + returns the sha256 digest of the file at path
     - returns error when the file cannot be read
     # hashing

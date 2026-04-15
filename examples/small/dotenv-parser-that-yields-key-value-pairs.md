@@ -6,7 +6,7 @@ std: (all units exist)
 
 dotenv
   dotenv.parse
-    @ (source: string) -> result[map[string, string], string]
+    fn (source: string) -> result[map[string, string], string]
     + parses lines of the form KEY=value into a map
     + strips surrounding single or double quotes from values
     + ignores blank lines and lines beginning with '#'
@@ -15,6 +15,6 @@ dotenv
     - returns error on a key containing whitespace
     # parsing
   dotenv.serialize
-    @ (vars: map[string, string]) -> string
+    fn (vars: map[string, string]) -> string
     + emits KEY=value lines, quoting values that contain whitespace or '#'
     # serialization

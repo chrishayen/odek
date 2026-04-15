@@ -5,82 +5,82 @@ A distributed key-value store with raft-based replication and MVCC transactions.
 std
   std.time
     std.time.now_millis
-      @ () -> i64
+      fn () -> i64
       + returns current unix time in milliseconds
       # time
   std.hash
     std.hash.fnv64
-      @ (data: bytes) -> u64
+      fn (data: bytes) -> u64
       + returns fnv-1a 64-bit hash of data
       # hashing
   std.net
     std.net.send_rpc
-      @ (peer: string, method: string, payload: bytes) -> result[bytes, string]
+      fn (peer: string, method: string, payload: bytes) -> result[bytes, string]
       + sends an rpc request to a remote peer and returns the response bytes
       - returns error on connection failure or timeout
       # networking
   std.fs
     std.fs.append_record
-      @ (path: string, record: bytes) -> result[void, string]
+      fn (path: string, record: bytes) -> result[void, string]
       + appends a length-prefixed record to a write-ahead log file
       - returns error on io failure
       # storage
 
 datastore
   datastore.open
-    @ (data_dir: string, node_id: string, peers: list[string]) -> result[datastore_state, string]
+    fn (data_dir: string, node_id: string, peers: list[string]) -> result[datastore_state, string]
     + initializes a node with persistent storage and cluster membership
     - returns error when data directory cannot be opened
     # construction
     -> std.fs.append_record
   datastore.begin_txn
-    @ (state: datastore_state) -> txn_handle
+    fn (state: datastore_state) -> txn_handle
     + starts a new transaction with a read timestamp from the current clock
     # transactions
     -> std.time.now_millis
   datastore.txn_get
-    @ (state: datastore_state, txn: txn_handle, key: bytes) -> result[optional[bytes], string]
+    fn (state: datastore_state, txn: txn_handle, key: bytes) -> result[optional[bytes], string]
     + reads the most recent value visible at the transaction's read timestamp
     - returns error when the key is locked by a conflicting writer
     # reads
   datastore.txn_put
-    @ (state: datastore_state, txn: txn_handle, key: bytes, value: bytes) -> result[txn_handle, string]
+    fn (state: datastore_state, txn: txn_handle, key: bytes, value: bytes) -> result[txn_handle, string]
     + stages a write in the transaction's intent buffer
     - returns error when another txn holds a write intent on the key
     # writes
   datastore.txn_commit
-    @ (state: datastore_state, txn: txn_handle) -> result[datastore_state, string]
+    fn (state: datastore_state, txn: txn_handle) -> result[datastore_state, string]
     + replicates the commit record through the raft log and acknowledges intents
     - returns error when consensus cannot be reached
     # commit
     -> std.time.now_millis
   datastore.txn_abort
-    @ (state: datastore_state, txn: txn_handle) -> datastore_state
+    fn (state: datastore_state, txn: txn_handle) -> datastore_state
     + clears all intents belonging to the transaction
     # abort
   datastore.route_key
-    @ (state: datastore_state, key: bytes) -> string
+    fn (state: datastore_state, key: bytes) -> string
     + returns the node id responsible for the key's range
     ? range partitioning is based on a hash of the key
     # routing
     -> std.hash.fnv64
   datastore.raft_append
-    @ (state: datastore_state, entries: list[bytes]) -> result[datastore_state, string]
+    fn (state: datastore_state, entries: list[bytes]) -> result[datastore_state, string]
     + appends entries to the raft log and replicates to followers
     - returns error when this node is not the leader
     # replication
     -> std.net.send_rpc
     -> std.fs.append_record
   datastore.raft_tick
-    @ (state: datastore_state) -> datastore_state
+    fn (state: datastore_state) -> datastore_state
     + advances election and heartbeat timers; triggers elections on timeout
     # consensus
     -> std.time.now_millis
   datastore.apply_committed
-    @ (state: datastore_state) -> datastore_state
+    fn (state: datastore_state) -> datastore_state
     + applies committed raft entries to the mvcc store
     # state_machine
   datastore.resolve_intents
-    @ (state: datastore_state, txn_id: string, committed: bool) -> datastore_state
+    fn (state: datastore_state, txn_id: string, committed: bool) -> datastore_state
     + converts write intents into committed values or discards them on abort
     # intent_resolution

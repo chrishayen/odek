@@ -6,18 +6,18 @@ std: (all units exist)
 
 fake_clock
   fake_clock.new
-    @ (epoch_millis: i64) -> clock_state
+    fn (epoch_millis: i64) -> clock_state
     + returns a clock frozen at the given unix millisecond
     # construction
   fake_clock.now_millis
-    @ (state: clock_state) -> i64
+    fn (state: clock_state) -> i64
     + returns the current frozen time
     # read
   fake_clock.freeze_at
-    @ (state: clock_state, epoch_millis: i64) -> clock_state
+    fn (state: clock_state, epoch_millis: i64) -> clock_state
     + returns a clock state jumped to the given unix millisecond
     # control
   fake_clock.tick
-    @ (state: clock_state, delta_millis: i64) -> clock_state
+    fn (state: clock_state, delta_millis: i64) -> clock_state
     + returns a clock state advanced by delta (negative values rewind)
     # control

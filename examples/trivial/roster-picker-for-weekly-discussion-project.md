@@ -6,7 +6,7 @@ std: (all units exist)
 
 roster_pick
   roster_pick.select_for_week
-    @ (roster: list[string], week_index: i64) -> optional[string]
+    fn (roster: list[string], week_index: i64) -> optional[string]
     + returns the roster entry at week_index modulo roster length
     - returns none when the roster is empty
     # selection

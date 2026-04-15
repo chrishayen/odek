@@ -6,23 +6,23 @@ std: (all units exist)
 
 to_stream
   to_stream.from_bytes
-    @ (data: bytes) -> stream_handle
+    fn (data: bytes) -> stream_handle
     + returns a stream that yields the bytes in order
     # construction
   to_stream.from_string
-    @ (text: string) -> stream_handle
+    fn (text: string) -> stream_handle
     + returns a stream over the UTF-8 encoding of text
     # construction
   to_stream.from_chunks
-    @ (chunks: list[bytes]) -> stream_handle
+    fn (chunks: list[bytes]) -> stream_handle
     + returns a stream that yields each chunk in order with no boundary framing
     # construction
   to_stream.read
-    @ (stream: stream_handle, max: i32) -> tuple[bytes, stream_handle]
+    fn (stream: stream_handle, max: i32) -> tuple[bytes, stream_handle]
     + returns up to max bytes from the stream along with the advanced handle
     + returns an empty slice when the stream is exhausted
     # consumption
   to_stream.drain
-    @ (stream: stream_handle) -> bytes
+    fn (stream: stream_handle) -> bytes
     + returns all remaining bytes concatenated
     # consumption

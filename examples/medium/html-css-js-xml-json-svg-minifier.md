@@ -5,36 +5,36 @@ One minifier entry point per format. Format detection is explicit; the caller pi
 std
   std.strings
     std.strings.trim
-      @ (s: string) -> string
+      fn (s: string) -> string
       + returns s without leading or trailing ascii whitespace
       # strings
 
 minify
   minify.html
-    @ (source: string) -> string
+    fn (source: string) -> string
     + collapses insignificant whitespace, drops optional tags, and strips comments
     + preserves contents of pre, script, and style blocks
     # html
   minify.css
-    @ (source: string) -> string
+    fn (source: string) -> string
     + removes comments, collapses whitespace, and shortens zero units
     + preserves contents inside string literals
     # css
   minify.js
-    @ (source: string) -> string
+    fn (source: string) -> string
     + removes comments and unnecessary whitespace while preserving semantics
     + keeps template literals and regex literals intact
     # js
   minify.xml
-    @ (source: string) -> string
+    fn (source: string) -> string
     + collapses whitespace between elements but preserves significant whitespace
     # xml
   minify.json
-    @ (source: string) -> result[string, string]
+    fn (source: string) -> result[string, string]
     + removes all whitespace outside string literals
     - returns error on invalid json
     # json
   minify.svg
-    @ (source: string) -> string
+    fn (source: string) -> string
     + applies xml minification plus path data compaction
     # svg

@@ -5,55 +5,55 @@ A policy engine that evaluates a model definition against (subject, object, acti
 std
   std.fs
     std.fs.read_all
-      @ (path: string) -> result[string, string]
+      fn (path: string) -> result[string, string]
       + reads the full contents of a file as text
       - returns error when the file does not exist
       # io
   std.text
     std.text.split_lines
-      @ (input: string) -> list[string]
+      fn (input: string) -> list[string]
       + splits on newline, discarding trailing empty lines
       # text
     std.text.split_by
-      @ (input: string, sep: string) -> list[string]
+      fn (input: string, sep: string) -> list[string]
       + splits on a separator
       # text
 
 casbin
   casbin.model_parse
-    @ (text: string) -> result[model_def, string]
+    fn (text: string) -> result[model_def, string]
     + parses a model definition describing request, policy, and matcher shapes
     - returns error on missing sections
     # parsing
     -> std.text.split_lines
     -> std.text.split_by
   casbin.model_load
-    @ (path: string) -> result[model_def, string]
+    fn (path: string) -> result[model_def, string]
     + reads and parses a model file
     # loading
     -> std.fs.read_all
   casbin.policy_new
-    @ () -> policy_set
+    fn () -> policy_set
     + creates an empty policy set
     # construction
   casbin.policy_add
-    @ (set: policy_set, rule: list[string]) -> policy_set
+    fn (set: policy_set, rule: list[string]) -> policy_set
     + adds a rule (e.g. subject, object, action)
     # mutation
   casbin.policy_remove
-    @ (set: policy_set, rule: list[string]) -> policy_set
+    fn (set: policy_set, rule: list[string]) -> policy_set
     + removes a matching rule if present
     # mutation
   casbin.enforcer_new
-    @ (model: model_def, policy: policy_set) -> enforcer_state
+    fn (model: model_def, policy: policy_set) -> enforcer_state
     + binds a model and policy for evaluation
     # construction
   casbin.enforce
-    @ (enforcer: enforcer_state, subject: string, object: string, action: string) -> bool
+    fn (enforcer: enforcer_state, subject: string, object: string, action: string) -> bool
     + evaluates the matcher and returns the permit/deny decision
     + matches ACL, RBAC, or ABAC shape depending on the model
     # evaluation
   casbin.add_role_for_user
-    @ (enforcer: enforcer_state, user: string, role: string) -> enforcer_state
+    fn (enforcer: enforcer_state, user: string, role: string) -> enforcer_state
     + records a role assignment for RBAC evaluation
     # rbac

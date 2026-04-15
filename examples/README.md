@@ -25,7 +25,7 @@ Kebab-case after the requirement. Filenames are grepable — an agent scanning t
 std
   std.package
     std.package.unit
-      @ (args) -> return_type
+      fn (args) -> return_type
       + positive test
       - negative test
       ? assumption
@@ -33,7 +33,7 @@ std
 
 project_name
   project_name.unit
-    @ (args) -> return_type
+    fn (args) -> return_type
     + test
     - test
     # tag

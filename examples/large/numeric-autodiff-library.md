@@ -6,65 +6,65 @@ std: (all units exist)
 
 numeric
   numeric.tensor_zeros
-    @ (shape: list[i64]) -> tensor
+    fn (shape: list[i64]) -> tensor
     + creates a tensor filled with zeros of the given shape
     # construction
   numeric.tensor_from_values
-    @ (shape: list[i64], values: list[f64]) -> result[tensor, string]
+    fn (shape: list[i64], values: list[f64]) -> result[tensor, string]
     + creates a tensor with the given shape and row-major values
     - returns error when product of shape differs from values length
     # construction
   numeric.tensor_shape
-    @ (t: tensor) -> list[i64]
+    fn (t: tensor) -> list[i64]
     + returns the tensor shape
     # inspection
   numeric.add
-    @ (a: tensor, b: tensor) -> result[tensor, string]
+    fn (a: tensor, b: tensor) -> result[tensor, string]
     + returns elementwise sum when shapes match or broadcast
     - returns error on incompatible shapes
     # arithmetic
   numeric.mul
-    @ (a: tensor, b: tensor) -> result[tensor, string]
+    fn (a: tensor, b: tensor) -> result[tensor, string]
     + returns elementwise product when shapes match or broadcast
     - returns error on incompatible shapes
     # arithmetic
   numeric.matmul
-    @ (a: tensor, b: tensor) -> result[tensor, string]
+    fn (a: tensor, b: tensor) -> result[tensor, string]
     + returns matrix product of two 2-D tensors
     - returns error when inner dimensions disagree
     # linear_algebra
   numeric.sum
-    @ (t: tensor, axis: i32) -> tensor
+    fn (t: tensor, axis: i32) -> tensor
     + returns the sum along the given axis
     # reduction
   numeric.relu
-    @ (t: tensor) -> tensor
+    fn (t: tensor) -> tensor
     + returns elementwise max(x, 0)
     # activation
   numeric.new_graph
-    @ () -> graph_state
+    fn () -> graph_state
     + creates an empty computation graph
     # autodiff
   numeric.param
-    @ (graph: graph_state, initial: tensor) -> tuple[node_ref, graph_state]
+    fn (graph: graph_state, initial: tensor) -> tuple[node_ref, graph_state]
     + registers a trainable parameter node
     # autodiff
   numeric.constant
-    @ (graph: graph_state, value: tensor) -> tuple[node_ref, graph_state]
+    fn (graph: graph_state, value: tensor) -> tuple[node_ref, graph_state]
     + registers a non-differentiable constant node
     # autodiff
   numeric.op
-    @ (graph: graph_state, op_name: string, inputs: list[node_ref]) -> tuple[node_ref, graph_state]
+    fn (graph: graph_state, op_name: string, inputs: list[node_ref]) -> tuple[node_ref, graph_state]
     + records an op node with the given inputs
     - returns unchanged state on unknown op name
     # autodiff
   numeric.forward
-    @ (graph: graph_state, target: node_ref) -> result[tensor, string]
+    fn (graph: graph_state, target: node_ref) -> result[tensor, string]
     + evaluates the graph up to target using recorded ops
     - returns error when a required input is missing
     # autodiff
   numeric.backward
-    @ (graph: graph_state, loss: node_ref) -> map[string, tensor]
+    fn (graph: graph_state, loss: node_ref) -> map[string, tensor]
     + returns gradients of loss with respect to each parameter
     ? uses reverse-mode accumulation over the topologically sorted graph
     # autodiff

@@ -6,41 +6,41 @@ std: (all units exist)
 
 markdown
   markdown.new
-    @ () -> markdown_state
+    fn () -> markdown_state
     + creates a parser state with the default CommonMark rules registered
     # construction
   markdown.use
-    @ (state: markdown_state, plugin: fn(markdown_state) -> markdown_state) -> markdown_state
+    fn (state: markdown_state, plugin: fn(markdown_state) -> markdown_state) -> markdown_state
     + applies a plugin that registers additional rules
     # extension
   markdown.add_block_rule
-    @ (state: markdown_state, name: string, rule: block_rule) -> markdown_state
+    fn (state: markdown_state, name: string, rule: block_rule) -> markdown_state
     + registers a new block rule by name
     # extension
   markdown.add_inline_rule
-    @ (state: markdown_state, name: string, rule: inline_rule) -> markdown_state
+    fn (state: markdown_state, name: string, rule: inline_rule) -> markdown_state
     + registers a new inline rule by name
     # extension
   markdown.tokenize_blocks
-    @ (state: markdown_state, source: string) -> list[token]
+    fn (state: markdown_state, source: string) -> list[token]
     + returns a flat token stream describing block structure
     + handles headings, lists, block quotes, code blocks, fences, and paragraphs
     # parsing
   markdown.tokenize_inline
-    @ (state: markdown_state, source: string) -> list[token]
+    fn (state: markdown_state, source: string) -> list[token]
     + returns a flat token stream for inline content
     + handles emphasis, strong, links, images, code spans, and autolinks
     # parsing
   markdown.parse
-    @ (state: markdown_state, source: string) -> list[token]
+    fn (state: markdown_state, source: string) -> list[token]
     + returns the full token stream by running block then inline tokenization
     # parsing
   markdown.render_html
-    @ (state: markdown_state, tokens: list[token]) -> string
+    fn (state: markdown_state, tokens: list[token]) -> string
     + renders tokens to HTML
     + escapes raw text according to CommonMark rules
     # rendering
   markdown.render
-    @ (state: markdown_state, source: string) -> string
+    fn (state: markdown_state, source: string) -> string
     + convenience that parses and renders source in one call
     # rendering

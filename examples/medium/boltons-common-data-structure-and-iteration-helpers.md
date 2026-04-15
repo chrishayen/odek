@@ -6,43 +6,43 @@ std: (all units exist)
 
 boltons
   boltons.chunked
-    @ (items: list[string], size: i32) -> list[list[string]]
+    fn (items: list[string], size: i32) -> list[list[string]]
     + splits items into consecutive chunks of at most size
     - returns an empty list when items is empty
     ? size must be > 0
     # iteration
   boltons.windowed
-    @ (items: list[string], size: i32) -> list[list[string]]
+    fn (items: list[string], size: i32) -> list[list[string]]
     + returns all contiguous sliding windows of the given size
     - returns an empty list when size exceeds the length of items
     # iteration
   boltons.unique
-    @ (items: list[string]) -> list[string]
+    fn (items: list[string]) -> list[string]
     + returns items in original order with duplicates removed
     # sets
   boltons.group_by
-    @ (items: list[string], key_fn: fn_string_to_string) -> map[string, list[string]]
+    fn (items: list[string], key_fn: fn_string_to_string) -> map[string, list[string]]
     + groups items by the result of key_fn preserving input order within each group
     # grouping
   boltons.flatten
-    @ (nested: list[list[string]]) -> list[string]
+    fn (nested: list[list[string]]) -> list[string]
     + concatenates the inner lists into a single list
     # iteration
   boltons.merge_maps
-    @ (a: map[string,string], b: map[string,string]) -> map[string,string]
+    fn (a: map[string,string], b: map[string,string]) -> map[string,string]
     + returns a new map containing all entries from a overlaid by b
     # maps
   boltons.invert_map
-    @ (m: map[string,string]) -> map[string,string]
+    fn (m: map[string,string]) -> map[string,string]
     + returns a map swapping keys and values
     ? if values repeat, the last one wins
     # maps
   boltons.camel_to_snake
-    @ (text: string) -> string
+    fn (text: string) -> string
     + converts CamelCase to snake_case
     + treats acronym runs as a single group (e.g. "HTTPServer" -> "http_server")
     # strings
   boltons.indent_lines
-    @ (text: string, prefix: string) -> string
+    fn (text: string, prefix: string) -> string
     + prepends prefix to every line in text, preserving trailing newlines
     # strings

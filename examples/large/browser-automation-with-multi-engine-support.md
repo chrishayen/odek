@@ -5,86 +5,86 @@ The project defines a browser-agnostic facade. Each engine is represented by an 
 std
   std.process
     std.process.spawn
-      @ (program: string, args: list[string]) -> result[process_handle, string]
+      fn (program: string, args: list[string]) -> result[process_handle, string]
       + launches a child process and returns a handle
       - returns error when the program cannot be executed
       # process
     std.process.kill
-      @ (handle: process_handle) -> result[void, string]
+      fn (handle: process_handle) -> result[void, string]
       + terminates the child process
       # process
   std.net
     std.net.ws_connect
-      @ (url: string) -> result[ws_conn, string]
+      fn (url: string) -> result[ws_conn, string]
       + opens a websocket connection
       # networking
     std.net.ws_send
-      @ (conn: ws_conn, message: string) -> result[void, string]
+      fn (conn: ws_conn, message: string) -> result[void, string]
       + sends a text frame
       # networking
     std.net.ws_recv
-      @ (conn: ws_conn) -> result[string, string]
+      fn (conn: ws_conn) -> result[string, string]
       + blocks until a text frame arrives and returns its payload
       # networking
   std.json
     std.json.parse_object
-      @ (raw: string) -> result[map[string, string], string]
+      fn (raw: string) -> result[map[string, string], string]
       + parses a JSON object into a string-to-string map
       # serialization
     std.json.encode_object
-      @ (obj: map[string, string]) -> string
+      fn (obj: map[string, string]) -> string
       + encodes a string-to-string map as JSON
       # serialization
 
 browser
   browser.launch
-    @ (engine: string, headless: bool) -> result[browser_handle, string]
+    fn (engine: string, headless: bool) -> result[browser_handle, string]
     + starts an engine (one of "chromium", "webkit", "firefox") and returns a handle
     - returns error when engine is unrecognized or fails to start
     # lifecycle
     -> std.process.spawn
     -> std.net.ws_connect
   browser.close
-    @ (browser: browser_handle) -> result[void, string]
+    fn (browser: browser_handle) -> result[void, string]
     + shuts down the engine and releases resources
     # lifecycle
     -> std.process.kill
   browser.new_page
-    @ (browser: browser_handle) -> result[page_handle, string]
+    fn (browser: browser_handle) -> result[page_handle, string]
     + opens a new tab and returns a page handle
     # navigation
   browser.goto
-    @ (page: page_handle, url: string) -> result[void, string]
+    fn (page: page_handle, url: string) -> result[void, string]
     + navigates the page to url and waits for load
     - returns error when navigation fails
     # navigation
     -> std.net.ws_send
     -> std.net.ws_recv
   browser.query_selector
-    @ (page: page_handle, css: string) -> result[optional[element_handle], string]
+    fn (page: page_handle, css: string) -> result[optional[element_handle], string]
     + returns the first element matching the CSS selector, or none
     # dom
   browser.click
-    @ (element: element_handle) -> result[void, string]
+    fn (element: element_handle) -> result[void, string]
     + dispatches a click event on the element
     - returns error when the element is detached
     # interaction
   browser.type_text
-    @ (element: element_handle, text: string) -> result[void, string]
+    fn (element: element_handle, text: string) -> result[void, string]
     + types text into the focused element one character at a time
     # interaction
   browser.eval_js
-    @ (page: page_handle, script: string) -> result[string, string]
+    fn (page: page_handle, script: string) -> result[string, string]
     + evaluates JavaScript in the page and returns the serialized result
     # scripting
     -> std.json.encode_object
     -> std.json.parse_object
   browser.screenshot
-    @ (page: page_handle) -> result[bytes, string]
+    fn (page: page_handle) -> result[bytes, string]
     + captures a PNG of the current viewport
     # capture
   browser.wait_for_selector
-    @ (page: page_handle, css: string, timeout_ms: i64) -> result[element_handle, string]
+    fn (page: page_handle, css: string, timeout_ms: i64) -> result[element_handle, string]
     + polls until a matching element appears or timeout elapses
     - returns error on timeout
     # waiting

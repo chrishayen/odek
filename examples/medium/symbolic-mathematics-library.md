@@ -6,42 +6,42 @@ std: (all units exist)
 
 symmath
   symmath.constant
-    @ (value: f64) -> expr
+    fn (value: f64) -> expr
     + returns an expression node representing a numeric constant
     # construction
   symmath.variable
-    @ (name: string) -> expr
+    fn (name: string) -> expr
     + returns an expression node representing a named variable
     # construction
   symmath.add
-    @ (left: expr, right: expr) -> expr
+    fn (left: expr, right: expr) -> expr
     + returns an expression representing left + right
     # construction
   symmath.multiply
-    @ (left: expr, right: expr) -> expr
+    fn (left: expr, right: expr) -> expr
     + returns an expression representing left * right
     # construction
   symmath.power
-    @ (base: expr, exponent: expr) -> expr
+    fn (base: expr, exponent: expr) -> expr
     + returns an expression representing base raised to exponent
     # construction
   symmath.simplify
-    @ (e: expr) -> expr
+    fn (e: expr) -> expr
     + folds constant arithmetic subtrees
     + removes zero terms in sums and unit factors in products
     + collapses x^0 to 1 and x^1 to x
     # simplification
   symmath.differentiate
-    @ (e: expr, variable: string) -> expr
+    fn (e: expr, variable: string) -> expr
     + returns the symbolic derivative with respect to the given variable
     + applies sum, product, chain, and power rules
     # differentiation
   symmath.evaluate
-    @ (e: expr, bindings: map[string, f64]) -> result[f64, string]
+    fn (e: expr, bindings: map[string, f64]) -> result[f64, string]
     + returns the numeric value under the given variable bindings
     - returns error when a free variable is unbound
     # evaluation
   symmath.to_string
-    @ (e: expr) -> string
+    fn (e: expr) -> string
     + returns a parenthesized textual form of the expression
     # serialization

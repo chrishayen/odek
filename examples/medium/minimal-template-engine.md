@@ -6,13 +6,13 @@ std: (all units exist)
 
 template
   template.compile
-    @ (source: string) -> result[compiled_template, string]
+    fn (source: string) -> result[compiled_template, string]
     + parses template source with {{var}} and {% if flag %}...{% endif %} syntax
     - returns error on unclosed {{ ... }} tags
     - returns error on unbalanced {% if %} / {% endif %}
     # compilation
   template.render
-    @ (tmpl: compiled_template, context: map[string, string]) -> string
+    fn (tmpl: compiled_template, context: map[string, string]) -> string
     + substitutes {{name}} with context["name"]
     + evaluates {% if flag %}...{% endif %} blocks using truthy context values
     + missing variables render as empty strings

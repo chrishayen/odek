@@ -6,7 +6,7 @@ std: (all units exist)
 
 bytes_format
   bytes_format.humanize
-    @ (n: i64) -> string
+    fn (n: i64) -> string
     + formats 0 as "0 B"
     + formats 1337 as "1.34 kB"
     + formats values at or above 1000 bytes using kB, MB, GB, TB, PB

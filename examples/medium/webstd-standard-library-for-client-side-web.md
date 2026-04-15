@@ -6,36 +6,36 @@ std: (all units exist)
 
 webstd
   webstd.document_query
-    @ (selector: string) -> optional[element_handle]
+    fn (selector: string) -> optional[element_handle]
     + returns the first matching element or none
     # dom
   webstd.element_set_text
-    @ (el: element_handle, text: string) -> void
+    fn (el: element_handle, text: string) -> void
     + replaces the element's text content with text
     # dom
   webstd.element_on_event
-    @ (el: element_handle, event: string, handler: fn(event_obj) -> void) -> cleanup_handle
+    fn (el: element_handle, event: string, handler: fn(event_obj) -> void) -> cleanup_handle
     + attaches handler for the named event and returns a disposer
     # dom
   webstd.set_timeout
-    @ (delay_ms: i32, f: fn() -> void) -> timer_handle
+    fn (delay_ms: i32, f: fn() -> void) -> timer_handle
     + schedules f to run once after delay_ms
     # timers
   webstd.clear_timer
-    @ (t: timer_handle) -> void
+    fn (t: timer_handle) -> void
     + cancels a timer if it has not yet fired
     # timers
   webstd.storage_get
-    @ (key: string) -> optional[string]
+    fn (key: string) -> optional[string]
     + returns the stored string for key or none
     # storage
   webstd.storage_set
-    @ (key: string, value: string) -> result[void, string]
+    fn (key: string, value: string) -> result[void, string]
     + stores value under key
     - returns error when the quota is exceeded
     # storage
   webstd.fetch
-    @ (url: string, method: string, body: optional[bytes], headers: map[string, string]) -> result[http_response, string]
+    fn (url: string, method: string, body: optional[bytes], headers: map[string, string]) -> result[http_response, string]
     + returns status, headers and body on a successful request
     - returns error on a network failure
     # network

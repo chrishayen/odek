@@ -6,13 +6,13 @@ std: (all units exist)
 
 clipboard
   clipboard.read_text
-    @ () -> result[string, string]
+    fn () -> result[string, string]
     + returns the current clipboard contents as text
     - returns error when the system clipboard is unavailable
     - returns error when the clipboard holds a non-text payload
     # read
   clipboard.write_text
-    @ (text: string) -> result[void, string]
+    fn (text: string) -> result[void, string]
     + replaces the clipboard contents with the given text
     - returns error when the system clipboard is unavailable
     # write

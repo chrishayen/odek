@@ -6,7 +6,7 @@ std: (all units exist)
 
 logsymbols
   logsymbols.symbol
-    @ (level: string) -> string
+    fn (level: string) -> string
     + returns an ANSI-colored glyph for "info", "warn", "error", "success"
     - returns an uncolored fallback glyph for unknown levels
     ? colors use standard foreground escape sequences

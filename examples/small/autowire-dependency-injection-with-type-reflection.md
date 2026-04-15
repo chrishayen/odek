@@ -6,15 +6,15 @@ std: (all units exist)
 
 autowire
   autowire.new_registry
-    @ () -> registry_state
+    fn () -> registry_state
     + creates an empty type registry
     # construction
   autowire.register
-    @ (r: registry_state, type_name: string, constructor: ctor_fn) -> registry_state
+    fn (r: registry_state, type_name: string, constructor: ctor_fn) -> registry_state
     + records a constructor keyed by its produced type name
     # registration
   autowire.build
-    @ (r: registry_state, type_name: string) -> result[any_value, string]
+    fn (r: registry_state, type_name: string) -> result[any_value, string]
     + recursively resolves the constructor's argument types and invokes it
     - returns error when a required argument type is unregistered
     - returns error when a dependency cycle is detected

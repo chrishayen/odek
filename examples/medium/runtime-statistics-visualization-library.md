@@ -5,38 +5,38 @@ Collects sampled runtime metrics and exposes them as a time series that a UI lay
 std
   std.time
     std.time.now_millis
-      @ () -> i64
+      fn () -> i64
       + returns current unix time in milliseconds
       # time
   std.json
     std.json.encode_object
-      @ (obj: map[string, f64]) -> string
+      fn (obj: map[string, f64]) -> string
       + encodes a string-to-float map as a JSON object
       # serialization
 
 runtime_viz
   runtime_viz.new
-    @ (max_samples: i32) -> viz_state
+    fn (max_samples: i32) -> viz_state
     + creates a ring buffer that retains the most recent N samples per metric
     ? older samples are discarded once the ring is full
     # construction
   runtime_viz.record
-    @ (state: viz_state, metric: string, value: f64) -> viz_state
+    fn (state: viz_state, metric: string, value: f64) -> viz_state
     + appends a timestamped sample for the named metric
     # sampling
     -> std.time.now_millis
   runtime_viz.record_many
-    @ (state: viz_state, metrics: map[string, f64]) -> viz_state
+    fn (state: viz_state, metrics: map[string, f64]) -> viz_state
     + appends one timestamped sample for each metric in a single tick
     # sampling
     -> std.time.now_millis
   runtime_viz.series
-    @ (state: viz_state, metric: string) -> list[tuple[i64, f64]]
+    fn (state: viz_state, metric: string) -> list[tuple[i64, f64]]
     + returns the retained (timestamp, value) pairs for the named metric in chronological order
     - returns an empty list when the metric has never been recorded
     # query
   runtime_viz.snapshot_json
-    @ (state: viz_state) -> string
+    fn (state: viz_state) -> string
     + encodes the latest value of every recorded metric as a JSON object
     # export
     -> std.json.encode_object

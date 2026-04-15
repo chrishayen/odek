@@ -5,44 +5,44 @@ A fluent builder for HTTP requests plus a thin execute step. The builder is pure
 std
   std.http
     std.http.send
-      @ (method: string, url: string, headers: map[string, string], body: bytes) -> result[http_response, string]
+      fn (method: string, url: string, headers: map[string, string], body: bytes) -> result[http_response, string]
       + performs a blocking request and returns status, headers, and body
       - returns error on transport failure
       # http
   std.json
     std.json.encode_object
-      @ (obj: map[string, string]) -> string
+      fn (obj: map[string, string]) -> string
       + encodes a string-to-string map as JSON
       # serialization
 
 sling
   sling.new
-    @ (base_url: string) -> sling_state
+    fn (base_url: string) -> sling_state
     + creates a builder with the given base URL and an empty method, headers, and query
     # construction
   sling.method
-    @ (state: sling_state, method: string) -> sling_state
+    fn (state: sling_state, method: string) -> sling_state
     + sets the HTTP method on the builder
     # building
   sling.path
-    @ (state: sling_state, path: string) -> sling_state
+    fn (state: sling_state, path: string) -> sling_state
     + appends path to the base URL, collapsing adjacent slashes
     # building
   sling.set_header
-    @ (state: sling_state, name: string, value: string) -> sling_state
+    fn (state: sling_state, name: string, value: string) -> sling_state
     + sets or replaces a header on the builder
     # building
   sling.query_param
-    @ (state: sling_state, name: string, value: string) -> sling_state
+    fn (state: sling_state, name: string, value: string) -> sling_state
     + appends a query parameter to the builder
     # building
   sling.json_body
-    @ (state: sling_state, obj: map[string, string]) -> sling_state
+    fn (state: sling_state, obj: map[string, string]) -> sling_state
     + sets the body to the JSON encoding of obj and the Content-Type header to application/json
     # building
     -> std.json.encode_object
   sling.execute
-    @ (state: sling_state) -> result[http_response, string]
+    fn (state: sling_state) -> result[http_response, string]
     + assembles the final URL and sends the request
     - returns error when method is unset
     # dispatch

@@ -6,7 +6,7 @@ std: (all units exist)
 
 engine_info
   engine_info.optimization_summary
-    @ () -> string
+    fn () -> string
     + returns a short hardcoded paragraph describing common scripting engine optimizations (JIT, inline caches, hidden classes)
     ? content is static; no runtime introspection
     # documentation

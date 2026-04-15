@@ -5,24 +5,24 @@ Lets callers move the cursor, clear regions, and toggle raw mode on a terminal. 
 std
   std.io
     std.io.write_stdout
-      @ (data: bytes) -> void
+      fn (data: bytes) -> void
       + writes the bytes to standard output
       # io
 
 tty
   tty.clear_screen
-    @ () -> void
+    fn () -> void
     + writes the ANSI sequence that clears the entire screen and homes the cursor
     # terminal
     -> std.io.write_stdout
   tty.move_cursor
-    @ (row: i32, col: i32) -> void
+    fn (row: i32, col: i32) -> void
     + writes the ANSI sequence that moves the cursor to (row, col), 1-indexed
     ? coordinates below 1 are clamped to 1
     # terminal
     -> std.io.write_stdout
   tty.set_raw_mode
-    @ (enable: bool) -> result[void, string]
+    fn (enable: bool) -> result[void, string]
     + disables line buffering and echo when enable is true
     + restores the previous terminal mode when enable is false
     - returns error when the standard input is not a terminal

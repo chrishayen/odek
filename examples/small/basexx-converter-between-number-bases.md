@@ -6,7 +6,7 @@ std: (all units exist)
 
 basexx
   basexx.decode
-    @ (digits: string, base: i32) -> result[i64, string]
+    fn (digits: string, base: i32) -> result[i64, string]
     + decodes "ff" in base 16 to 255
     + decodes "1010" in base 2 to 10
     + accepts both lowercase and uppercase letters for bases above 10
@@ -14,7 +14,7 @@ basexx
     - returns error when a digit is outside the alphabet for the base
     # parsing
   basexx.encode
-    @ (value: i64, base: i32) -> result[string, string]
+    fn (value: i64, base: i32) -> result[string, string]
     + encodes 255 in base 16 as "ff"
     + encodes 0 as "0" regardless of base
     + encodes negative values with a leading minus sign

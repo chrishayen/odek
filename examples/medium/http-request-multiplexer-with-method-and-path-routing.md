@@ -5,31 +5,31 @@ Registers handlers against a method and path pattern, then matches incoming requ
 std
   std.strings
     std.strings.split
-      @ (s: string, sep: string) -> list[string]
+      fn (s: string, sep: string) -> list[string]
       + splits s by the separator, returning non-separator segments
       + empty input returns a list containing one empty string
       # strings
 
 mux
   mux.new
-    @ () -> mux_state
+    fn () -> mux_state
     + creates an empty multiplexer with no registered routes
     # construction
   mux.handle
-    @ (m: mux_state, method: string, pattern: string, handler_id: string) -> result[void, string]
+    fn (m: mux_state, method: string, pattern: string, handler_id: string) -> result[void, string]
     + registers a handler for the method+pattern pair
     - returns error when the method+pattern is already registered
     - returns error when pattern does not start with "/"
     # registration
     -> std.strings.split
   mux.match
-    @ (m: mux_state, method: string, path: string) -> optional[match_result]
+    fn (m: mux_state, method: string, path: string) -> optional[match_result]
     + returns the matched handler id and extracted path params for method+path
     - returns none when no registered route matches
     ? literal segments beat ":param" segments beat "*rest" wildcards
     # routing
     -> std.strings.split
   mux.routes
-    @ (m: mux_state) -> list[route_info]
+    fn (m: mux_state) -> list[route_info]
     + returns all registered routes as (method, pattern, handler_id) tuples
     # inspection

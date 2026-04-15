@@ -6,26 +6,26 @@ std: (all units exist)
 
 fpdec
   fpdec.from_string
-    @ (text: string, scale: i32) -> result[fpdec_value, string]
+    fn (text: string, scale: i32) -> result[fpdec_value, string]
     + parses a decimal string like "3.14" at the given scale
     - returns error on non-numeric input
     - returns error when more fractional digits are supplied than the scale allows
     # parsing
   fpdec.to_string
-    @ (value: fpdec_value) -> string
+    fn (value: fpdec_value) -> string
     + renders the value with its fixed number of fractional digits
     # formatting
   fpdec.add
-    @ (a: fpdec_value, b: fpdec_value) -> result[fpdec_value, string]
+    fn (a: fpdec_value, b: fpdec_value) -> result[fpdec_value, string]
     + sums two values at the same scale
     - returns error when scales differ
     # arithmetic
   fpdec.sub
-    @ (a: fpdec_value, b: fpdec_value) -> result[fpdec_value, string]
+    fn (a: fpdec_value, b: fpdec_value) -> result[fpdec_value, string]
     + subtracts b from a at the same scale
     - returns error when scales differ
     # arithmetic
   fpdec.mul_int
-    @ (value: fpdec_value, factor: i64) -> fpdec_value
+    fn (value: fpdec_value, factor: i64) -> fpdec_value
     + multiplies the value by an integer factor, preserving scale
     # arithmetic

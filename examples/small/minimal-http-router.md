@@ -6,15 +6,15 @@ std: (all units exist)
 
 http_router
   http_router.new
-    @ () -> router_state
+    fn () -> router_state
     + returns an empty router
     # construction
   http_router.handle
-    @ (state: router_state, method: string, path: string, handler_id: string) -> router_state
+    fn (state: router_state, method: string, path: string, handler_id: string) -> router_state
     + registers a handler for the method and exact path
     # registration
   http_router.lookup
-    @ (state: router_state, method: string, path: string) -> optional[string]
+    fn (state: router_state, method: string, path: string) -> optional[string]
     + returns the handler id registered for the method/path pair
     - returns none when no handler is registered
     # dispatch

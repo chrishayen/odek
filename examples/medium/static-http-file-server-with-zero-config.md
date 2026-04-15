@@ -5,42 +5,42 @@ Maps an incoming request path to a file under a root directory and builds the re
 std
   std.fs
     std.fs.read_all
-      @ (path: string) -> result[bytes, string]
+      fn (path: string) -> result[bytes, string]
       + reads the entire file at path
       - returns error when the path does not exist or is unreadable
       # filesystem
     std.fs.is_dir
-      @ (path: string) -> bool
+      fn (path: string) -> bool
       + returns true when path exists and is a directory
       # filesystem
   std.path
     std.path.join
-      @ (a: string, b: string) -> string
+      fn (a: string, b: string) -> string
       + joins two path segments with the platform separator, collapsing duplicates
       # paths
     std.path.extension
-      @ (p: string) -> string
+      fn (p: string) -> string
       + returns the lowercase extension including the leading dot, or "" if none
       # paths
 
 static_server
   static_server.new
-    @ (root: string) -> server_state
+    fn (root: string) -> server_state
     + creates a server rooted at the given directory
     # construction
   static_server.resolve
-    @ (state: server_state, request_path: string) -> result[string, string]
+    fn (state: server_state, request_path: string) -> result[string, string]
     + joins request_path onto the root and returns the resolved file path
     - returns error when request_path escapes the root via `..`
     # routing
     -> std.path.join
   static_server.mime_for
-    @ (path: string) -> string
+    fn (path: string) -> string
     + returns a mime type based on the file extension, defaulting to "application/octet-stream"
     # content_negotiation
     -> std.path.extension
   static_server.serve
-    @ (state: server_state, request_path: string) -> result[http_response, http_response]
+    fn (state: server_state, request_path: string) -> result[http_response, http_response]
     + returns a 200 response with file bytes and mime type on success
     - returns a 403 when the path escapes the root
     - returns a 404 when the file does not exist

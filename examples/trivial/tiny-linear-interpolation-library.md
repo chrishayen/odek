@@ -6,7 +6,7 @@ std: (all units exist)
 
 interpolate
   interpolate.at
-    @ (xs: list[f64], ys: list[f64], x: f64) -> f64
+    fn (xs: list[f64], ys: list[f64], x: f64) -> f64
     + returns the linearly interpolated y for x between two sample points
     + returns the endpoint y when x falls outside the sample range (clamped)
     - returns 0.0 when xs and ys have different lengths or fewer than two points

@@ -6,7 +6,7 @@ std: (all units exist)
 
 splice_string
   splice_string.splice
-    @ (s: string, start: i32, delete_count: i32, insert: string) -> string
+    fn (s: string, start: i32, delete_count: i32, insert: string) -> string
     + removes delete_count characters starting at start and inserts the replacement
     + a negative start counts from the end of the string
     + clamps start and delete_count to the string's bounds

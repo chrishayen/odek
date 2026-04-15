@@ -6,19 +6,19 @@ std: (all units exist)
 
 fields
   fields.parse_schema
-    @ (source: string) -> result[list[field], string]
+    fn (source: string) -> result[list[field], string]
     + parses a schema definition into a list of fields with name, type, and tag map
     - returns error on malformed syntax
     # parsing
   fields.list_names
-    @ (schema: list[field]) -> list[string]
+    fn (schema: list[field]) -> list[string]
     + returns the field names in declaration order
     # inspection
   fields.filter_by_tag
-    @ (schema: list[field], tag_key: string, tag_value: string) -> list[field]
+    fn (schema: list[field], tag_key: string, tag_value: string) -> list[field]
     + returns fields whose tag map has tag_key equal to tag_value
     # filtering
   fields.export_map
-    @ (schema: list[field], record: map[string, string]) -> map[string, string]
+    fn (schema: list[field], record: map[string, string]) -> map[string, string]
     + returns a map keyed by each field's export name, using the export tag when present and the field name otherwise
     # export

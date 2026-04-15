@@ -5,13 +5,13 @@ Two functions. Both are generic enough to live in std — any project doing bina
 std
   std.encoding
     std.encoding.base64_encode
-      @ (data: bytes) -> string
+      fn (data: bytes) -> string
       + encodes bytes to base64 text with padding
       + returns "" when given empty bytes
       + the standard "Man" => "TWFu" vector passes
       # encoding
     std.encoding.base64_decode
-      @ (encoded: string) -> result[bytes, string]
+      fn (encoded: string) -> result[bytes, string]
       + decodes a padded base64 string back to bytes
       + accepts input with or without trailing "=" padding
       - returns error on characters outside the base64 alphabet
@@ -20,12 +20,12 @@ std
 
 base64
   base64.encode
-    @ (data: bytes) -> string
+    fn (data: bytes) -> string
     + encodes bytes to base64 text
     # encoding
     -> std.encoding.base64_encode
   base64.decode
-    @ (encoded: string) -> result[bytes, string]
+    fn (encoded: string) -> result[bytes, string]
     + decodes base64 text to bytes
     - returns error on invalid input
     # encoding

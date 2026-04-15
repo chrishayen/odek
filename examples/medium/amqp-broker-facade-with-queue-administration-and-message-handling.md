@@ -5,49 +5,49 @@ A thin facade over a broker connection: declare exchanges and queues, bind, publ
 std
   std.amqp
     std.amqp.connect
-      @ (url: string) -> result[amqp_conn, string]
+      fn (url: string) -> result[amqp_conn, string]
       + opens a connection to the broker at the given url
       - returns error on unreachable host or auth failure
       # broker
     std.amqp.close
-      @ (conn: amqp_conn) -> void
+      fn (conn: amqp_conn) -> void
       + closes the broker connection
       # broker
     std.amqp.declare_exchange
-      @ (conn: amqp_conn, name: string, kind: string, durable: bool) -> result[void, string]
+      fn (conn: amqp_conn, name: string, kind: string, durable: bool) -> result[void, string]
       + idempotently declares an exchange with the given kind
       - returns error when a mismatched exchange already exists
       # broker
     std.amqp.declare_queue
-      @ (conn: amqp_conn, name: string, durable: bool) -> result[void, string]
+      fn (conn: amqp_conn, name: string, durable: bool) -> result[void, string]
       + idempotently declares a queue
       # broker
     std.amqp.bind_queue
-      @ (conn: amqp_conn, queue: string, exchange: string, routing_key: string) -> result[void, string]
+      fn (conn: amqp_conn, queue: string, exchange: string, routing_key: string) -> result[void, string]
       + binds the queue to the exchange with the routing key
       # broker
     std.amqp.publish
-      @ (conn: amqp_conn, exchange: string, routing_key: string, body: bytes) -> result[void, string]
+      fn (conn: amqp_conn, exchange: string, routing_key: string, body: bytes) -> result[void, string]
       + publishes a message via the exchange
       # broker
     std.amqp.consume_one
-      @ (conn: amqp_conn, queue: string) -> result[optional[amqp_delivery], string]
+      fn (conn: amqp_conn, queue: string) -> result[optional[amqp_delivery], string]
       + returns the next delivery or none when the queue is empty
       # broker
     std.amqp.ack
-      @ (conn: amqp_conn, delivery: amqp_delivery) -> result[void, string]
+      fn (conn: amqp_conn, delivery: amqp_delivery) -> result[void, string]
       + acknowledges the delivery
       # broker
 
 broker_facade
   broker_facade.open
-    @ (url: string) -> result[amqp_conn, string]
+    fn (url: string) -> result[amqp_conn, string]
     + opens a connection
     - returns error when the broker is unreachable
     # connection
     -> std.amqp.connect
   broker_facade.setup_topic
-    @ (conn: amqp_conn, exchange: string, queue: string, routing_key: string) -> result[void, string]
+    fn (conn: amqp_conn, exchange: string, queue: string, routing_key: string) -> result[void, string]
     + declares a durable topic exchange, durable queue, and binding in one call
     - returns error on any declaration failure
     # topology
@@ -55,19 +55,19 @@ broker_facade
     -> std.amqp.declare_queue
     -> std.amqp.bind_queue
   broker_facade.emit
-    @ (conn: amqp_conn, exchange: string, routing_key: string, body: bytes) -> result[void, string]
+    fn (conn: amqp_conn, exchange: string, routing_key: string, body: bytes) -> result[void, string]
     + publishes a single message
     # publishing
     -> std.amqp.publish
   broker_facade.drain
-    @ (conn: amqp_conn, queue: string, max_messages: i32) -> result[list[bytes], string]
+    fn (conn: amqp_conn, queue: string, max_messages: i32) -> result[list[bytes], string]
     + consumes up to max_messages, acking each, returning their bodies
     + stops early when the queue is empty
     # consuming
     -> std.amqp.consume_one
     -> std.amqp.ack
   broker_facade.shutdown
-    @ (conn: amqp_conn) -> void
+    fn (conn: amqp_conn) -> void
     + closes the connection
     # connection
     -> std.amqp.close

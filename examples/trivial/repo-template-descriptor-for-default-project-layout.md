@@ -6,7 +6,7 @@ std: (all units exist)
 
 repo_template
   repo_template.default_files
-    @ () -> list[string]
+    fn () -> list[string]
     + returns the standard set of template file paths
     ? the list is hardcoded; no parameters
     # template

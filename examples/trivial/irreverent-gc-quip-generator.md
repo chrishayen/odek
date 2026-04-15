@@ -6,7 +6,7 @@ std: (all units exist)
 
 gc_quips
   gc_quips.pick
-    @ (seed: u64) -> string
+    fn (seed: u64) -> string
     + returns one of a fixed set of quips selected by seed modulo the list length
     + same seed always returns the same quip
     # quip

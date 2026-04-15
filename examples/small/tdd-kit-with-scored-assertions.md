@@ -6,18 +6,18 @@ std: (all units exist)
 
 tddkit
   tddkit.new_suite
-    @ (name: string) -> test_suite
+    fn (name: string) -> test_suite
     + creates an empty suite with a name
     # construction
   tddkit.add_case
-    @ (suite: test_suite, description: string, input: string, expected: string) -> test_suite
+    fn (suite: test_suite, description: string, input: string, expected: string) -> test_suite
     + appends a case with its expected output
     # cases
   tddkit.run
-    @ (suite: test_suite, candidate: func_handle) -> test_report
+    fn (suite: test_suite, candidate: func_handle) -> test_report
     + runs each case through the candidate and records pass/fail
     # execution
   tddkit.summary
-    @ (report: test_report) -> tuple[i32, i32]
+    fn (report: test_report) -> tuple[i32, i32]
     + returns (passed, failed) counts
     # reporting

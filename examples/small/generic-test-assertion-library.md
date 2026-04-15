@@ -6,22 +6,22 @@ std: (all units exist)
 
 assert
   assert.equal_i64
-    @ (want: i64, got: i64) -> result[void, string]
+    fn (want: i64, got: i64) -> result[void, string]
     + returns ok when the values are equal
     - returns a formatted mismatch message when they differ
     # assertion
   assert.equal_string
-    @ (want: string, got: string) -> result[void, string]
+    fn (want: string, got: string) -> result[void, string]
     + returns ok when the strings are equal
     - returns a formatted mismatch showing both sides
     # assertion
   assert.is_true
-    @ (cond: bool, label: string) -> result[void, string]
+    fn (cond: bool, label: string) -> result[void, string]
     + returns ok when cond is true
     - returns "<label>: expected true" when cond is false
     # assertion
   assert.contains
-    @ (haystack: string, needle: string) -> result[void, string]
+    fn (haystack: string, needle: string) -> result[void, string]
     + returns ok when needle is a substring of haystack
     - returns a message naming both sides when absent
     # assertion

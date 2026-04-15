@@ -5,50 +5,50 @@ Accepts connections, parses inbound RESP commands, dispatches to registered hand
 std
   std.socket
     std.socket.listen_tcp
-      @ (host: string, port: i32) -> result[listener, string]
+      fn (host: string, port: i32) -> result[listener, string]
       + binds a tcp listener on the given address
       - returns error when the port is in use
       # networking
     std.socket.accept
-      @ (listener: listener) -> result[connection, string]
+      fn (listener: listener) -> result[connection, string]
       + accepts the next incoming connection
       # networking
     std.socket.read
-      @ (conn: connection, max: i64) -> result[bytes, string]
+      fn (conn: connection, max: i64) -> result[bytes, string]
       + reads up to max bytes from the connection
       # networking
     std.socket.write
-      @ (conn: connection, data: bytes) -> result[i64, string]
+      fn (conn: connection, data: bytes) -> result[i64, string]
       + writes data to the connection and returns bytes written
       # networking
 
 resp_server
   resp_server.new
-    @ () -> server_state
+    fn () -> server_state
     + creates a server with an empty handler registry
     # construction
   resp_server.register
-    @ (s: server_state, name: string, handler: command_handler) -> server_state
+    fn (s: server_state, name: string, handler: command_handler) -> server_state
     + associates an uppercase command name with a handler
     # routing
   resp_server.parse_command
-    @ (buf: bytes) -> result[tuple[list[string], i64], string]
+    fn (buf: bytes) -> result[tuple[list[string], i64], string]
     + parses one RESP multi-bulk command and returns it plus bytes consumed
     - returns error on malformed RESP
     # wire_protocol
   resp_server.encode_reply
-    @ (value: reply_value) -> bytes
+    fn (value: reply_value) -> bytes
     + encodes a reply as RESP bytes
     # wire_protocol
   resp_server.handle_connection
-    @ (s: server_state, conn: connection) -> result[void, string]
+    fn (s: server_state, conn: connection) -> result[void, string]
     + reads commands from the connection, dispatches, and writes replies until close
     - returns error on wire-level failure
     # execution
     -> std.socket.read
     -> std.socket.write
   resp_server.serve
-    @ (s: server_state, host: string, port: i32) -> result[void, string]
+    fn (s: server_state, host: string, port: i32) -> result[void, string]
     + binds and accepts connections forever, handing each to handle_connection
     # lifecycle
     -> std.socket.listen_tcp

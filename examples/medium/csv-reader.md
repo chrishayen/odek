@@ -6,7 +6,7 @@ std: (all units exist)
 
 csv
   csv.parse
-    @ (input: string) -> result[list[list[string]], string]
+    fn (input: string) -> result[list[list[string]], string]
     + parses a CSV document into rows of string fields
     + handles quoted fields containing commas and newlines
     + handles doubled double-quotes inside quoted fields
@@ -15,12 +15,12 @@ csv
     ? consecutive separators produce empty-string fields
     # parsing
   csv.parse_line
-    @ (line: string) -> result[list[string], string]
+    fn (line: string) -> result[list[string], string]
     + splits one unquoted row on commas
     - returns error on malformed quoting within the line
     # parsing
   csv.unescape_field
-    @ (field: string) -> string
+    fn (field: string) -> string
     + strips surrounding double quotes and collapses doubled inner quotes to single ones
     + returns unquoted fields unchanged
     # parsing

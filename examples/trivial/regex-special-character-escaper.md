@@ -6,7 +6,7 @@ std: (all units exist)
 
 regex_escape
   regex_escape.escape
-    @ (input: string) -> string
+    fn (input: string) -> string
     + prefixes each regex metacharacter in the input with a backslash
     + returns the input unchanged when it contains no metacharacters
     + returns "" for the empty string

@@ -6,7 +6,7 @@ std: (all units exist)
 
 greeter
   greeter.greet
-    @ () -> string
+    fn () -> string
     + returns the string "Hello, world!"
     ? greeting is hardcoded; no parameter
     # greeting

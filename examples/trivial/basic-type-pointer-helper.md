@@ -6,7 +6,7 @@ std: (all units exist)
 
 ptrhelp
   ptrhelp.some
-    @ (value: i64) -> optional[i64]
+    fn (value: i64) -> optional[i64]
     + returns an optional holding the given value
     ? generic over basic types; i64 shown as the canonical case
     # optional_construction

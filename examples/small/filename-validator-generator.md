@@ -6,7 +6,7 @@ std: (all units exist)
 
 filenamify
   filenamify.sanitize
-    @ (input: string, replacement: string) -> string
+    fn (input: string, replacement: string) -> string
     + replaces /, \, ?, *, :, |, ", <, > with the replacement
     + collapses runs of replacements into a single replacement
     + strips control characters

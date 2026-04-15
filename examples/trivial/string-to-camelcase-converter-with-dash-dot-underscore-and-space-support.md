@@ -6,7 +6,7 @@ std: (all units exist)
 
 camelcase
   camelcase.to_camel
-    @ (input: string) -> string
+    fn (input: string) -> string
     + converts "foo-bar" to "fooBar"
     + converts "foo_bar_baz" to "fooBarBaz"
     + converts "foo.bar baz" to "fooBarBaz"

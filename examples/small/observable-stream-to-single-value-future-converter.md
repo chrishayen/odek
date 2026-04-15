@@ -6,7 +6,7 @@ std: (all units exist)
 
 obs_to_future
   obs_to_future.from_observable
-    @ (stream: observable) -> future[value, string]
+    fn (stream: observable) -> future[value, string]
     + resolves with the last value emitted before completion
     + resolves with the single value when exactly one is emitted
     - rejects with the stream's error when the stream errors

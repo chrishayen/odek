@@ -5,82 +5,82 @@ Provides a screen buffer, input handling, and simple widgets. Rendering and inpu
 std
   std.term
     std.term.size
-      @ () -> tuple[i32, i32]
+      fn () -> tuple[i32, i32]
       + returns (rows, cols) of the current terminal
       # terminal
     std.term.write
-      @ (data: string) -> void
+      fn (data: string) -> void
       + writes raw bytes to the terminal output
       # terminal
     std.term.read_key
-      @ () -> optional[key_event]
+      fn () -> optional[key_event]
       + returns the next key event or none if none is pending
       # terminal
     std.term.enter_alt_screen
-      @ () -> void
+      fn () -> void
       + switches to the alternate screen buffer
       # terminal
     std.term.leave_alt_screen
-      @ () -> void
+      fn () -> void
       + restores the primary screen buffer
       # terminal
   std.time
     std.time.now_millis
-      @ () -> i64
+      fn () -> i64
       + returns current unix time in milliseconds
       # time
     std.time.sleep_millis
-      @ (duration: i64) -> void
+      fn (duration: i64) -> void
       + blocks for the given duration
       # time
 
 tui
   tui.new_screen
-    @ () -> screen_state
+    fn () -> screen_state
     + creates an empty screen buffer sized to the terminal
     # construction
     -> std.term.size
   tui.clear
-    @ (screen: screen_state) -> screen_state
+    fn (screen: screen_state) -> screen_state
     + fills the buffer with spaces and the default attributes
     # drawing
   tui.put_text
-    @ (screen: screen_state, row: i32, col: i32, text: string) -> screen_state
+    fn (screen: screen_state, row: i32, col: i32, text: string) -> screen_state
     + writes text starting at the given cell, clipping to the buffer
     # drawing
   tui.draw_box
-    @ (screen: screen_state, row: i32, col: i32, height: i32, width: i32) -> screen_state
+    fn (screen: screen_state, row: i32, col: i32, height: i32, width: i32) -> screen_state
     + draws a single-line border rectangle
     # drawing
   tui.add_form_field
-    @ (screen: screen_state, label: string, row: i32, col: i32, width: i32) -> tuple[screen_state, string]
+    fn (screen: screen_state, label: string, row: i32, col: i32, width: i32) -> tuple[screen_state, string]
     + places a labeled input field and returns its generated field id
     # widgets
   tui.set_field_value
-    @ (screen: screen_state, field_id: string, value: string) -> result[screen_state, string]
+    fn (screen: screen_state, field_id: string, value: string) -> result[screen_state, string]
     + updates the text held in the named field
     - returns error if the field id is unknown
     # widgets
   tui.add_animation
-    @ (screen: screen_state, frames: list[string], row: i32, col: i32, period_ms: i64) -> tuple[screen_state, string]
+    fn (screen: screen_state, frames: list[string], row: i32, col: i32, period_ms: i64) -> tuple[screen_state, string]
     + registers a cycling frame animation and returns its id
     # animation
   tui.tick
-    @ (screen: screen_state) -> screen_state
+    fn (screen: screen_state) -> screen_state
     + advances animations based on elapsed time and redraws affected regions
     # animation
     -> std.time.now_millis
   tui.handle_key
-    @ (screen: screen_state, key: key_event) -> screen_state
+    fn (screen: screen_state, key: key_event) -> screen_state
     + routes a key event to the focused widget
     # input
   tui.flush
-    @ (screen: screen_state) -> void
+    fn (screen: screen_state) -> void
     + emits the buffer to the terminal
     # rendering
     -> std.term.write
   tui.run
-    @ (screen: screen_state) -> screen_state
+    fn (screen: screen_state) -> screen_state
     + enters the alt screen, polls input and ticks animations until a quit key is received
     # event_loop
     -> std.term.enter_alt_screen

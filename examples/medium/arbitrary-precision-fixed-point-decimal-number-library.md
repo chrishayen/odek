@@ -6,42 +6,42 @@ std: (all units exist)
 
 decimal
   decimal.from_string
-    @ (raw: string) -> result[decimal_value, string]
+    fn (raw: string) -> result[decimal_value, string]
     + parses "-0.00", "123.456", "1e-5" into an exact decimal
     - returns error on malformed input
     # parsing
   decimal.from_int
-    @ (value: i64) -> decimal_value
+    fn (value: i64) -> decimal_value
     + returns a decimal with the given integer value and scale zero
     # construction
   decimal.to_string
-    @ (value: decimal_value) -> string
+    fn (value: decimal_value) -> string
     + renders the decimal in plain (non-scientific) form preserving trailing zeros from scale
     # rendering
   decimal.add
-    @ (a: decimal_value, b: decimal_value) -> decimal_value
+    fn (a: decimal_value, b: decimal_value) -> decimal_value
     + returns the exact sum, rescaling the operand with smaller scale
     # arithmetic
   decimal.sub
-    @ (a: decimal_value, b: decimal_value) -> decimal_value
+    fn (a: decimal_value, b: decimal_value) -> decimal_value
     + returns the exact difference
     # arithmetic
   decimal.mul
-    @ (a: decimal_value, b: decimal_value) -> decimal_value
+    fn (a: decimal_value, b: decimal_value) -> decimal_value
     + returns the exact product with scale equal to the sum of operand scales
     # arithmetic
   decimal.div
-    @ (a: decimal_value, b: decimal_value, scale: i32, mode: string) -> result[decimal_value, string]
+    fn (a: decimal_value, b: decimal_value, scale: i32, mode: string) -> result[decimal_value, string]
     + returns the quotient rounded to the requested scale using the named rounding mode
     - returns error on division by zero
     - returns error on unknown rounding mode
     # arithmetic
   decimal.compare
-    @ (a: decimal_value, b: decimal_value) -> i32
+    fn (a: decimal_value, b: decimal_value) -> i32
     + returns -1, 0, or 1 according to numeric ordering regardless of scale
     # comparison
   decimal.rescale
-    @ (value: decimal_value, scale: i32, mode: string) -> result[decimal_value, string]
+    fn (value: decimal_value, scale: i32, mode: string) -> result[decimal_value, string]
     + returns the value at the requested scale, rounding if the new scale is smaller
     - returns error on unknown rounding mode
     # rescale

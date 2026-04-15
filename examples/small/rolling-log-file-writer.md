@@ -5,36 +5,36 @@ Writes bytes to a log file, rotating to a timestamped backup when a size thresho
 std
   std.fs
     std.fs.append_bytes
-      @ (path: string, data: bytes) -> result[i64, string]
+      fn (path: string, data: bytes) -> result[i64, string]
       + appends bytes to the file, creating it when absent, returns new file size
       - returns error when the path is not writable
       # filesystem
     std.fs.rename
-      @ (from: string, to: string) -> result[void, string]
+      fn (from: string, to: string) -> result[void, string]
       + atomically renames a file
       - returns error when the destination is invalid
       # filesystem
     std.fs.remove
-      @ (path: string) -> result[void, string]
+      fn (path: string) -> result[void, string]
       + removes the file; no error when absent
       # filesystem
     std.fs.list_dir
-      @ (dir: string) -> result[list[string], string]
+      fn (dir: string) -> result[list[string], string]
       + returns names of entries in the directory
       # filesystem
   std.time
     std.time.now_millis
-      @ () -> i64
+      fn () -> i64
       + returns the current unix time in milliseconds
       # time
 
 rolling_log
   rolling_log.open
-    @ (path: string, max_bytes: i64, max_backups: i32) -> rolling_log_state
+    fn (path: string, max_bytes: i64, max_backups: i32) -> rolling_log_state
     + creates a rolling log handle bound to the target path and limits
     # construction
   rolling_log.write
-    @ (state: rolling_log_state, data: bytes) -> result[rolling_log_state, string]
+    fn (state: rolling_log_state, data: bytes) -> result[rolling_log_state, string]
     + appends data to the active file
     + rotates and prunes old backups when the file exceeds max_bytes
     - returns error when the underlying filesystem operation fails
@@ -45,6 +45,6 @@ rolling_log
     -> std.fs.remove
     -> std.time.now_millis
   rolling_log.close
-    @ (state: rolling_log_state) -> void
+    fn (state: rolling_log_state) -> void
     + finalizes the handle; subsequent writes are not allowed
     # lifecycle

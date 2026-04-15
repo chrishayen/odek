@@ -6,7 +6,7 @@ std: (all units exist)
 
 mime
   mime.type_for_filename
-    @ (filename: string) -> optional[string]
+    fn (filename: string) -> optional[string]
     + returns "text/html" for "index.html"
     + returns "application/json" for "data.json"
     + matching is case-insensitive on the extension

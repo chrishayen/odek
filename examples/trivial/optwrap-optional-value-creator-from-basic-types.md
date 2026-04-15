@@ -6,7 +6,7 @@ std: (all units exist)
 
 optwrap
   optwrap.of
-    @ (value: string) -> optional[string]
+    fn (value: string) -> optional[string]
     + wraps the given value in a present optional
     ? generic over basic types; string shown as the canonical case
     # optional_construction

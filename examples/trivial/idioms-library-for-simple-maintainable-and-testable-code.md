@@ -6,7 +6,7 @@ std: (all units exist)
 
 idioms
   idioms.list_principles
-    @ () -> list[string]
+    fn () -> list[string]
     + returns a non-empty list of short design-principle strings
     ? contents are hardcoded; no I/O or configuration
     # principles

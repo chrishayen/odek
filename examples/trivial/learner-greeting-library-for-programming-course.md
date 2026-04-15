@@ -6,7 +6,7 @@ std: (all units exist)
 
 learner
   learner.welcome
-    @ (name: string) -> string
+    fn (name: string) -> string
     + returns a welcome message addressed to the learner
     + returns a generic welcome when name is empty
     # greeting

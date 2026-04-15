@@ -5,60 +5,60 @@ Accepts connections on a listener and dispatches them to a fixed pool of worker 
 std
   std.net
     std.net.listen_tcp
-      @ (host: string, port: u16) -> result[listener_state, string]
+      fn (host: string, port: u16) -> result[listener_state, string]
       + binds and listens on host:port
       - returns error when the port is in use
       # network
     std.net.accept
-      @ (listener: listener_state) -> result[conn_state, string]
+      fn (listener: listener_state) -> result[conn_state, string]
       + blocks until a client connects
       - returns error when the listener is closed
       # network
     std.net.conn_close
-      @ (conn: conn_state) -> void
+      fn (conn: conn_state) -> void
       + closes the connection
       # network
   std.thread
     std.thread.spawn
-      @ (work: thread_fn) -> result[thread_handle, string]
+      fn (work: thread_fn) -> result[thread_handle, string]
       + starts a worker thread
       - returns error when the OS refuses the thread
       # threading
     std.thread.join
-      @ (handle: thread_handle) -> void
+      fn (handle: thread_handle) -> void
       + waits for the thread to exit
       # threading
 
 poolserver
   poolserver.new
-    @ (host: string, port: u16, workers: i32, queue_depth: i32) -> result[server_state, string]
+    fn (host: string, port: u16, workers: i32, queue_depth: i32) -> result[server_state, string]
     + creates a pooled server bound to host:port with the given pool size and queue
     - returns error when the bind fails
     - returns error when workers or queue_depth are not positive
     # construction
     -> std.net.listen_tcp
   poolserver.set_handler
-    @ (server: server_state, handler: handler_fn) -> server_state
+    fn (server: server_state, handler: handler_fn) -> server_state
     + installs the per-connection handler
     # handler
   poolserver.start
-    @ (server: server_state) -> result[server_state, string]
+    fn (server: server_state) -> result[server_state, string]
     + spawns the worker pool and begins accepting
     # lifecycle
     -> std.thread.spawn
     -> std.net.accept
   poolserver.submit_conn
-    @ (server: server_state, conn: conn_state) -> result[server_state, string]
+    fn (server: server_state, conn: conn_state) -> result[server_state, string]
     + enqueues a connection for a worker to handle
     - returns error when the queue is full; the connection is closed
     # dispatch
     -> std.net.conn_close
   poolserver.stats
-    @ (server: server_state) -> pool_stats
+    fn (server: server_state) -> pool_stats
     + returns active workers, queued connections, and total handled
     # introspection
   poolserver.shutdown
-    @ (server: server_state) -> result[void, string]
+    fn (server: server_state) -> result[void, string]
     + stops accepting, drains the queue, and joins workers
     # lifecycle
     -> std.thread.join

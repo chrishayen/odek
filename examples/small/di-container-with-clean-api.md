@@ -6,23 +6,23 @@ std: (all units exist)
 
 di_container
   di_container.new
-    @ () -> container_state
+    fn () -> container_state
     + returns an empty container
     # construction
   di_container.register
-    @ (state: container_state, type_name: string, factory: factory_fn) -> container_state
+    fn (state: container_state, type_name: string, factory: factory_fn) -> container_state
     + associates a factory with the given type name
     ? later registrations replace earlier ones for the same name
     # registration
   di_container.resolve
-    @ (state: container_state, type_name: string) -> result[any_value, string]
+    fn (state: container_state, type_name: string) -> result[any_value, string]
     + invokes the factory for type_name and returns the value
     + caches the result so subsequent resolves return the same instance
     - returns error when type_name has no registered factory
     - returns error when the factory call returns an error
     # resolution
   di_container.resolve_fresh
-    @ (state: container_state, type_name: string) -> result[any_value, string]
+    fn (state: container_state, type_name: string) -> result[any_value, string]
     + calls the factory without consulting or updating the singleton cache
     - returns error when type_name has no registered factory
     # resolution

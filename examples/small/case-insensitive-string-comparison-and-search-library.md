@@ -5,36 +5,36 @@ Wraps common string operations so that uppercase and lowercase variants are trea
 std
   std.unicode
     std.unicode.fold_case
-      @ (s: string) -> string
+      fn (s: string) -> string
       + returns the full Unicode case-folded form of s
       ? uses the full mapping (e.g. sharp-s to "ss")
       # unicode
 
 cistr
   cistr.equals
-    @ (a: string, b: string) -> bool
+    fn (a: string, b: string) -> bool
     + returns true when a and b are equal after case folding
     + returns true for ("Hello", "HELLO")
     - returns false for ("cat", "dog")
     # comparison
     -> std.unicode.fold_case
   cistr.contains
-    @ (haystack: string, needle: string) -> bool
+    fn (haystack: string, needle: string) -> bool
     + returns true when needle appears in haystack ignoring case
     # search
     -> std.unicode.fold_case
   cistr.index_of
-    @ (haystack: string, needle: string) -> i32
+    fn (haystack: string, needle: string) -> i32
     + returns the byte offset of the first case-insensitive match, or -1
     # search
     -> std.unicode.fold_case
   cistr.has_prefix
-    @ (s: string, prefix: string) -> bool
+    fn (s: string, prefix: string) -> bool
     + case-insensitive prefix check
     # comparison
     -> std.unicode.fold_case
   cistr.has_suffix
-    @ (s: string, suffix: string) -> bool
+    fn (s: string, suffix: string) -> bool
     + case-insensitive suffix check
     # comparison
     -> std.unicode.fold_case

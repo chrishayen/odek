@@ -5,48 +5,48 @@ Declare a set of repositories in a config, then clone, sync, and run commands ac
 std
   std.fs
     std.fs.read_all
-      @ (path: string) -> result[string, string]
+      fn (path: string) -> result[string, string]
       + returns file contents
       - returns error when unreadable
       # filesystem
     std.fs.exists
-      @ (path: string) -> bool
+      fn (path: string) -> bool
       + returns true when the path exists
       # filesystem
   std.process
     std.process.run
-      @ (cwd: string, program: string, args: list[string]) -> result[string, string]
+      fn (cwd: string, program: string, args: list[string]) -> result[string, string]
       + runs the program and returns stdout on zero exit
       - returns error including stderr on non-zero exit
       # process
 
 multirepo
   multirepo.parse_config
-    @ (raw: string) -> result[list[repo_spec], string]
+    fn (raw: string) -> result[list[repo_spec], string]
     + parses a config listing repo name, url, and local path
     - returns error on missing required fields
     # config
   multirepo.clone_missing
-    @ (specs: list[repo_spec]) -> result[list[string], string]
+    fn (specs: list[repo_spec]) -> result[list[string], string]
     + clones any repo whose local path does not exist and returns the cloned names
     - returns error when a clone fails
     # clone
     -> std.fs.exists
     -> std.process.run
   multirepo.sync_all
-    @ (specs: list[repo_spec]) -> result[map[string,string], string]
+    fn (specs: list[repo_spec]) -> result[map[string,string], string]
     + pulls each repo and returns a name-to-status map
     - returns error when any repo has local changes preventing pull
     # sync
     -> std.process.run
   multirepo.run_in_each
-    @ (specs: list[repo_spec], program: string, args: list[string]) -> map[string, result[string,string]]
+    fn (specs: list[repo_spec], program: string, args: list[string]) -> map[string, result[string,string]]
     + runs the command in each repo and returns a per-repo result
     + continues past failures so every repo reports
     # fanout
     -> std.process.run
   multirepo.filter_by_tag
-    @ (specs: list[repo_spec], tag: string) -> list[repo_spec]
+    fn (specs: list[repo_spec], tag: string) -> list[repo_spec]
     + returns specs whose tag list contains the given tag
     + empty list when nothing matches
     # filtering

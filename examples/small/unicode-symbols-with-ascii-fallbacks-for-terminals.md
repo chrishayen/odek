@@ -6,17 +6,17 @@ std: (all units exist)
 
 symbols
   symbols.get
-    @ (name: string, unicode_supported: bool) -> string
+    fn (name: string, unicode_supported: bool) -> string
     + returns the unicode glyph when supported (e.g. "check" -> "\u2714")
     + returns the ASCII fallback when not supported (e.g. "check" -> "v")
     ? the name-to-glyph table is hardcoded
     # lookup
   symbols.names
-    @ () -> list[string]
+    fn () -> list[string]
     + returns every known symbol name
     # introspection
   symbols.detect_unicode_supported
-    @ (term_env: string, is_windows: bool) -> bool
+    fn (term_env: string, is_windows: bool) -> bool
     + returns true when the terminal environment indicates unicode support
     ? inputs are environment facts so the caller controls detection
     # detection

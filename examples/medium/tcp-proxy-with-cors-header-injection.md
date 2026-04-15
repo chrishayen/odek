@@ -5,58 +5,58 @@ Parses an incoming http request, forwards it to an upstream, and rewrites the re
 std
   std.net
     std.net.tcp_dial
-      @ (host: string, port: i32) -> result[tcp_conn, string]
+      fn (host: string, port: i32) -> result[tcp_conn, string]
       + opens a tcp connection to the upstream
       - returns error when the host is unreachable
       # networking
     std.net.tcp_write
-      @ (conn: tcp_conn, data: bytes) -> result[void, string]
+      fn (conn: tcp_conn, data: bytes) -> result[void, string]
       + writes bytes to the connection
       # networking
     std.net.tcp_read_all
-      @ (conn: tcp_conn) -> result[bytes, string]
+      fn (conn: tcp_conn) -> result[bytes, string]
       + reads until the connection is closed
       # networking
     std.net.tcp_close
-      @ (conn: tcp_conn) -> void
+      fn (conn: tcp_conn) -> void
       + closes the connection
       # networking
   std.http
     std.http.parse_request
-      @ (raw: bytes) -> result[http_request, string]
+      fn (raw: bytes) -> result[http_request, string]
       + parses the request line, headers, and body
       - returns error on malformed syntax
       # http
     std.http.encode_request
-      @ (req: http_request) -> bytes
+      fn (req: http_request) -> bytes
       + serializes a request back to wire bytes
       # http
     std.http.parse_response
-      @ (raw: bytes) -> result[http_response, string]
+      fn (raw: bytes) -> result[http_response, string]
       + parses the status line, headers, and body
       - returns error on malformed syntax
       # http
     std.http.encode_response
-      @ (resp: http_response) -> bytes
+      fn (resp: http_response) -> bytes
       + serializes a response to wire bytes
       # http
 
 cors_proxy
   cors_proxy.new_config
-    @ (upstream_host: string, upstream_port: i32, allowed_origin: string) -> proxy_config
+    fn (upstream_host: string, upstream_port: i32, allowed_origin: string) -> proxy_config
     + creates a config pointing at the upstream and the allowed origin
     # construction
   cors_proxy.inject_headers
-    @ (resp: http_response, allowed_origin: string) -> http_response
+    fn (resp: http_response, allowed_origin: string) -> http_response
     + adds access-control-allow-origin and access-control-allow-headers
     + overwrites existing cors headers if already present
     # headers
   cors_proxy.preflight_response
-    @ (allowed_origin: string) -> http_response
+    fn (allowed_origin: string) -> http_response
     + builds a 204 response with the cors headers for options preflights
     # headers
   cors_proxy.handle
-    @ (config: proxy_config, raw_request: bytes) -> result[bytes, string]
+    fn (config: proxy_config, raw_request: bytes) -> result[bytes, string]
     + returns the wire bytes of the response with cors headers injected
     + short-circuits to a preflight response when the method is options
     - returns error when the request is malformed or the upstream is unreachable
