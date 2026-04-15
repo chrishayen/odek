@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,7 +9,28 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 )
+
+// thinkingCallbackKey is the ctx key for a per-request reasoning_content
+// callback. When set, Chat transparently switches to SSE streaming so the
+// callback can fire on every reasoning delta the server emits.
+type thinkingCallbackKey struct{}
+
+// WithThinkingCallback attaches a reasoning_content delta callback to ctx.
+// Any Chat call made with this context streams, and cb is invoked once per
+// reasoning_content chunk the server sends. Pass nil to clear.
+func WithThinkingCallback(ctx context.Context, cb func(string)) context.Context {
+	if cb == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, thinkingCallbackKey{}, cb)
+}
+
+func thinkingCallbackFromContext(ctx context.Context) func(string) {
+	v, _ := ctx.Value(thinkingCallbackKey{}).(func(string))
+	return v
+}
 
 const (
 	DefaultModel = "default"
@@ -33,11 +55,12 @@ type Event struct {
 
 // ChatMessage represents a single message in a chat conversation.
 type ChatMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	Name       string     `json:"name,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Role             string     `json:"role"`
+	Content          string     `json:"content"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	Name             string     `json:"name,omitempty"`
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
 }
 
 // Tool describes a function the model is allowed to call.
@@ -74,6 +97,7 @@ type ChatCompletionRequest struct {
 	MaxTokens   int           `json:"max_tokens,omitempty"`
 	Tools       []Tool        `json:"tools,omitempty"`
 	ToolChoice  any           `json:"tool_choice,omitempty"`
+	Stream      bool          `json:"stream,omitempty"`
 }
 
 // Choice represents a single completion option.
@@ -88,7 +112,8 @@ type Choice struct {
 
 // Delta represents the delta for a choice in streaming responses.
 type Delta struct {
-	Content string `json:"content,omitempty"`
+	Content          string `json:"content,omitempty"`
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 }
 
 // Usage represents token usage information.
@@ -201,12 +226,156 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body, out any)
 }
 
 // Chat completes a conversation with the AI model. Supports both single-turn and multi-turn chat.
+//
+// If the ctx carries a thinking callback (via WithThinkingCallback), Chat
+// switches to SSE streaming so reasoning_content deltas can be surfaced
+// live. Otherwise it uses the non-streaming endpoint. The final accumulated
+// response is returned either way, so callers don't care which path ran.
 func (c *Client) Chat(ctx context.Context, request *ChatCompletionRequest) (*ChatCompletionResponse, error) {
+	if cb := thinkingCallbackFromContext(ctx); cb != nil || request.Stream {
+		return c.chatStream(ctx, request, cb)
+	}
 	var response ChatCompletionResponse
 	if err := c.doJSON(ctx, http.MethodPost, "/chat/completions", request, &response); err != nil {
 		return nil, err
 	}
 	return &response, nil
+}
+
+// chatStream is the SSE path. It posts with stream=true, reassembles deltas
+// into a single ChatCompletionResponse (so the caller sees the same shape),
+// and fires thinkingCb on every reasoning_content chunk the server emits.
+// thinkingCb may be nil — the stream still runs (useful when the caller set
+// Stream=true explicitly).
+func (c *Client) chatStream(ctx context.Context, request *ChatCompletionRequest, thinkingCb func(string)) (*ChatCompletionResponse, error) {
+	reqCopy := *request
+	reqCopy.Stream = true
+
+	bodyBytes, err := json.Marshal(&reqCopy)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	final := &ChatCompletionResponse{
+		Choices: []Choice{{Message: ChatMessage{Role: RoleAssistant}}},
+	}
+	acc := &final.Choices[0]
+	toolsByIdx := make(map[int]*ToolCall)
+	var toolOrder []int
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 || !bytes.HasPrefix(line, []byte("data:")) {
+			continue
+		}
+		payload := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
+		if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
+			if bytes.Equal(payload, []byte("[DONE]")) {
+				break
+			}
+			continue
+		}
+
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Role             string `json:"role"`
+					Content          string `json:"content"`
+					ReasoningContent string `json:"reasoning_content"`
+					ToolCalls        []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id"`
+						Type     string `json:"type"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+			Usage *Usage `json:"usage"`
+		}
+		if err := json.Unmarshal(payload, &chunk); err != nil {
+			continue
+		}
+		if chunk.Usage != nil {
+			final.Usage = chunk.Usage
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		ch0 := chunk.Choices[0]
+		if ch0.Delta.Content != "" {
+			acc.Message.Content += ch0.Delta.Content
+		}
+		if ch0.Delta.ReasoningContent != "" {
+			acc.Message.ReasoningContent += ch0.Delta.ReasoningContent
+			if thinkingCb != nil {
+				thinkingCb(ch0.Delta.ReasoningContent)
+			}
+		}
+		for _, tc := range ch0.Delta.ToolCalls {
+			existing, ok := toolsByIdx[tc.Index]
+			if !ok {
+				existing = &ToolCall{}
+				toolsByIdx[tc.Index] = existing
+				toolOrder = append(toolOrder, tc.Index)
+			}
+			if tc.ID != "" {
+				existing.ID = tc.ID
+			}
+			if tc.Type != "" {
+				existing.Type = tc.Type
+			}
+			if tc.Function.Name != "" {
+				existing.Function.Name += tc.Function.Name
+			}
+			if tc.Function.Arguments != "" {
+				existing.Function.Arguments += tc.Function.Arguments
+			}
+		}
+		if ch0.FinishReason != "" {
+			acc.FinishReason = ch0.FinishReason
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("stream read: %w", err)
+	}
+
+	sort.Ints(toolOrder)
+	for _, idx := range toolOrder {
+		tc := toolsByIdx[idx]
+		if tc.Type == "" {
+			tc.Type = ToolTypeFunction
+		}
+		acc.Message.ToolCalls = append(acc.Message.ToolCalls, *tc)
+	}
+
+	return final, nil
 }
 
 // Ask sends a system+user prompt and returns the assistant's text content.

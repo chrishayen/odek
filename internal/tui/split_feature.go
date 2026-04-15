@@ -114,16 +114,12 @@ func (m splitPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+enter", "ctrl+s":
 			return m, nil
 		case "enter":
-			if m.focus == 1 && !m.right.inputActive && m.right.focusedCol == 0 {
-				snap := m.right.snap
-				if m.right.selectedIdx >= 0 && m.right.selectedIdx < len(snap.TopLevelNames) {
-					name := snap.TopLevelNames[m.right.selectedIdx]
-					fqn := qualifiedPath(snap.PackageName, name) + ": "
-					m.left.SetChatInput(fqn)
-					m.focus = 0
-					m.right.SetActive(false)
-					return m, m.left.Focus()
-				}
+			if m.focus == 1 && !m.right.inputActive && len(m.right.selPath) > 0 {
+				path := m.right.selPath[len(m.right.selPath)-1]
+				m.left.SetChatInput(path + ": ")
+				m.focus = 0
+				m.right.SetActive(false)
+				return m, m.left.Focus()
 			}
 		}
 		if m.focus == 0 {

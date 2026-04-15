@@ -199,18 +199,21 @@ type expansionResult struct {
 // error. Read_example events emitted during the call are pushed through
 // emit.
 func (d *Decomposer) expandOne(ctx context.Context, ri RuneExpansionInfo, baseMessages []openai.ChatMessage, totalReqNanos *int64, emit func(ExpansionEvent)) expansionResult {
-	extendedReq := fmt.Sprintf(`Forget the prior decomposition. Imagine you are seeing "%s" for the first time, in isolation, as a black-box function you have to implement.
+	extendedReq := fmt.Sprintf(`Forget the prior decomposition. Imagine you are seeing "%s" for the first time, in isolation, as a function you have to implement.
 
-Question: what 0–3 PRIVATE helper functions would you write inside "%s"'s body to do its job? Helpers that no other function would ever call. Implementation details only.
+The user is browsing this decomposition as an interactive hierarchy: each rune is a column in a Miller-column (macOS-Finder-style) view, and the user will drill from parent to child to child. Your job is to continue that hierarchical breakdown by one more level beneath "%s".
 
-Call the decompose tool. The runes map keys must be of the form "%s.<new_helper_name>". Example, for a different rune: if you were expanding "image.compress", reasonable helpers would be "image.compress.detect_format", "image.compress.choose_quality", "image.compress.encode_bytes". Each is a verb-phrase describing one internal step.
+Question: what 0–3 child units make up "%s"'s implementation? Each child should be a self-contained step the user would naturally drill into — a private helper, a distinct pipeline stage, or an internal subsystem, depending on the parent's granularity. They will appear as the next column to the right of "%s".
 
-If "%s" is a single primitive operation (like an arithmetic op or a single syscall) and would have no private helpers in its body, return an empty runes map ({}). That is the correct answer.
+Call the decompose tool. The runes map keys must be of the form "%s.<child_name>". Example, for a different rune: if you were expanding "image.compress", reasonable children would be "image.compress.detect_format", "image.compress.choose_quality", "image.compress.encode_bytes". Each is a verb-phrase describing one internal step.
+
+If "%s" is a single primitive operation (like an arithmetic op or a single syscall) and has no meaningful children, return an empty runes map ({}). That is the correct answer for leaves.
 
 Hard rules:
 - Reply ONLY by calling the decompose tool.
-- Never include sibling-level functions, never repeat existing names, never include "%s" itself.
-- At most 3 helpers.`, ri.FullPath, ri.FullPath, ri.FullPath, ri.FullPath, ri.FullPath)
+- Children exist only to serve "%s"; never include sibling-level functions, never repeat existing names, never include "%s" itself.
+- A good child is one the user would click on to see its own next-level breakdown. Prefer 0–3 meaningful children over padding.
+- At most 3 children.`, ri.FullPath, ri.FullPath, ri.FullPath, ri.FullPath, ri.FullPath, ri.FullPath, ri.FullPath, ri.FullPath)
 
 	localMsgs := make([]openai.ChatMessage, 0, len(baseMessages)+1)
 	localMsgs = append(localMsgs, baseMessages...)

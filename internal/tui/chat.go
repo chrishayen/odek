@@ -34,6 +34,11 @@ type chatMessage struct {
 	role     chatRole
 	headline string
 	content  string
+	// thinking holds the reasoning_content deltas the LLM streamed during
+	// the turn this message kicked off. Populated for user messages via
+	// chatModel.SetPendingThinking while a send is in flight and frozen
+	// in place once the turn ends.
+	thinking string
 }
 
 // SendHandler is invoked by the chat whenever the user submits a turn. It
@@ -86,7 +91,23 @@ var (
 			Border(lipgloss.ThickBorder(), false, false, false, true).
 			BorderForeground(accent).
 			PaddingLeft(1)
+
+	chatThinkingBoxStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(mockSep).
+				Padding(0, 1)
+	chatThinkingLabelStyle = lipgloss.NewStyle().
+				Foreground(fgDim).
+				Bold(true)
+	chatThinkingBodyStyle = lipgloss.NewStyle().
+				Foreground(fgDim).
+				Italic(true)
 )
+
+// chatThinkingMaxLines caps the thinking box at a fixed number of wrapped
+// lines. Overflow is handled by keeping the tail (most recent lines) so the
+// live marquee always shows what the model just produced.
+const chatThinkingMaxLines = 8
 
 type chatModel struct {
 	width       int
@@ -200,7 +221,11 @@ func (m chatModel) renderMessage(msg chatMessage, width int) string {
 	case roleUser:
 		label := chatUserLabel.Render("you")
 		body := chatBodyStyle.Width(innerWidth).Render(msg.content)
-		block := lipgloss.JoinVertical(lipgloss.Left, label, body)
+		parts := []string{label, body}
+		if msg.thinking != "" {
+			parts = append(parts, "", renderThinkingBox(msg.thinking, innerWidth))
+		}
+		block := lipgloss.JoinVertical(lipgloss.Left, parts...)
 		return chatUserBlockStyle.MaxWidth(width).Render(block)
 	case roleAssistant:
 		label := chatAssistantLabel.Render("clank")
@@ -213,6 +238,79 @@ func (m chatModel) renderMessage(msg chatMessage, width int) string {
 		return chatAssistantBlockStyle.MaxWidth(width).Render(block)
 	}
 	return ""
+}
+
+// renderThinkingBox renders a bordered panel containing the model's
+// reasoning_content for a user turn. Content is word-wrapped to the
+// available width and always rendered as exactly chatThinkingMaxLines
+// rows so the box footprint is stable as tokens stream in: short
+// content is bottom-padded with empty rows, long content is tail-
+// truncated so only the most recent lines are visible. Width is the
+// usable content width of the surrounding user bubble — the box adds 2
+// for its own border and 2 for horizontal padding, so the body wraps at
+// width-4.
+func renderThinkingBox(text string, width int) string {
+	innerW := max(width-4, 10)
+	lines := wrapThinkingText(normalizeThinking(text), innerW)
+	if len(lines) > chatThinkingMaxLines {
+		lines = lines[len(lines)-chatThinkingMaxLines:]
+	}
+	for len(lines) < chatThinkingMaxLines {
+		lines = append(lines, "")
+	}
+	body := chatThinkingBodyStyle.Width(innerW).Render(strings.Join(lines, "\n"))
+	label := chatThinkingLabelStyle.Render("thinking")
+	content := lipgloss.JoinVertical(lipgloss.Left, label, body)
+	return chatThinkingBoxStyle.Width(max(width-2, 12)).Render(content)
+}
+
+// normalizeThinking collapses tabs to spaces and strips carriage returns.
+// Embedded newlines are preserved so paragraph breaks in the reasoning
+// are honoured by the word-wrap pass.
+func normalizeThinking(s string) string {
+	s = strings.ReplaceAll(s, "\t", "    ")
+	s = strings.ReplaceAll(s, "\r", "")
+	return s
+}
+
+// wrapThinkingText performs a simple greedy word-wrap of text at `width`.
+// Embedded newlines start a new line; very long tokens are hard-split at
+// the width boundary so they don't overflow the box.
+func wrapThinkingText(text string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	var out []string
+	for _, raw := range strings.Split(text, "\n") {
+		if raw == "" {
+			out = append(out, "")
+			continue
+		}
+		line := ""
+		for _, word := range strings.Fields(raw) {
+			for len(word) > width {
+				if line != "" {
+					out = append(out, line)
+					line = ""
+				}
+				out = append(out, word[:width])
+				word = word[width:]
+			}
+			switch {
+			case line == "":
+				line = word
+			case len(line)+1+len(word) <= width:
+				line += " " + word
+			default:
+				out = append(out, line)
+				line = word
+			}
+		}
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
 }
 
 // renderMarkdown renders assistant message content, applying chroma syntax
@@ -323,6 +421,32 @@ func highlightCode(lang, code string, width int) string {
 		lines[i] = codeBgAnsi + "   " + line + strings.Repeat(" ", pad) + reset
 	}
 	return blank + "\n" + strings.Join(lines, "\n") + "\n" + blank
+}
+
+// SetPendingThinking writes s to the `thinking` field of the most recent
+// user message and re-renders the history viewport. Called by the parent
+// model on every animation tick with the shared thinking buffer snapshot
+// so the box grows live as reasoning_content streams in.
+//
+// No-op when s is empty or already matches the stored value — this keeps
+// the previous turn's frozen thinking intact across the ClearThinking()
+// that fires at the start of each new send and avoids pointless
+// refreshContent() churn between ticks.
+func (m *chatModel) SetPendingThinking(s string) {
+	if s == "" {
+		return
+	}
+	for i := len(m.messages) - 1; i >= 0; i-- {
+		if m.messages[i].role != roleUser {
+			continue
+		}
+		if m.messages[i].thinking == s {
+			return
+		}
+		m.messages[i].thinking = s
+		m.refreshContent()
+		return
+	}
 }
 
 // History returns a snapshot of the real chat turns (user + assistant),

@@ -32,10 +32,15 @@ const createFeatureChromeHeight = 6
 // starts — before the cmd is returned to Tea — so the right pane can show
 // an immediate loading indicator when the user sends a message, without
 // waiting for the LLM call to finish.
+//
+// The thinking buffer is a shared log of reasoning_content deltas streamed
+// from the LLM. Both panes render it as a scrolling marquee in the kanji
+// area while work is in flight.
 type decomposeState struct {
 	mu          sync.Mutex
 	session     *decomposer.Session
 	decomposing bool
+	thinking    []rune
 }
 
 func (s *decomposeState) get() *decomposer.Session {
@@ -65,6 +70,46 @@ func (s *decomposeState) setDecomposing(v bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.decomposing = v
+}
+
+// AppendThinking adds a streamed reasoning_content chunk to the shared
+// thinking buffer. Safe to call from any goroutine — the LLM client invokes
+// this from its streaming read loop.
+func (s *decomposeState) AppendThinking(chunk string) {
+	if s == nil || chunk == "" {
+		return
+	}
+	s.mu.Lock()
+	s.thinking = append(s.thinking, []rune(chunk)...)
+	s.mu.Unlock()
+}
+
+// ThinkingSnapshot returns a copy of the current thinking buffer. Safe to
+// call from the render path.
+func (s *decomposeState) ThinkingSnapshot() []rune {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.thinking) == 0 {
+		return nil
+	}
+	out := make([]rune, len(s.thinking))
+	copy(out, s.thinking)
+	return out
+}
+
+// ClearThinking drops the accumulated thinking buffer. Called when a
+// fresh request starts or after the scroll-out animation has pushed the
+// last thinking rune off-screen.
+func (s *decomposeState) ClearThinking() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.thinking = nil
+	s.mu.Unlock()
 }
 
 // WorkInProgress reports whether any background work is currently active:
@@ -157,6 +202,9 @@ func (m createFeatureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case kanjiTickMsg:
 		if m.state.WorkInProgress() {
 			m.kanjiOffset += 2
+		}
+		if snap := m.state.ThinkingSnapshot(); len(snap) > 0 {
+			m.chat.SetPendingThinking(string(snap))
 		}
 		return m, kanjiTick()
 
@@ -334,13 +382,20 @@ func makeFeatureSendHandler(ctx context.Context, client *openai.Client, dec *dec
 		// instant decomposeStartedMsg so the right pane's Update is
 		// triggered to re-snapshot the state.
 		state.setDecomposing(true)
+		// Wipe any leftover thinking from the prior turn so the new
+		// marquee starts fresh.
+		state.ClearThinking()
 		startCmd := func() tea.Msg { return decomposeStartedMsg{id: id} }
 
 		if client == nil {
 			state.setDecomposing(false)
 			return offlineReply(id)
 		}
-		return tea.Batch(startCmd, chatHandler(ctx, client, dec, state, id, history))
+		// Attach a thinking callback so every streamed reasoning_content
+		// delta from any LLM call under this ctx appends to the shared
+		// buffer. Both panes read from it on every kanji tick.
+		thinkingCtx := openai.WithThinkingCallback(ctx, state.AppendThinking)
+		return tea.Batch(startCmd, chatHandler(thinkingCtx, client, dec, state, id, history))
 	}
 }
 

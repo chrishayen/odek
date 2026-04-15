@@ -102,6 +102,20 @@ type Snapshot struct {
 	Expanding       bool
 	InFlightCount   int
 	ErrorCount      int
+
+	// PackagePaths lists the column-0 entries under the synthetic "root"
+	// parent. Ordered deterministically: std first (when it has runes),
+	// then the project package.
+	PackagePaths []string
+	// RuneByPath holds every rune spec discovered across the full
+	// expansion tree, keyed by fully-qualified path. Unlike RunesByName
+	// it includes sub-runes produced by recursive expansion, not just
+	// the root-level decomposition.
+	RuneByPath map[string]Rune
+	// DisplayNameByPath maps a fully-qualified path to the short leaf
+	// label shown in a column (final dot-segment). Package roots map to
+	// themselves.
+	DisplayNameByPath map[string]string
 }
 
 // Session is the mutable tree-plus-channel shared across chat, the
@@ -205,14 +219,16 @@ func (s *Session) Snapshot() Snapshot {
 	defer s.mu.Unlock()
 
 	snap := Snapshot{
-		HasSession:      s.Root != nil && s.Root.Response != nil,
-		Requirement:     s.Requirement,
-		TotalRunes:      s.totalRunes,
-		MaxDepthReached: s.maxDepth,
-		Expanding:       s.expanding,
-		RunesByName:     map[string]Rune{},
-		StatusByName:    map[string]RuneStatus{},
-		ChildrenByName:  map[string][]string{},
+		HasSession:        s.Root != nil && s.Root.Response != nil,
+		Requirement:       s.Requirement,
+		TotalRunes:        s.totalRunes,
+		MaxDepthReached:   s.maxDepth,
+		Expanding:         s.expanding,
+		RunesByName:       map[string]Rune{},
+		StatusByName:      map[string]RuneStatus{},
+		ChildrenByName:    map[string][]string{},
+		RuneByPath:        map[string]Rune{},
+		DisplayNameByPath: map[string]string{},
 	}
 
 	if !snap.HasSession {
@@ -243,20 +259,105 @@ func (s *Session) Snapshot() Snapshot {
 		snap.StatusByName[path] = st
 	}
 
-	for _, child := range s.tree {
-		if child == nil || child.ParentPath == "" {
+	// Walk the full decomposition tree so sub-runes produced by
+	// recursive expansion (and std runes introduced at any depth) show
+	// up in RuneByPath / DisplayNameByPath.
+	projPkg := root.ProjectPackage.Name
+	stdPkg := ""
+	hasAnyStd := false
+	for _, path := range s.treeOrder {
+		d := s.tree[path]
+		if d == nil || d.Response == nil {
 			continue
 		}
-		parent := child.ParentPath
-		snap.ChildrenByName[parent] = append(snap.ChildrenByName[parent], child.Path)
+		pp := d.Response.ProjectPackage
+		for name, r := range pp.Runes {
+			full := qualify(pp.Name, name)
+			snap.RuneByPath[full] = r
+			snap.DisplayNameByPath[full] = lastSegment(full)
+		}
+		if sp := d.Response.StdPackage; sp != nil && sp.Name != "" {
+			if stdPkg == "" {
+				stdPkg = sp.Name
+			}
+			for name, r := range sp.Runes {
+				full := qualify(sp.Name, name)
+				snap.RuneByPath[full] = r
+				snap.DisplayNameByPath[full] = lastSegment(full)
+				hasAnyStd = true
+			}
+		}
 	}
-	if s.Root != nil {
-		snap.ChildrenByName["root"] = append(snap.ChildrenByName["root"], s.Root.ChildPaths...)
+
+	// PackagePaths is the display order for column-0 sections: std
+	// first (when present), then the project package. The TUI renders
+	// this as headers with runes listed directly underneath — not as
+	// selectable rows.
+	if stdPkg != "" && hasAnyStd {
+		snap.PackagePaths = append(snap.PackagePaths, stdPkg)
+		snap.DisplayNameByPath[stdPkg] = stdPkg
 	}
+	if projPkg != "" {
+		snap.PackagePaths = append(snap.PackagePaths, projPkg)
+		snap.DisplayNameByPath[projPkg] = projPkg
+	}
+
+	// Build each package's top-level rune list. std aggregates every
+	// std rune encountered across all decomposition nodes so primitives
+	// introduced during deeper expansions show up in column 0 too.
+	if projPkg != "" {
+		for name := range root.ProjectPackage.Runes {
+			full := qualify(projPkg, name)
+			snap.ChildrenByName[projPkg] = append(snap.ChildrenByName[projPkg], full)
+		}
+		sort.Strings(snap.ChildrenByName[projPkg])
+	}
+	if stdPkg != "" {
+		for _, path := range s.treeOrder {
+			d := s.tree[path]
+			if d == nil || d.Response == nil || d.Response.StdPackage == nil {
+				continue
+			}
+			sp := d.Response.StdPackage
+			for name := range sp.Runes {
+				full := qualify(sp.Name, name)
+				snap.ChildrenByName[stdPkg] = append(snap.ChildrenByName[stdPkg], full)
+			}
+		}
+		sort.Strings(snap.ChildrenByName[stdPkg])
+		snap.ChildrenByName[stdPkg] = dedupeSorted(snap.ChildrenByName[stdPkg])
+	}
+
+	// Sub-rune children (expanded decomposition nodes) attach to their
+	// parent rune path — expand.go sets ParentPath to the parent's full
+	// path. Skip the root-level decomposition whose ParentPath is "" or
+	// "root"; those are handled separately below.
+	for _, child := range s.tree {
+		if child == nil || child.ParentPath == "" || child.ParentPath == "root" {
+			continue
+		}
+		snap.ChildrenByName[child.ParentPath] = append(snap.ChildrenByName[child.ParentPath], child.Path)
+	}
+	// Sort + dedupe sub-rune children. Skip the keys we've already
+	// ordered deliberately above (per-package lists, and "root" which
+	// must stay std-first not lexicographic).
 	for parent, children := range snap.ChildrenByName {
+		if parent == stdPkg || parent == projPkg {
+			continue
+		}
 		sort.Strings(children)
-		snap.ChildrenByName[parent] = children
+		snap.ChildrenByName[parent] = dedupeSorted(children)
 	}
+
+	// Navigation feed: flat ordered list of every top-level rune across
+	// packages, in display order (std section first, then project).
+	// Up/down in column 0 moves through this list; section headers are
+	// pure presentation and don't take a nav slot.
+	var rootKids []string
+	for _, pkg := range snap.PackagePaths {
+		rootKids = append(rootKids, snap.ChildrenByName[pkg]...)
+	}
+	snap.ChildrenByName["root"] = rootKids
 
 	for _, st := range s.status {
 		switch st {
@@ -268,6 +369,33 @@ func (s *Session) Snapshot() Snapshot {
 	}
 
 	return snap
+}
+
+// lastSegment returns the substring after the final '.' in path, or the
+// whole path if there is no dot. Used to turn fully-qualified rune paths
+// into the short labels shown in a column.
+func lastSegment(path string) string {
+	for i := len(path) - 1; i >= 0; i-- {
+		if path[i] == '.' {
+			return path[i+1:]
+		}
+	}
+	return path
+}
+
+// dedupeSorted collapses consecutive duplicates in a sorted slice. The
+// caller passes an already-sorted slice.
+func dedupeSorted(in []string) []string {
+	if len(in) < 2 {
+		return in
+	}
+	out := in[:1]
+	for _, s := range in[1:] {
+		if s != out[len(out)-1] {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // TopLevelPaths returns the fully-qualified paths of the top-level runes
