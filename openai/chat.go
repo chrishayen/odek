@@ -269,12 +269,13 @@ type ToolHandler func(ctx context.Context, call ToolCall) (result string, termin
 
 // AskToolLoop runs a multi-turn tool-calling loop up to maxIterations.
 //
-// Each iteration posts the current history to /chat/completions with ToolChoice="auto".
-// If the assistant turn has no tool calls, the loop returns that message as final.
-// If it has tool calls, each one is dispatched to handler in order. A handler that
-// returns terminal=true short-circuits the remaining calls in that turn; the loop
-// then returns the assistant turn as final. Exceeding maxIterations without a
-// terminal tool call or text-only response returns an error.
+// Each iteration posts the current history to /chat/completions with the given
+// toolChoice (pass nil for the default "auto"). If the assistant turn has no tool
+// calls, the loop returns that message as final. If it has tool calls, each one
+// is dispatched to handler in order. A handler that returns terminal=true
+// short-circuits the remaining calls in that turn; the loop then returns the
+// assistant turn as final. Exceeding maxIterations without a terminal tool call
+// or text-only response returns an error.
 //
 // The returned history always contains the full accumulated message list, including
 // on error, so callers can log or feed it forward regardless of outcome.
@@ -284,16 +285,22 @@ func (c *Client) AskToolLoop(
 	tools []Tool,
 	handler ToolHandler,
 	maxIterations int,
+	toolChoice any,
 ) (final ChatMessage, history []ChatMessage, err error) {
 	history = make([]ChatMessage, 0, len(messages)+maxIterations*2)
 	history = append(history, messages...)
+
+	tc := toolChoice
+	if tc == nil {
+		tc = "auto"
+	}
 
 	for range maxIterations {
 		resp, chatErr := c.Chat(ctx, &ChatCompletionRequest{
 			Model:      DefaultModel,
 			Messages:   history,
 			Tools:      tools,
-			ToolChoice: "auto",
+			ToolChoice: tc,
 		})
 		if chatErr != nil {
 			return ChatMessage{}, history, fmt.Errorf("chat completion failed: %w", chatErr)

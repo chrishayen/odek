@@ -112,8 +112,10 @@ func (m *featureDecompModel) SetInSplit(v bool) {
 }
 
 // decompBottomChromeRows is the number of rows consumed below the viewport:
-// blank (above vp) + blank (below vp) + input + help + blank = 5.
-const decompBottomChromeRows = 5
+// blank (above vp) + input + blank + help = 4. No trailing blank below help
+// because the chat pane's body overflows by 1 row so its own trailing blank
+// is clipped; keeping the decomp help on the last row lines them up.
+const decompBottomChromeRows = 4
 
 func (m *featureDecompModel) resize(w, h int) {
 	m.width = w
@@ -287,10 +289,9 @@ func (m featureDecompModel) View() tea.View {
 		top,
 		blank,
 		bottom,
-		blank,
 		lastLine,
-		help,
 		blank,
+		help,
 	)
 	return v
 }
@@ -361,7 +362,10 @@ func renderDecompTop(width, height, kanjiOffset int, snap decomposer.Snapshot) s
 	}
 
 	textMax := max(min(width/2, 70), 20)
-	topCopy := snap.Requirement
+	topCopy := strings.TrimSpace(snap.Summary)
+	if topCopy == "" {
+		topCopy = snap.Requirement
+	}
 	if !snap.HasSession || topCopy == "" {
 		topCopy = emptyTopCopy
 	}

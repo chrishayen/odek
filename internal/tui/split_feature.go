@@ -184,10 +184,10 @@ func (m splitPaneModel) View() tea.View {
 }
 
 // dimUnfocused flattens the first row (ODEK logo) and the help-bar row
-// (second from the bottom — the very bottom is a blank spacer) of a clipped
-// pane into plain fgDim text on bgMain. Used on the pane that doesn't have
-// focus — the contrast against the focused pane's accent-colored logo and
-// styled help bar becomes the focus indicator.
+// (the very last row of each pane) of a clipped pane into plain fgDim text
+// on bgMain. Used on the pane that doesn't have focus — the contrast against
+// the focused pane's accent-colored logo and styled help bar becomes the
+// focus indicator.
 func dimUnfocused(content string, width int) string {
 	if width <= 0 {
 		return content
@@ -215,7 +215,7 @@ func dimUnfocused(content string, width int) string {
 	}
 	lines[0] = dim(lines[0])
 	if len(lines) >= 2 {
-		lines[len(lines)-2] = dim(lines[len(lines)-2])
+		lines[len(lines)-1] = dim(lines[len(lines)-1])
 	}
 	return strings.Join(lines, "\n")
 }

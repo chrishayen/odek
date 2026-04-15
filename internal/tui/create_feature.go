@@ -286,10 +286,10 @@ func (m createFeatureModel) View() tea.View {
 	kanjiLine1 := renderKanjiLine(innerWidth, 2, m.kanjiOffset+scrollOff)
 	kanjiLine2 := renderKanjiLine(innerWidth, 3, -(m.kanjiOffset + scrollOff))
 	body := header + "\n\n" + kanjiLine1 + "\n" + kanjiLine2 + "\n" + m.chat.View()
-	bodyBlock := lipgloss.NewStyle().Height(m.height - 2).Render(body)
+	bodyBlock := lipgloss.NewStyle().Height(m.height - 3).Render(body)
 	blankRow := padStyle.Render(strings.Repeat(" ", innerWidth))
 
-	content := bodyBlock + "\n" + helpBar + "\n" + blankRow
+	content := bodyBlock + "\n" + blankRow + "\n" + helpBar + "\n" + blankRow
 	rendered := lipgloss.NewStyle().PaddingLeft(viewPadX).PaddingRight(viewPadX).Render(content)
 	v := tea.NewView(rendered)
 	v.AltScreen = true
@@ -621,7 +621,7 @@ func runDecompose(ctx context.Context, dec *decomposer.Decomposer, state *decomp
 	state.session = sess
 	state.mu.Unlock()
 
-	content := renderDecompositionSummary(sess, priorResp)
+	content := renderDecompositionSummary(sess)
 	headline := fmt.Sprintf("Effort: %d/5", effortLvl)
 
 	var events <-chan decomposer.ExpansionEvent

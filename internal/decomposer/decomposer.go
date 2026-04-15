@@ -54,14 +54,18 @@ func initToolSchemas() {
 		Type: openai.ToolTypeFunction,
 		Function: &openai.FunctionDefinition{
 			Name:        "decompose",
-			Description: "Submit a rune decomposition. Provide a project_package, and optionally a std_package of reusable utilities.",
+			Description: "Submit a rune decomposition. Provide a 1-2 sentence summary, a project_package, and optionally a std_package of reusable utilities.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
+					"summary": map[string]any{
+						"type":        "string",
+						"description": "A 1-2 sentence narrative shown to the user in the chat. On a fresh decomposition, describe what the feature is and the approach you took. On a refinement pass (when a prior decomposition is included), describe what you changed in response to the user's latest feedback and why. Explain, do not list rune names.",
+					},
 					"project_package": packageSchema,
 					"std_package":     packageSchema,
 				},
-				"required": []string{"project_package"},
+				"required": []string{"summary", "project_package"},
 			},
 		},
 	}
@@ -237,7 +241,8 @@ func (d *Decomposer) Decompose(ctx context.Context, messages []openai.ChatMessag
 		}
 	}
 
-	final, history, err := d.api.AskToolLoop(ctx, messages, []openai.Tool{readExampleTool, decomposeTool}, handler, maxToolIterations)
+	tools := []openai.Tool{readExampleTool, decomposeTool}
+	final, history, err := d.api.AskToolLoop(ctx, messages, tools, handler, maxToolIterations, nil)
 	if err != nil {
 		return nil, history, fmt.Errorf("chat completion failed: %w", err)
 	}
@@ -246,7 +251,36 @@ func (d *Decomposer) Decompose(ctx context.Context, messages []openai.ChatMessag
 		return *parsed, history, nil
 	}
 
+	// Plain-text reply without a tool call: the model ignored the decompose
+	// tool schema. Local llama.cpp models pattern-match the prompt's tree
+	// examples and emit trees in prose. Append a corrective user message and
+	// force a tool call on a second pass; if that still fails, fall through
+	// to ClarificationRequest.
 	if len(final.ToolCalls) == 0 && strings.TrimSpace(final.Content) != "" {
+		history = append(history, openai.ChatMessage{
+			Role: openai.RoleUser,
+			Content: "Your previous response was plain text. You MUST submit your answer " +
+				"by calling the `decompose` tool. Convert the structure you just described " +
+				"into the JSON arguments the tool expects: a `summary` string (1-2 sentence " +
+				"narrative), a `project_package` object, and optionally a `std_package` " +
+				"object. Each package has a `name` and a `runes` map; every rune has " +
+				"`description`, `function_signature`, `positive_tests`, `negative_tests`, " +
+				"and `assumptions` fields. Call `decompose` now.",
+		})
+		retryFinal, retryHistory, retryErr := d.api.AskToolLoop(ctx, history, tools, handler, maxToolIterations, "required")
+		history = retryHistory
+		if retryErr != nil {
+			return nil, history, fmt.Errorf("forced-retry after plain-text reply failed: %w", retryErr)
+		}
+		if parsed != nil && parsed.ProjectPackage.Name != "" && len(parsed.ProjectPackage.Runes) > 0 {
+			return *parsed, history, nil
+		}
+		// Retry produced either more plain text or degenerate JSON. Fall
+		// through to the clarification path using whichever final turn is
+		// useful.
+		if len(retryFinal.ToolCalls) == 0 && strings.TrimSpace(retryFinal.Content) != "" {
+			return ClarificationRequest{Message: retryFinal.Content}, history, nil
+		}
 		return ClarificationRequest{Message: final.Content}, history, nil
 	}
 	return nil, history, fmt.Errorf("model returned neither a decompose tool call nor clarification text")

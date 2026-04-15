@@ -26,8 +26,12 @@ type PackageNode struct {
 }
 
 // DecompositionResponse is the parsed JSON arguments of a single `decompose`
-// tool call.
+// tool call. Summary is a 1-2 sentence narrative the model writes alongside
+// the tree: on a fresh pass it introduces what the feature is; on a
+// refinement pass it describes what changed based on the user's latest
+// feedback. The chat surfaces it verbatim; the right-hand pane ignores it.
 type DecompositionResponse struct {
+	Summary        string       `json:"summary"`
 	ProjectPackage PackageNode  `json:"project_package"`
 	StdPackage     *PackageNode `json:"std_package,omitempty"`
 }
@@ -92,6 +96,7 @@ type Snapshot struct {
 	StatusByName    map[string]RuneStatus
 	ChildrenByName  map[string][]string
 	Requirement     string
+	Summary         string
 	TotalRunes      int
 	MaxDepthReached int
 	Expanding       bool
@@ -216,6 +221,7 @@ func (s *Session) Snapshot() Snapshot {
 
 	root := s.Root.Response
 	snap.PackageName = root.ProjectPackage.Name
+	snap.Summary = root.Summary
 
 	names := make([]string, 0, len(root.ProjectPackage.Runes))
 	for name := range root.ProjectPackage.Runes {
