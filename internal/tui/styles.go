@@ -21,6 +21,13 @@ func kanjiAt(row, col int) rune {
 }
 
 var (
+	accent     = lipgloss.Color("212")     // pink
+	accentSoft = lipgloss.Color("99")      // purple
+	bgMain     = lipgloss.Color("#171717") // terminal bg
+	fgBright   = lipgloss.Color("15")
+	fgBody     = lipgloss.Color("245")
+	fgDim      = lipgloss.Color("241")
+
 	border  = lipgloss.Color("241")
 	dim     = lipgloss.Color("241")
 	helpKey = lipgloss.Color("99")
@@ -32,7 +39,7 @@ var (
 	helpTextStyle = lipgloss.NewStyle().
 			Foreground(dim)
 
-	helpBarStyle = lipgloss.NewStyle().PaddingLeft(5)
+	helpBarStyle = lipgloss.NewStyle()
 )
 
 var (
@@ -42,13 +49,12 @@ var (
 	keyScroll        = key.NewBinding(key.WithKeys("pgup", "pgdown"), key.WithHelp("pgup/pgdn", "scroll"))
 	keyCancel        = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel"))
 	keyQuit          = key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit"))
-	keyDecomposition = key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "decomposition"))
 )
 
 type splashKeyMap struct{}
 
 func (splashKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{keyNew, keyDecomposition, keyQuit}
+	return []key.Binding{keyNew, keyQuit}
 }
 func (splashKeyMap) FullHelp() [][]key.Binding { return nil }
 

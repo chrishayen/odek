@@ -112,7 +112,7 @@ func (m createFeatureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				help:   newHelpModel(),
 				ctx:    m.ctx,
 				client: m.client,
-			}, nil
+			}, landingTick()
 		case "ctrl+enter", "ctrl+s":
 			if m.chat.Busy() {
 				return m, nil
