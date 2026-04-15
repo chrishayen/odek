@@ -290,7 +290,7 @@ func buildHelpLine() (runes []rune, isKey, isSep []bool) {
 }
 
 // renderKanjiField builds a w×h screen of scrolling kanji. Each row drifts
-// horizontally at a per-row speed (alternating direction by parity). Kanji
+// horizontally at a uniform speed (alternating direction by parity). Kanji
 // inside the bouncing ODEK logo mask get the warm VHS gradient; the rest stay
 // muted gray. The help line is embedded near the bottom center, and its chars
 // also pick up the warm gradient when the logo mask passes over them.
@@ -337,7 +337,7 @@ func renderKanjiField(w, h, offset, logoKX0, logoY0 int) string {
 			rowDir = -1
 		}
 		// 80ms tick → 12.5 ticks/sec. speed=1 → 1 char/sec = 1 char / 12 ticks.
-		speed := 1 + (y*13+5)%20
+		const speed = 6
 		rowOff := rowDir * speed * offset / 12
 
 		x := 0
