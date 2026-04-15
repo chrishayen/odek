@@ -2,9 +2,7 @@ package openai
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 )
 
@@ -52,77 +50,23 @@ type ListModelsResponse struct {
 
 // ListModels fetches the list of available models from the API.
 func (c *Client) ListModels(ctx context.Context) ([]ModelInfo, error) {
-	url := c.baseURL + "/models"
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
 	var result ListModelsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, "/models", nil, &result); err != nil {
+		return nil, err
 	}
-
 	return result.Data, nil
 }
 
 // GetModelInfo fetches detailed information about a specific model.
 func (c *Client) GetModelInfo(ctx context.Context, modelID string) (*ModelInfo, error) {
-	url := fmt.Sprintf("%s/models/%s", c.baseURL, modelID)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
 	var info ModelInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	if err := c.doJSON(ctx, http.MethodGet, "/models/"+modelID, nil, &info); err != nil {
+		return nil, err
 	}
-
 	return &info, nil
 }
 
-// HealthCheck performs a simple GET request to the root path to verify connectivity.
+// HealthCheck performs a simple GET request to /health to verify connectivity.
 func (c *Client) HealthCheck(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/health", nil)
-	if err != nil {
-		return fmt.Errorf("failed to create health check request: %w", err)
-	}
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("health check failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("health check returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return c.doJSON(ctx, http.MethodGet, "/health", nil, nil)
 }

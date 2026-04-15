@@ -222,43 +222,48 @@ func renderFormHelpBar(width int, scrollDown, showTabSwitch bool) string {
 }
 
 // makeFeatureSendHandler returns a SendHandler that routes the first submission
-// through effort.Estimate and subsequent submissions through client.Chat,
+// through effort.Estimate and subsequent submissions through client.AskMessages,
 // carrying the feature description and the initial effort estimate forward as
 // system context.
 func makeFeatureSendHandler(ctx context.Context, client *openai.Client) SendHandler {
 	return func(history []chatMessage, userInput string, id int) tea.Cmd {
 		if client == nil {
-			return func() tea.Msg {
-				return chatErrMsg{id: id, err: fmt.Errorf("chat offline: no client configured")}
-			}
+			return offlineReply(id)
 		}
 		if isFirstTurn(history) {
-			return func() tea.Msg {
-				res, err := effort.Estimate(ctx, client, userInput)
-				if err != nil {
-					return chatErrMsg{id: id, err: err}
-				}
-				return chatReplyMsg{
-					id:       id,
-					content:  res.Reason,
-					headline: fmt.Sprintf("Effort: %d/5", res.Level),
-				}
-			}
+			return firstSubmissionHandler(ctx, client, id, userInput)
 		}
-		return func() tea.Msg {
-			req := buildFollowupRequest(history)
-			resp, err := client.Chat(ctx, req)
-			if err != nil {
-				return chatErrMsg{id: id, err: err}
-			}
-			if len(resp.Choices) == 0 {
-				return chatErrMsg{id: id, err: fmt.Errorf("empty response")}
-			}
-			return chatReplyMsg{
-				id:      id,
-				content: resp.Choices[0].Message.Content,
-			}
+		return followUpHandler(ctx, client, id, history)
+	}
+}
+
+func offlineReply(id int) tea.Cmd {
+	return func() tea.Msg {
+		return chatErrMsg{id: id, err: fmt.Errorf("chat offline: no client configured")}
+	}
+}
+
+func firstSubmissionHandler(ctx context.Context, client *openai.Client, id int, userInput string) tea.Cmd {
+	return func() tea.Msg {
+		res, err := effort.Estimate(ctx, client, userInput)
+		if err != nil {
+			return chatErrMsg{id: id, err: err}
 		}
+		return chatReplyMsg{
+			id:       id,
+			content:  res.Reason,
+			headline: fmt.Sprintf("Effort: %d/5", res.Level),
+		}
+	}
+}
+
+func followUpHandler(ctx context.Context, client *openai.Client, id int, history []chatMessage) tea.Cmd {
+	return func() tea.Msg {
+		content, err := client.AskMessages(ctx, buildFollowupMessages(history))
+		if err != nil {
+			return chatErrMsg{id: id, err: err}
+		}
+		return chatReplyMsg{id: id, content: content}
 	}
 }
 
@@ -278,7 +283,7 @@ func isFirstTurn(history []chatMessage) bool {
 	return userCount == 1
 }
 
-func buildFollowupRequest(history []chatMessage) *openai.ChatCompletionRequest {
+func buildFollowupMessages(history []chatMessage) []openai.ChatMessage {
 	featureDesc := ""
 	effortHeadline := ""
 	effortReason := ""
@@ -300,21 +305,17 @@ func buildFollowupRequest(history []chatMessage) *openai.ChatCompletionRequest {
 	}
 	system += "Respond concisely and practically."
 
-	msgs := []openai.ChatMessage{{Role: "system", Content: system}}
+	msgs := []openai.ChatMessage{{Role: openai.RoleSystem, Content: system}}
 	for _, msg := range history {
-		role := "user"
+		role := openai.RoleUser
 		content := msg.content
 		if msg.role == roleAssistant {
-			role = "assistant"
+			role = openai.RoleAssistant
 			if msg.headline != "" {
 				content = msg.headline + " — " + msg.content
 			}
 		}
 		msgs = append(msgs, openai.ChatMessage{Role: role, Content: content})
 	}
-
-	return &openai.ChatCompletionRequest{
-		Model:    "default",
-		Messages: msgs,
-	}
+	return msgs
 }

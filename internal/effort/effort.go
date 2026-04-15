@@ -17,7 +17,7 @@ type Result struct {
 const systemPrompt = "You are a software-complexity estimator. Given a software requirement, rate it 1-5 by calling the rate_effort tool. Reply only via the tool call."
 
 var rateEffortTool = openai.Tool{
-	Type: "function",
+	Type: openai.ToolTypeFunction,
 	Function: &openai.FunctionDefinition{
 		Name:        "rate_effort",
 		Description: "Rate the complexity of a software requirement on a 1-5 scale.",
@@ -42,32 +42,14 @@ var rateEffortTool = openai.Tool{
 
 // Estimate asks the model to rate the requirement's complexity 1-5 via a forced tool call.
 func Estimate(ctx context.Context, client *openai.Client, requirement string) (Result, error) {
-	request := &openai.ChatCompletionRequest{
-		Model: "default",
-		Messages: []openai.ChatMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: "Rate the complexity of this requirement: " + requirement},
-		},
-		Tools: []openai.Tool{rateEffortTool},
-		ToolChoice: map[string]any{
-			"type": "function",
-			"function": map[string]any{
-				"name": "rate_effort",
-			},
-		},
-	}
-
-	resp, err := client.Chat(ctx, request)
+	args, err := client.AskTool(ctx, systemPrompt,
+		"Rate the complexity of this requirement: "+requirement, rateEffortTool)
 	if err != nil {
 		return Result{}, fmt.Errorf("effort completion failed: %w", err)
 	}
-	if len(resp.Choices) == 0 || len(resp.Choices[0].Message.ToolCalls) == 0 {
-		return Result{}, fmt.Errorf("no tool call in effort response")
-	}
-	call := resp.Choices[0].Message.ToolCalls[0]
 	var est Result
-	if err := json.Unmarshal([]byte(call.Function.Arguments), &est); err != nil {
-		return Result{}, fmt.Errorf("parsing effort args: %w (raw: %s)", err, call.Function.Arguments)
+	if err := json.Unmarshal([]byte(args), &est); err != nil {
+		return Result{}, fmt.Errorf("parsing effort args: %w (raw: %s)", err, args)
 	}
 	if est.Level < 1 || est.Level > 5 {
 		return Result{}, fmt.Errorf("level out of range: %d", est.Level)
