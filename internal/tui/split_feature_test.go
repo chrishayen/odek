@@ -13,10 +13,10 @@ import (
 
 func makeSplit(t *testing.T, width, height int) splitPaneModel {
 	t.Helper()
-	left := newCreateFeatureModel(context.Background(), (*openai.Client)(nil), width, height)
+	left := newCreateFeatureModel(context.Background(), (*openai.Client)(nil), nil, width, height)
 	leftW, rightW := splitWidths(width)
 	left.resize(leftW, height)
-	right := newFeatureDecompModel(rightW, height, renderFeaturePin())
+	right := newFeatureDecompModel(rightW, height, nil, left.state)
 	return newSplitPaneModel(left, right, width, height)
 }
 

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -8,6 +9,8 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"shotgun.dev/odek/internal/decomposer"
 )
 
 const (
@@ -25,6 +28,14 @@ func blinkTick() tea.Cmd {
 	})
 }
 
+type decompKanjiTickMsg struct{}
+
+func decompKanjiTick() tea.Cmd {
+	return tea.Tick(80*time.Millisecond, func(time.Time) tea.Msg {
+		return decompKanjiTickMsg{}
+	})
+}
+
 var (
 	mockSep   = lipgloss.Color("#3e3e3e")
 	mockHot   = lipgloss.Color("#f74e82")
@@ -32,117 +43,16 @@ var (
 )
 
 const (
-	mockNumCols       = 2
-	mockNavigableCols = mockNumCols - 1 // rightmost column is the summary/detail pane, not navigable
-	mockColW          = 30
+	decompNumCols       = 2
+	decompNavigableCols = decompNumCols - 1 // rightmost column is the summary/detail pane, not navigable
+	decompColW          = 30
 )
 
-var mockTomlItems = []string{
-	"decode",
-	"encode",
-	"encode_value",
-	"tokenize",
-	"get_array",
-	"get_bool",
-	"get_int",
-	"get_string",
-	"parse",
-}
-
-type mockRuneInfo struct {
-	summary   string
-	sig       string
-	pluses    []string
-	minuses   []string
-	questions []string
-	tag       string
-	deps      []string
-}
-
-var mockRuneInfos = []mockRuneInfo{
-	{
-		summary: "One-shot helper that chains tokenize + parse so callers can hand in source text and get back a ready-to-query value tree.",
-		sig:     "(source: string) -> result[toml_value, string]",
-		pluses:  []string{"tokenizes then parses, returning the root table"},
-		minuses: []string{"propagates tokenize and parse errors"},
-		tag:     "decoding",
-		deps:    []string{"toml.tokenize", "toml.parse"},
-	},
-	{
-		summary: "Serializes a full toml_value tree back into TOML text, choosing header grouping and key order for round-trip fidelity.",
-		sig:     "(root: toml_value) -> result[string, string]",
-		pluses: []string{
-			"returns a TOML document whose decode round-trips to the same value tree",
-			`emits nested tables as "[section.sub]" headers ordered by appearance`,
-		},
-		minuses: []string{"returns error when the root is not a table"},
-		tag:     "encoding",
-		deps:    []string{"toml.encode_value"},
-	},
-	{
-		summary:   "Renders a single TOML value — scalar, string, number, bool, or inline array — in its literal source form.",
-		sig:       "(value: toml_value) -> string",
-		pluses:    []string{"renders a scalar value or inline array in TOML literal syntax"},
-		questions: []string{"used internally by encode; exposed for callers who build values directly"},
-		tag:       "encoding",
-	},
-	{
-		summary: "Turns raw TOML source into a flat stream of tokens — keys, values, brackets, equals signs, newlines — ready for the parser to consume.",
-		sig:     "(source: string) -> result[list[toml_token], string]",
-		pluses:  []string{"splits the input into keys, equals, strings, numbers, booleans, brackets, and newlines"},
-		minuses: []string{"returns error on an unterminated string literal", "returns error on an invalid number literal"},
-		tag:     "lexing",
-	},
-	{
-		summary: "Fetches an array at a dotted path within a decoded TOML value tree.",
-		sig:     "(root: toml_value, path: string) -> optional[list[toml_value]]",
-		pluses:  []string{"returns the array at a dotted path"},
-		minuses: []string{"returns none when missing or not an array"},
-		tag:     "lookup",
-	},
-	{
-		summary: "Looks up a boolean leaf at a dotted path within a decoded TOML value tree.",
-		sig:     "(root: toml_value, path: string) -> optional[bool]",
-		pluses:  []string{"returns the boolean value at a dotted path"},
-		minuses: []string{"returns none when missing or not a boolean"},
-		tag:     "lookup",
-	},
-	{
-		summary: "Looks up an integer leaf at a dotted path within a decoded TOML value tree.",
-		sig:     "(root: toml_value, path: string) -> optional[i64]",
-		pluses:  []string{"returns the integer value at a dotted path"},
-		minuses: []string{"returns none when missing or not an integer"},
-		tag:     "lookup",
-	},
-	{
-		summary: "Looks up a string leaf at a dotted path within a decoded TOML value tree.",
-		sig:     "(root: toml_value, path: string) -> optional[string]",
-		pluses:  []string{`returns the string value at a dotted path like "server.host"`},
-		minuses: []string{"returns none when any segment is missing or the leaf is not a string"},
-		tag:     "lookup",
-	},
-	{
-		summary: "Walks a token stream and builds the root table value: nested sections, inline arrays, and scalar leaves.",
-		sig:     "(tokens: list[toml_token]) -> result[toml_value, string]",
-		pluses: []string{
-			"returns the root table value containing every top-level key",
-			`supports nested tables via "[section.sub]" headers`,
-			"supports inline arrays of homogeneous type",
-		},
-		minuses: []string{
-			"returns error on duplicate keys within the same table",
-			"returns error on unclosed section headers",
-		},
-		tag: "parsing",
-	},
-}
-
-const mockTopCopy = "A full subsystem: tokenize, parse, build a typed value tree, and emit it back as text. Values can be strings, integers, floats, booleans, arrays, or nested tables."
+const emptyTopCopy = "Describe your feature in the chat. Auto-decompose updates this pane as you iterate."
 
 type featureDecompModel struct {
 	width       int
 	height      int
-	pin         string
 	vp          viewport.Model
 	selectedIdx int
 	focusedCol  int
@@ -152,9 +62,15 @@ type featureDecompModel struct {
 	inSplit     bool
 	steadyUntil time.Time
 	input       textinput.Model
+
+	sess        *decomposer.Session
+	state       *decomposeState
+	snap        decomposer.Snapshot
+	decomposing bool // mirrored from state, read under the same lock
+	kanjiOffset int
 }
 
-func newFeatureDecompModel(width, height int, pin string) featureDecompModel {
+func newFeatureDecompModel(width, height int, sess *decomposer.Session, state *decomposeState) featureDecompModel {
 	ti := textinput.New()
 	ti.Prompt = "> "
 	s := ti.Styles()
@@ -167,10 +83,11 @@ func newFeatureDecompModel(width, height int, pin string) featureDecompModel {
 	m := featureDecompModel{
 		width:  width,
 		height: height,
-		pin:    pin,
 		vp:     viewport.New(),
 		input:  ti,
 		active: true,
+		sess:   sess,
+		state:  state,
 	}
 	m.resize(width, height)
 	return m
@@ -194,9 +111,9 @@ func (m *featureDecompModel) SetInSplit(v bool) {
 	m.inSplit = v
 }
 
-// mockBottomChromeRows is the number of rows consumed below the viewport:
-// blank + pin + blank + input + help = 5, plus 1 spacer above the viewport.
-const mockBottomChromeRows = 6
+// decompBottomChromeRows is the number of rows consumed below the viewport:
+// blank (above vp) + blank (below vp) + input + help + blank = 5.
+const decompBottomChromeRows = 5
 
 func (m *featureDecompModel) resize(w, h int) {
 	m.width = w
@@ -205,29 +122,36 @@ func (m *featureDecompModel) resize(w, h int) {
 		return
 	}
 	topH := h / 3
-	bottomH := max(h-topH-mockBottomChromeRows, 1)
+	bottomH := max(h-topH-decompBottomChromeRows, 1)
 	m.vp.SetWidth(w)
 	m.vp.SetHeight(bottomH)
 	m.refreshColumns()
 }
 
+// refreshColumns pulls the latest session snapshot (via the shared state
+// pointer so post-transition /decompose runs are picked up) and re-renders
+// the column viewport.
 func (m *featureDecompModel) refreshColumns() {
-	m.vp.SetContent(buildMockColumns(m.vp.Width(), m.vp.Height(), m.selectedIdx, m.focusedCol, m.active, m.blinkOn))
-}
-
-// PinRow reports the row at which the feature pin renders, so the slide
-// transition can land its end-state icon at the same position.
-func (m featureDecompModel) PinRow() int {
-	if m.height <= 0 {
-		return 0
+	if m.state != nil {
+		m.state.mu.Lock()
+		m.sess = m.state.session
+		m.decomposing = m.state.decomposing
+		m.state.mu.Unlock()
 	}
-	topH := m.height / 3
-	bottomH := max(m.height-topH-mockBottomChromeRows, 1)
-	// JoinVertical order: top(topH) + blank(1) + bottom(bottomH) + blank(1) = pin row.
-	return topH + 1 + bottomH + 1
+	if m.sess != nil {
+		m.snap = m.sess.Snapshot()
+	} else {
+		m.snap = decomposer.Snapshot{}
+	}
+	if n := len(m.snap.TopLevelNames); n == 0 {
+		m.selectedIdx = 0
+	} else if m.selectedIdx >= n {
+		m.selectedIdx = n - 1
+	}
+	m.vp.SetContent(buildColumns(m.vp.Width(), m.vp.Height(), m.selectedIdx, m.focusedCol, m.active, m.blinkOn, m.decomposing, m.snap))
 }
 
-func (m featureDecompModel) Init() tea.Cmd { return blinkTick() }
+func (m featureDecompModel) Init() tea.Cmd { return tea.Batch(blinkTick(), decompKanjiTick()) }
 
 func (m featureDecompModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -245,6 +169,33 @@ func (m featureDecompModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshColumns()
 		}
 		return m, blinkTick()
+	case decompKanjiTickMsg:
+		if m.state.WorkInProgress() {
+			m.kanjiOffset += 2
+		}
+		return m, decompKanjiTick()
+	case kanjiTickMsg:
+		// Chat pane's ticker reaches us via the split's broadcast —
+		// consume it so it doesn't bleed into the viewport component.
+		return m, nil
+	case expansionEventMsg:
+		if msg.ok {
+			m.refreshColumns()
+		}
+		return m, nil
+	case decomposeDoneMsg:
+		// Chat just installed a new session in shared state; re-snapshot
+		// so the right pane shows the fresh top-level runes instead of
+		// whatever it was displaying before (empty state, a prior
+		// decomposition, etc.).
+		m.refreshColumns()
+		return m, nil
+	case decomposeStartedMsg:
+		// The user just sent a message and the decomposer is running.
+		// Re-snapshot so we pick up state.decomposing=true and render
+		// the loading indicator.
+		m.refreshColumns()
+		return m, nil
 	case tea.KeyPressMsg:
 		if m.inputActive {
 			switch msg.String() {
@@ -268,14 +219,14 @@ func (m featureDecompModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.inputActive = true
 			return m, m.input.Focus()
 		case "left", "h":
-			if mockNavigableCols > 1 {
-				m.focusedCol = (m.focusedCol - 1 + mockNavigableCols) % mockNavigableCols
+			if decompNavigableCols > 1 {
+				m.focusedCol = (m.focusedCol - 1 + decompNavigableCols) % decompNavigableCols
 				m.refreshColumns()
 			}
 			return m, nil
 		case "right", "l":
-			if mockNavigableCols > 1 {
-				m.focusedCol = (m.focusedCol + 1) % mockNavigableCols
+			if decompNavigableCols > 1 {
+				m.focusedCol = (m.focusedCol + 1) % decompNavigableCols
 				m.refreshColumns()
 			}
 			return m, nil
@@ -288,7 +239,7 @@ func (m featureDecompModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "down", "j":
-			if m.focusedCol == 0 && m.selectedIdx < len(mockTomlItems)-1 {
+			if m.focusedCol == 0 && m.selectedIdx < len(m.snap.TopLevelNames)-1 {
 				m.selectedIdx++
 				m.blinkOn = true
 				m.steadyUntil = time.Now().Add(blinkHoldAfterMove)
@@ -319,10 +270,9 @@ func (m featureDecompModel) View() tea.View {
 	}
 
 	topH := m.height / 3
-	top := renderMockTop(m.width, topH, m.selectedIdx*4)
+	top := renderDecompTop(m.width, topH, m.selectedIdx*4+m.kanjiOffset, m.snap)
 	blank := lipgloss.NewStyle().Background(bgMain).Render(strings.Repeat(" ", m.width))
 	bottom := m.vp.View()
-	pinRow := renderMockPinRow(m.width, m.pin)
 
 	lastLine := blank
 	if m.inputActive {
@@ -331,34 +281,21 @@ func (m featureDecompModel) View() tea.View {
 		lastLine = rendered + lipgloss.NewStyle().Background(bgMain).Render(strings.Repeat(" ", pad))
 	}
 
-	help := renderMockHelp(m.width, m.inputActive, m.inSplit)
+	help := renderDecompHelp(m.width, m.inputActive, m.inSplit)
 
 	v.Content = lipgloss.JoinVertical(lipgloss.Left,
 		top,
 		blank,
 		bottom,
 		blank,
-		pinRow,
-		blank,
 		lastLine,
 		help,
+		blank,
 	)
 	return v
 }
 
-// renderMockPinRow places the feature pin at the left edge of a full-width
-// row, padding the rest with bgMain so the row has the same width as the
-// surrounding layout.
-func renderMockPinRow(width int, pin string) string {
-	bgPad := lipgloss.NewStyle().Background(bgMain)
-	pinW := lipgloss.Width(pin)
-	if pinW >= width {
-		return pin
-	}
-	return pin + bgPad.Render(strings.Repeat(" ", width-pinW))
-}
-
-func renderMockHelp(width int, inputActive, showTabSwitch bool) string {
+func renderDecompHelp(width int, inputActive, showTabSwitch bool) string {
 	keyStyle := lipgloss.NewStyle().Foreground(fgBright).Background(bgMain).Bold(true)
 	descStyle := lipgloss.NewStyle().Foreground(fgBody).Background(bgMain)
 	sepStyle := lipgloss.NewStyle().Foreground(mockSep).Background(bgMain)
@@ -396,11 +333,8 @@ func renderMockHelp(width int, inputActive, showTabSwitch bool) string {
 	return padStyle.Render(" ") + content + padStyle.Render(strings.Repeat(" ", pad)+" ")
 }
 
-func renderMockTop(width, height, kanjiOffset int) string {
-	const (
-		logoText  = "ODEK "
-		runesText = "9 runes"
-	)
+func renderDecompTop(width, height, kanjiOffset int, snap decomposer.Snapshot) string {
+	const logoText = "ODEK "
 	logoCells := len(logoText)
 	logoStyled := lipgloss.NewStyle().
 		Foreground(accent).
@@ -412,7 +346,6 @@ func renderMockTop(width, height, kanjiOffset int) string {
 	textStyle := lipgloss.NewStyle().Foreground(fgBright).Background(bgMain)
 	blankLine := bgStyle.Render(strings.Repeat(" ", width))
 
-	// Row 0: logo + bg padding.
 	var logoRow strings.Builder
 	logoRow.WriteString(logoStyled)
 	if logoCells < width {
@@ -428,7 +361,16 @@ func renderMockTop(width, height, kanjiOffset int) string {
 	}
 
 	textMax := max(min(width/2, 70), 20)
-	rawLines := wrapMockText(mockTopCopy, textMax)
+	topCopy := snap.Requirement
+	if !snap.HasSession || topCopy == "" {
+		topCopy = emptyTopCopy
+	}
+	rawLines := wrapDecompText(topCopy, textMax)
+
+	runesText := fmt.Sprintf("%d runes", snap.TotalRunes)
+	if snap.Expanding {
+		runesText += fmt.Sprintf(" · expanding (depth %d)", snap.MaxDepthReached+1)
+	}
 
 	lines := make([]string, 0, height)
 	appendLine := func(s string) {
@@ -453,7 +395,7 @@ func renderMockTop(width, height, kanjiOffset int) string {
 	return strings.Join(lines, "\n")
 }
 
-func wrapMockText(text string, width int) []string {
+func wrapDecompText(text string, width int) []string {
 	words := strings.Fields(text)
 	var lines []string
 	var cur strings.Builder
@@ -481,7 +423,57 @@ func wrapMockText(text string, width int) []string {
 	return lines
 }
 
-func renderMockRuneInfo(info mockRuneInfo, maxW int) string {
+// statusTag returns a short human label for a rune status, shown in the
+// detail pane's right-aligned tag slot.
+func statusTag(st decomposer.RuneStatus) string {
+	switch st {
+	case decomposer.StatusInFlight:
+		return "expanding…"
+	case decomposer.StatusDone:
+		return "expanded"
+	case decomposer.StatusLeaf:
+		return "leaf"
+	case decomposer.StatusError:
+		return "failed"
+	}
+	return ""
+}
+
+// statusGlyph returns the bullet used in the left column list for a rune
+// at the given status, plus the lipgloss style to render it with.
+func statusGlyph(st decomposer.RuneStatus, selected, active, blinkOn bool) (string, lipgloss.Style) {
+	base := "• "
+	switch st {
+	case decomposer.StatusInFlight:
+		base = "◯ "
+	case decomposer.StatusDone:
+		base = "● "
+	case decomposer.StatusLeaf:
+		base = "· "
+	case decomposer.StatusError:
+		base = "✗ "
+	}
+
+	switch {
+	case selected && active && blinkOn:
+		return base, lipgloss.NewStyle().Foreground(mockHot).Background(bgMain).Bold(true)
+	case selected && active && !blinkOn:
+		return base, lipgloss.NewStyle().Foreground(bgMain).Background(bgMain)
+	case selected:
+		return base, lipgloss.NewStyle().Foreground(lipgloss.Color("#9a3050")).Background(bgMain)
+	case st == decomposer.StatusDone:
+		return base, lipgloss.NewStyle().Foreground(accent).Background(bgMain)
+	case st == decomposer.StatusInFlight:
+		return base, lipgloss.NewStyle().Foreground(mockHot).Background(bgMain)
+	case st == decomposer.StatusError:
+		return base, lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Background(bgMain)
+	case st == decomposer.StatusLeaf:
+		return base, lipgloss.NewStyle().Foreground(fgDim).Background(bgMain)
+	}
+	return base, lipgloss.NewStyle().Foreground(mockSep).Background(bgMain)
+}
+
+func renderRuneInfo(name string, r decomposer.Rune, status decomposer.RuneStatus, children []string, maxW int) string {
 	summaryW := min(max(maxW-4, 20), 72)
 	summaryStyle := lipgloss.NewStyle().Foreground(fgBright).Background(bgMain).Italic(true).Width(summaryW)
 	headingStyle := lipgloss.NewStyle().Foreground(fgBody).Background(bgMain).Bold(true)
@@ -493,64 +485,50 @@ func renderMockRuneInfo(info mockRuneInfo, maxW int) string {
 	bodyStyle := lipgloss.NewStyle().Foreground(fgBright).Background(bgMain)
 
 	var lines []string
-	if info.summary != "" {
-		lines = append(lines, summaryStyle.Render(info.summary))
+	if r.Description != "" {
+		lines = append(lines, summaryStyle.Render(r.Description))
 		lines = append(lines, "")
 	}
-	if info.sig != "" {
-		lines = append(lines, sigStyle.Render("@ "+info.sig))
+	if r.FunctionSig != "" {
+		lines = append(lines, sigStyle.Render("@ "+r.FunctionSig))
 	}
-	if len(info.pluses) > 0 || len(info.minuses) > 0 {
+	if len(r.PositiveTests) > 0 || len(r.NegativeTests) > 0 {
 		if len(lines) > 0 {
 			lines = append(lines, "")
 		}
 		lines = append(lines, headingStyle.Render("Behavior"))
-		for _, p := range info.pluses {
+		for _, p := range r.PositiveTests {
 			lines = append(lines, plusStyle.Render("  + ")+bodyStyle.Render(p))
 		}
-		for _, mn := range info.minuses {
+		for _, mn := range r.NegativeTests {
 			lines = append(lines, minusStyle.Render("  - ")+bodyStyle.Render(mn))
 		}
 	}
-	for _, q := range info.questions {
+	for _, q := range r.Assumptions {
 		lines = append(lines, questionStyle.Render("? "+q))
 	}
-	if len(info.deps) > 0 {
+	if len(children) > 0 {
 		if len(lines) > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, headingStyle.Render("References"))
-		for _, d := range info.deps {
+		lines = append(lines, headingStyle.Render("Helpers"))
+		for _, d := range children {
 			lines = append(lines, depStyle.Render("  -> ")+bodyStyle.Render(d))
 		}
 	}
+	_ = status
+	_ = name
 	return strings.Join(lines, "\n")
 }
 
-func buildMockColumns(innerW, innerH, selectedIdx, focusedCol int, active, blinkOn bool) string {
+func buildColumns(innerW, innerH, selectedIdx, focusedCol int, active, blinkOn, decomposing bool, snap decomposer.Snapshot) string {
 	const sepWidth = 3
-	widths := []int{mockColW, max(innerW-mockColW-sepWidth, mockColW)}
+	widths := []int{decompColW, max(innerW-decompColW-sepWidth, decompColW)}
 
 	textStyle := lipgloss.NewStyle().Foreground(fgBright).Background(bgMain)
 	dimStyle := lipgloss.NewStyle().Foreground(mockSep).Background(bgMain)
 	ruleFocusedStyle := lipgloss.NewStyle().Foreground(mockFocus).Background(bgMain)
 	iconStyle := lipgloss.NewStyle().Foreground(mockHot).Background(bgMain).Bold(true)
-	var cursorStyle lipgloss.Style
-	switch {
-	case active && blinkOn:
-		cursorStyle = lipgloss.NewStyle().
-			Foreground(mockHot).
-			Background(bgMain).
-			Bold(true)
-	case active && !blinkOn:
-		cursorStyle = lipgloss.NewStyle().
-			Foreground(bgMain).
-			Background(bgMain)
-	default:
-		cursorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#9a3050")).
-			Background(bgMain)
-	}
 	tagStyle := lipgloss.NewStyle().Foreground(fgBody).Background(bgMain)
 
 	titled := func(name, tag string, w int) string {
@@ -569,8 +547,8 @@ func buildMockColumns(innerW, innerH, selectedIdx, focusedCol int, active, blink
 		)
 	}
 
-	cols := make([]string, mockNumCols)
-	for i := range mockNumCols {
+	cols := make([]string, decompNumCols)
+	for i := range decompNumCols {
 		var content string
 		focused := i == focusedCol
 		switch i {
@@ -581,19 +559,28 @@ func buildMockColumns(innerW, innerH, selectedIdx, focusedCol int, active, blink
 				ruleStyle = ruleFocusedStyle
 			}
 			bgSpace := lipgloss.NewStyle().Background(bgMain)
+			header := iconStyle.Render("◆ ") + textStyle.Render(nonEmptyOr(snap.PackageName, "(empty)"))
 			parts := []string{
-				iconStyle.Render("◆ ") + textStyle.Render("toml"),
+				header,
 				ruleStyle.Render(strings.Repeat("─", contentW)),
 				bgSpace.Render(strings.Repeat(" ", contentW)),
 			}
 
-			for j, name := range mockTomlItems {
-				prefix := "• "
-				circleStyle := dimStyle
-				if focused && j == selectedIdx {
-					circleStyle = cursorStyle
+			if len(snap.TopLevelNames) == 0 {
+				placeholderText := "send a message to start"
+				if decomposing {
+					placeholderText = "decomposing…"
 				}
-				line := circleStyle.Render(prefix) + textStyle.Render(name)
+				placeholder := lipgloss.NewStyle().Foreground(mockSep).Background(bgMain).Italic(true).
+					Render(placeholderText)
+				parts = append(parts, placeholder)
+			}
+
+			for j, name := range snap.TopLevelNames {
+				qualified := qualifiedPath(snap.PackageName, name)
+				st := snap.StatusByName[qualified]
+				prefix, prefixStyle := statusGlyph(st, focused && j == selectedIdx, active, blinkOn)
+				line := prefixStyle.Render(prefix) + textStyle.Render(name)
 				gap := max(contentW-len(prefix)-len(name), 0)
 				if gap > 0 {
 					line += bgSpace.Render(strings.Repeat(" ", gap))
@@ -601,10 +588,27 @@ func buildMockColumns(innerW, innerH, selectedIdx, focusedCol int, active, blink
 				parts = append(parts, line)
 			}
 			content = lipgloss.JoinVertical(lipgloss.Left, parts...)
+
 		case 1:
-			info := mockRuneInfos[selectedIdx]
-			base := titled(mockTomlItems[selectedIdx], info.tag, widths[i])
-			content = base + "\n\n" + renderMockRuneInfo(info, widths[i])
+			if len(snap.TopLevelNames) == 0 {
+				titleText := "(no decomposition)"
+				bodyText := "Describe your feature in the chat. Each message refines the tree while auto-decompose is on."
+				if decomposing {
+					titleText = "decomposing…"
+					bodyText = "Asking the model to decompose the feature. This usually takes a few seconds."
+				}
+				content = titled(titleText, "", widths[i]) + "\n\n" +
+					lipgloss.NewStyle().Foreground(fgDim).Background(bgMain).Italic(true).
+						Render(bodyText)
+				break
+			}
+			name := snap.TopLevelNames[selectedIdx]
+			qualified := qualifiedPath(snap.PackageName, name)
+			r := snap.RunesByName[name]
+			status := snap.StatusByName[qualified]
+			children := snap.ChildrenByName[qualified]
+			base := titled(name, statusTag(status), widths[i])
+			content = base + "\n\n" + renderRuneInfo(name, r, status, children, widths[i])
 		}
 		cols[i] = lipgloss.NewStyle().
 			Background(bgMain).
@@ -626,7 +630,7 @@ func buildMockColumns(innerW, innerH, selectedIdx, focusedCol int, active, blink
 	}
 	sep := sepBuilder.String()
 
-	pieces := make([]string, 0, 2*mockNumCols-1)
+	pieces := make([]string, 0, 2*decompNumCols-1)
 	for i, col := range cols {
 		if i > 0 {
 			pieces = append(pieces, sep)
@@ -634,4 +638,23 @@ func buildMockColumns(innerW, innerH, selectedIdx, focusedCol int, active, blink
 		pieces = append(pieces, col)
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, pieces...)
+}
+
+func nonEmptyOr(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
+}
+
+// qualifiedPath returns "{pkg}.{rune}" when rune is not already prefixed
+// with pkg, matching the session's Status map keys.
+func qualifiedPath(pkg, rune string) string {
+	if pkg == "" {
+		return rune
+	}
+	if strings.HasPrefix(rune, pkg+".") {
+		return rune
+	}
+	return pkg + "." + rune
 }

@@ -8,8 +8,14 @@ import (
 	"strings"
 
 	"shotgun.dev/odek/decompose"
+	"shotgun.dev/odek/internal/decomposer"
 	"shotgun.dev/odek/internal/tui"
 	openai "shotgun.dev/odek/openai"
+)
+
+const (
+	examplesDir = "examples"
+	toolLogPath = "/tmp/odek-example-log.jsonl"
 )
 
 var systemPrompt string
@@ -107,5 +113,9 @@ func main() {
 	}
 
 	// 3. Launch TUI when no arguments provided
-	tui.Run(ctx, client)
+	dec, err := decomposer.NewDecomposer(client, examplesDir, toolLogPath)
+	if err != nil {
+		log.Printf("decomposer init failed: %v — /decompose will be unavailable", err)
+	}
+	tui.Run(ctx, client, dec)
 }

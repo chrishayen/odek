@@ -114,14 +114,16 @@ func (m splitPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+enter", "ctrl+s":
 			return m, nil
 		case "enter":
-			if m.focus == 1 && !m.right.inputActive && m.right.focusedCol == 0 &&
-				m.right.selectedIdx >= 0 && m.right.selectedIdx < len(mockTomlItems) {
-				itemName := mockTomlItems[m.right.selectedIdx]
-				fqn := "toml." + itemName + ": "
-				m.left.SetChatInput(fqn)
-				m.focus = 0
-				m.right.SetActive(false)
-				return m, m.left.Focus()
+			if m.focus == 1 && !m.right.inputActive && m.right.focusedCol == 0 {
+				snap := m.right.snap
+				if m.right.selectedIdx >= 0 && m.right.selectedIdx < len(snap.TopLevelNames) {
+					name := snap.TopLevelNames[m.right.selectedIdx]
+					fqn := qualifiedPath(snap.PackageName, name) + ": "
+					m.left.SetChatInput(fqn)
+					m.focus = 0
+					m.right.SetActive(false)
+					return m, m.left.Focus()
+				}
 			}
 		}
 		if m.focus == 0 {
@@ -130,14 +132,14 @@ func (m splitPaneModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.left = updated
 				return m, cmd
 			}
-			return next, cmd
+			return next, tea.Batch(cmd, resizeCmd(m.width, m.height))
 		}
 		next, cmd := m.right.Update(msg)
 		if updated, ok := next.(featureDecompModel); ok {
 			m.right = updated
 			return m, cmd
 		}
-		return next, cmd
+		return next, tea.Batch(cmd, resizeCmd(m.width, m.height))
 	}
 
 	var cmds []tea.Cmd
@@ -181,10 +183,11 @@ func (m splitPaneModel) View() tea.View {
 	return v
 }
 
-// dimUnfocused flattens the first row (ODEK logo) and the last row (help bar)
-// of a clipped pane into plain fgDim text on bgMain. Used on the pane that
-// doesn't have focus — the contrast against the focused pane's accent-colored
-// logo and styled help bar becomes the focus indicator.
+// dimUnfocused flattens the first row (ODEK logo) and the help-bar row
+// (second from the bottom — the very bottom is a blank spacer) of a clipped
+// pane into plain fgDim text on bgMain. Used on the pane that doesn't have
+// focus — the contrast against the focused pane's accent-colored logo and
+// styled help bar becomes the focus indicator.
 func dimUnfocused(content string, width int) string {
 	if width <= 0 {
 		return content
@@ -211,8 +214,8 @@ func dimUnfocused(content string, width int) string {
 		return styled
 	}
 	lines[0] = dim(lines[0])
-	if len(lines) > 1 {
-		lines[len(lines)-1] = dim(lines[len(lines)-1])
+	if len(lines) >= 2 {
+		lines[len(lines)-2] = dim(lines[len(lines)-2])
 	}
 	return strings.Join(lines, "\n")
 }
@@ -251,6 +254,14 @@ func clipToBox(content string, width, height int) string {
 		}
 	}
 	return strings.Join(out, "\n")
+}
+
+// resizeCmd emits a synthetic WindowSizeMsg carrying the full terminal
+// dimensions. Used when the split pane hands off to a sibling model (e.g.
+// a transition back to the landing page) so the new model replaces the
+// stale per-pane width with the real terminal size on its next Update.
+func resizeCmd(w, h int) tea.Cmd {
+	return func() tea.Msg { return tea.WindowSizeMsg{Width: w, Height: h} }
 }
 
 func renderSplitSeparator(height int) string {

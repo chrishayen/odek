@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/lucasb-eyer/go-colorful"
 
+	"shotgun.dev/odek/internal/decomposer"
 	openai "shotgun.dev/odek/openai"
 )
 
@@ -50,6 +51,7 @@ type model struct {
 	help        help.Model
 	ctx         context.Context
 	client      *openai.Client
+	decomposer  *decomposer.Decomposer
 	kanjiOffset int
 	logoX       int
 	logoY       int
@@ -115,8 +117,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "n", "N":
-			next := newCreateFeatureModel(m.ctx, m.client, m.width, m.height)
-			return next, next.Init()
+			cf := newCreateFeatureModel(m.ctx, m.client, m.decomposer, m.width, m.height)
+			if m.width >= splitPaneMinWidth {
+				_, rightW := splitWidths(m.width)
+				right := newFeatureDecompModel(rightW, m.height, nil, cf.state)
+				split := newSplitPaneModel(cf, right, m.width, m.height)
+				return split, split.Init()
+			}
+			return cf, cf.Init()
 		case "esc", "q", "ctrl+c":
 			return m, tea.Quit
 		}
@@ -410,8 +418,8 @@ func (m model) View() tea.View {
 	return v
 }
 
-func Run(ctx context.Context, client *openai.Client) {
-	teaModel := model{help: newHelpModel(), ctx: ctx, client: client}
+func Run(ctx context.Context, client *openai.Client, dec *decomposer.Decomposer) {
+	teaModel := model{help: newHelpModel(), ctx: ctx, client: client, decomposer: dec}
 	p := tea.NewProgram(teaModel)
 	if _, err := p.Run(); err != nil {
 		panic(err)
