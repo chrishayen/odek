@@ -241,76 +241,25 @@ func (m chatModel) renderMessage(msg chatMessage, width int) string {
 }
 
 // renderThinkingBox renders a bordered panel containing the model's
-// reasoning_content for a user turn. Content is word-wrapped to the
-// available width and always rendered as exactly chatThinkingMaxLines
-// rows so the box footprint is stable as tokens stream in: short
-// content is bottom-padded with empty rows, long content is tail-
-// truncated so only the most recent lines are visible. Width is the
-// usable content width of the surrounding user bubble — the box adds 2
-// for its own border and 2 for horizontal padding, so the body wraps at
-// width-4.
+// reasoning_content for a user turn. Uses a viewport component for
+// fixed-size output — the viewport handles wrapping and scrolling
+// internally and always produces exact dimensions.
 func renderThinkingBox(text string, width int) string {
-	innerW := max(width-4, 10)
-	lines := wrapThinkingText(normalizeThinking(text), innerW)
-	if len(lines) > chatThinkingMaxLines {
-		lines = lines[len(lines)-chatThinkingMaxLines:]
-	}
-	for len(lines) < chatThinkingMaxLines {
-		lines = append(lines, "")
-	}
-	body := chatThinkingBodyStyle.Width(innerW).Render(strings.Join(lines, "\n"))
+	boxW := max(width-2, 12)
+
+	vp := viewport.New()
+	vp.Style = chatThinkingBoxStyle
+	vp.SetWidth(boxW)
+	vp.SetHeight(chatThinkingMaxLines + 2) // +2 for top/bottom border
+	text = strings.ReplaceAll(text, "\t", "    ")
+	text = strings.ReplaceAll(text, "\r", "")
+	contentW := boxW - chatThinkingBoxStyle.GetHorizontalFrameSize()
+	wrapped := lipgloss.Wrap(text, contentW, "")
+	vp.SetContent(chatThinkingBodyStyle.Render(wrapped))
+	vp.GotoBottom()
+
 	label := chatThinkingLabelStyle.Render("thinking")
-	content := lipgloss.JoinVertical(lipgloss.Left, label, body)
-	return chatThinkingBoxStyle.Width(max(width-2, 12)).Render(content)
-}
-
-// normalizeThinking collapses tabs to spaces and strips carriage returns.
-// Embedded newlines are preserved so paragraph breaks in the reasoning
-// are honoured by the word-wrap pass.
-func normalizeThinking(s string) string {
-	s = strings.ReplaceAll(s, "\t", "    ")
-	s = strings.ReplaceAll(s, "\r", "")
-	return s
-}
-
-// wrapThinkingText performs a simple greedy word-wrap of text at `width`.
-// Embedded newlines start a new line; very long tokens are hard-split at
-// the width boundary so they don't overflow the box.
-func wrapThinkingText(text string, width int) []string {
-	if width < 1 {
-		width = 1
-	}
-	var out []string
-	for _, raw := range strings.Split(text, "\n") {
-		if raw == "" {
-			out = append(out, "")
-			continue
-		}
-		line := ""
-		for _, word := range strings.Fields(raw) {
-			for len(word) > width {
-				if line != "" {
-					out = append(out, line)
-					line = ""
-				}
-				out = append(out, word[:width])
-				word = word[width:]
-			}
-			switch {
-			case line == "":
-				line = word
-			case len(line)+1+len(word) <= width:
-				line += " " + word
-			default:
-				out = append(out, line)
-				line = word
-			}
-		}
-		if line != "" {
-			out = append(out, line)
-		}
-	}
-	return out
+	return lipgloss.JoinVertical(lipgloss.Left, label, vp.View())
 }
 
 // renderMarkdown renders assistant message content, applying chroma syntax
