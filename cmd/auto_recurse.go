@@ -48,7 +48,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Stage 1: estimate effort
+	// Stage 1: estimate effort (retained for the effort label in the output;
+	// the two-pass pipeline doesn't vary depth with effort anymore).
 	fmt.Printf("\n🎯 Estimating effort for: %s\n", req)
 	effortStart := time.Now()
 	est, err := effortpkg.Estimate(ctx, api, req)
@@ -58,52 +59,31 @@ func main() {
 	}
 	cfg := decomposer.ConfigForEffort(est.Level)
 	fmt.Printf("🎯 effort: %d/5 — %s (%s)\n", est.Level, est.Reason, time.Since(effortStart).Round(time.Millisecond))
-	fmt.Printf("   config: parallel=%d depth=%d cap=%d recurse=%v\n",
-		cfg.ParallelInitial, cfg.MaxDepth, cfg.RuneCap, cfg.Recurse)
 
-	// Stages 2 & 3: initial decomposition (single or N-way + merge)
+	// Stage 2: run the two-pass decompose and stream events.
 	fmt.Printf("\nDecomposing: %s...\n", req)
-	initStart := time.Now()
+	runStart := time.Now()
 	sess, err := dec.NewSession(ctx, req, est.Level, est.Reason, cfg, decomposer.SessionContext{})
-	fmt.Printf("⏱️  initial decompose: %s\n", time.Since(initStart).Round(time.Millisecond))
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
 		return
 	}
 
-	// Stage 4: present + confirm
-	printInitialDecomposition(sess.Root.Response)
-
-	if !cfg.Recurse {
-		fmt.Println("\n(Skipping recursion: requirement is trivial enough.)")
-		return
-	}
-	if len(sess.TopLevelPaths()) == 0 {
-		fmt.Println("\n(No runes to expand.)")
-		return
+	for evt := range sess.Events {
+		printDecompositionEvent(evt)
 	}
 
-	if !confirm(stdin, fmt.Sprintf("\nProceed with recursion (max depth %d, max %d runes)? [y/N] ", cfg.MaxDepth, cfg.RuneCap)) {
-		fmt.Println("Stopping before recursion. Initial decomposition is above.")
+	resp := sess.Response()
+	if resp == nil {
+		fmt.Printf("\n⚠️  No decomposition produced: %s\n", sess.Snapshot().ErrorMsg)
 		return
 	}
 
-	// Stage 5: recurse
-	fmt.Printf("\n🔄 Starting auto-recursion\n")
-	for evt := range dec.ExpandStreaming(ctx, sess, cfg) {
-		printExpansionEvent(evt)
-	}
-	printCompleteTree(sess.AllDecompositions(), "root", 0, true)
+	printCompleteTree(resp)
 
+	total := countTreeRunes(resp)
 	fmt.Printf("\n%s\n", strings.Repeat("=", 70))
-	fmt.Printf("📊 SUMMARY: %d decompositions, %d runes discovered (max depth %d)\n",
-		len(sess.AllDecompositions()), sess.Snapshot().TotalRunes, cfg.MaxDepth)
+	fmt.Printf("📊 SUMMARY: %d runes (%s total)\n", total, time.Since(runStart).Round(time.Millisecond))
 	fmt.Printf("%s\n", strings.Repeat("=", 70))
 }
 
-func confirm(reader *bufio.Reader, prompt string) bool {
-	fmt.Print(prompt)
-	line, _ := reader.ReadString('\n')
-	line = strings.TrimSpace(strings.ToLower(line))
-	return line == "y" || line == "yes"
-}

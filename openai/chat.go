@@ -16,6 +16,8 @@ import (
 // callback. When set, Chat transparently switches to SSE streaming so the
 // callback can fire on every reasoning delta the server emits.
 type thinkingCallbackKey struct{}
+type contentCallbackKey struct{}
+type toolArgsCallbackKey struct{}
 
 // WithThinkingCallback attaches a reasoning_content delta callback to ctx.
 // Any Chat call made with this context streams, and cb is invoked once per
@@ -27,8 +29,39 @@ func WithThinkingCallback(ctx context.Context, cb func(string)) context.Context 
 	return context.WithValue(ctx, thinkingCallbackKey{}, cb)
 }
 
+// WithContentCallback attaches an assistant-content delta callback to ctx.
+// Setting this forces Chat onto the streaming path and invokes cb for each
+// content chunk the server sends.
+func WithContentCallback(ctx context.Context, cb func(string)) context.Context {
+	if cb == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, contentCallbackKey{}, cb)
+}
+
+// WithToolArgsCallback attaches a tool-call argument delta callback to ctx.
+// Setting this forces Chat onto the streaming path and invokes cb for each
+// arguments chunk on each tool call index. Callers typically buffer by
+// index and parse partial JSON as it arrives.
+func WithToolArgsCallback(ctx context.Context, cb func(toolIndex int, argsDelta string)) context.Context {
+	if cb == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, toolArgsCallbackKey{}, cb)
+}
+
 func thinkingCallbackFromContext(ctx context.Context) func(string) {
 	v, _ := ctx.Value(thinkingCallbackKey{}).(func(string))
+	return v
+}
+
+func contentCallbackFromContext(ctx context.Context) func(string) {
+	v, _ := ctx.Value(contentCallbackKey{}).(func(string))
+	return v
+}
+
+func toolArgsCallbackFromContext(ctx context.Context) func(int, string) {
+	v, _ := ctx.Value(toolArgsCallbackKey{}).(func(int, string))
 	return v
 }
 
@@ -232,8 +265,11 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body, out any)
 // live. Otherwise it uses the non-streaming endpoint. The final accumulated
 // response is returned either way, so callers don't care which path ran.
 func (c *Client) Chat(ctx context.Context, request *ChatCompletionRequest) (*ChatCompletionResponse, error) {
-	if cb := thinkingCallbackFromContext(ctx); cb != nil || request.Stream {
-		return c.chatStream(ctx, request, cb)
+	thinkCb := thinkingCallbackFromContext(ctx)
+	contentCb := contentCallbackFromContext(ctx)
+	toolArgsCb := toolArgsCallbackFromContext(ctx)
+	if thinkCb != nil || contentCb != nil || toolArgsCb != nil || request.Stream {
+		return c.chatStream(ctx, request, thinkCb, contentCb, toolArgsCb)
 	}
 	var response ChatCompletionResponse
 	if err := c.doJSON(ctx, http.MethodPost, "/chat/completions", request, &response); err != nil {
@@ -247,7 +283,7 @@ func (c *Client) Chat(ctx context.Context, request *ChatCompletionRequest) (*Cha
 // and fires thinkingCb on every reasoning_content chunk the server emits.
 // thinkingCb may be nil — the stream still runs (useful when the caller set
 // Stream=true explicitly).
-func (c *Client) chatStream(ctx context.Context, request *ChatCompletionRequest, thinkingCb func(string)) (*ChatCompletionResponse, error) {
+func (c *Client) chatStream(ctx context.Context, request *ChatCompletionRequest, thinkingCb func(string), contentCb func(string), toolArgsCb func(int, string)) (*ChatCompletionResponse, error) {
 	reqCopy := *request
 	reqCopy.Stream = true
 
@@ -331,6 +367,9 @@ func (c *Client) chatStream(ctx context.Context, request *ChatCompletionRequest,
 		ch0 := chunk.Choices[0]
 		if ch0.Delta.Content != "" {
 			acc.Message.Content += ch0.Delta.Content
+			if contentCb != nil {
+				contentCb(ch0.Delta.Content)
+			}
 		}
 		if ch0.Delta.ReasoningContent != "" {
 			acc.Message.ReasoningContent += ch0.Delta.ReasoningContent
@@ -356,6 +395,9 @@ func (c *Client) chatStream(ctx context.Context, request *ChatCompletionRequest,
 			}
 			if tc.Function.Arguments != "" {
 				existing.Function.Arguments += tc.Function.Arguments
+				if toolArgsCb != nil {
+					toolArgsCb(tc.Index, tc.Function.Arguments)
+				}
 			}
 		}
 		if ch0.FinishReason != "" {

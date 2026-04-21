@@ -19,9 +19,16 @@ func normalizePackageSignatures(pkg *PackageNode) {
 	if pkg == nil {
 		return
 	}
-	for name, r := range pkg.Runes {
+	normalizeRuneMap(pkg.Runes)
+}
+
+func normalizeRuneMap(runes map[string]Rune) {
+	for name, r := range runes {
 		r.FunctionSig = NormalizeFunctionSig(r.FunctionSig)
-		pkg.Runes[name] = r
+		if len(r.Children) > 0 {
+			normalizeRuneMap(r.Children)
+		}
+		runes[name] = r
 	}
 }
 

@@ -128,7 +128,8 @@ func (s *decomposeState) WorkInProgress() bool {
 		return true
 	}
 	if sess != nil {
-		return sess.Snapshot().Expanding
+		phase := sess.Snapshot().Phase
+		return phase != "" && phase != "done" && phase != "error"
 	}
 	return false
 }
@@ -468,8 +469,8 @@ func extractRequirement(history []chatMessage) string {
 // can re-pump the exact same channel without re-reading state (which may
 // already point at a newer session after a rapid /decompose).
 type expansionEventMsg struct {
-	event  decomposer.ExpansionEvent
-	source <-chan decomposer.ExpansionEvent
+	event  decomposer.DecompositionEvent
+	source <-chan decomposer.DecompositionEvent
 	ok     bool
 }
 
@@ -481,7 +482,7 @@ type decomposeDoneMsg struct {
 	id       int
 	content  string
 	headline string
-	events   <-chan decomposer.ExpansionEvent
+	events   <-chan decomposer.DecompositionEvent
 }
 
 // decomposeStartedMsg is emitted immediately when the user sends a
@@ -496,7 +497,7 @@ type decomposeStartedMsg struct {
 // The model re-schedules the pump on every ok=true event, and stops when
 // the channel closes (ok=false). Call sites must check ok before reading
 // event.
-func pumpExpansionCmd(ch <-chan decomposer.ExpansionEvent) tea.Cmd {
+func pumpExpansionCmd(ch <-chan decomposer.DecompositionEvent) tea.Cmd {
 	if ch == nil {
 		return nil
 	}
@@ -589,22 +590,15 @@ func runDecompose(ctx context.Context, dec *decomposer.Decomposer, state *decomp
 	}
 
 	var priorResp *decomposer.DecompositionResponse
-	if prior != nil && prior.Root != nil {
-		priorResp = prior.Root.Response
+	if prior != nil {
+		priorResp = prior.Response()
 	}
 
-	if levels < 1 {
-		levels = 1
-	}
 	if effortLvl < 1 || effortLvl > 5 {
 		effortLvl = defaultAutoEffort
 	}
 	cfg := decomposer.ConfigForEffort(effortLvl)
-	// levels shadows MaxDepth; effort still controls ParallelInitial/RuneCap.
-	if levels-1 < cfg.MaxDepth {
-		cfg.MaxDepth = levels - 1
-	}
-	cfg.Recurse = levels > 1
+	_ = levels // levels no longer controls depth — the 2-pass flow produces the full tree in one shot
 
 	sessCtx := decomposer.SessionContext{
 		Discussion: discussion,
@@ -627,15 +621,10 @@ func runDecompose(ctx context.Context, dec *decomposer.Decomposer, state *decomp
 	state.session = sess
 	state.mu.Unlock()
 
-	content := renderDecompositionSummary(sess)
+	content := "Designing contract and extracting runes — progress streams into the decomposition pane."
 	headline := fmt.Sprintf("Effort: %d/5", effortLvl)
 
-	var events <-chan decomposer.ExpansionEvent
-	if levels > 1 {
-		events = dec.ExpandStreaming(ctx, sess, cfg)
-	}
-
-	return decomposeDoneMsg{id: id, content: content, headline: headline, events: events}
+	return decomposeDoneMsg{id: id, content: content, headline: headline, events: sess.Events}
 }
 
 // defaultAutoLevels / defaultAutoEffort are the parameters used for auto

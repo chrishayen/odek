@@ -1,8 +1,15 @@
-// Package decomposer implements the odek decomposition pipeline: tool-calling
-// client that talks to the model via the `decompose` and `read_example`
-// tools, plus recursive expansion of the resulting rune tree. Callers own a
-// *Decomposer and invoke NewSession to obtain a *Session; the same Session
-// flows through the TUI (chat + decomposition page) and the CLI.
+// Package decomposer implements the odek decomposition pipeline as a
+// two-pass flow:
+//
+//  1. Contract pass — the model writes a Design-by-Contract document
+//     (purpose, behavior, node hierarchy with +/- tests and assumptions).
+//     Streamed back as content deltas.
+//  2. Extraction pass — the model calls the `decompose` tool with nested
+//     Rune.Children encoding the contract as a typed rune tree.
+//
+// Callers own a *Decomposer and invoke NewSession to obtain a *Session
+// with a live event channel. The producer goroutine runs both passes in
+// order; consumers range over Events and call Snapshot() to render.
 package decomposer
 
 import (
@@ -19,8 +26,11 @@ import (
 	openai "shotgun.dev/odek/openai"
 )
 
+//go:embed contract.md
+var contractPromptText string
+
 //go:embed decompose.md
-var systemPromptText string
+var extractionPromptText string
 
 const maxToolIterations = 6
 
@@ -31,25 +41,32 @@ var (
 )
 
 func initToolSchemas() {
-	runeSchema := map[string]any{
+	// Rune schema is recursive (children contains more runes). JSON
+	// Schema can express this via $ref + $defs, but OpenAI's tool schema
+	// validator is picky — we inline the object twice (top level + one
+	// level of children) and let the model handle deeper nesting via the
+	// "children" field which we describe but don't structurally type.
+	runeLeafSchema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"description":        map[string]any{"type": "string"},
+			"description": map[string]any{"type": "string"},
 			"function_signature": map[string]any{
 				"type":        "string",
-				"description": "Bare type signature only, e.g. '(a: i32, b: i32) -> result[i32, string]'. Do NOT include any marker prefix like 'fn' or '@'; those are visual markers in the tree format, not part of the value.",
+				"description": "Bare type signature only, e.g. '(a: i32, b: i32) -> result[i32, string]'. Empty string for parent (non-leaf) runes. Do NOT include any marker prefix like 'fn' or '@'.",
 			},
-			"positive_tests":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			"negative_tests":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			"assumptions":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"positive_tests": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"negative_tests": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"assumptions":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"dependencies":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Fully-qualified paths of runes this rune consumes (e.g. 'std.crypto.hmac_sha256'). Empty when the rune has no dependencies."},
+			"children":       map[string]any{"type": "object", "description": "Nested map of child runes keyed by next path segment. Empty object for leaves. Each value has the same shape as this object (recursive)."},
 		},
-		"required": []string{"description", "function_signature", "positive_tests", "negative_tests", "assumptions"},
+		"required": []string{"description", "function_signature", "positive_tests", "negative_tests", "assumptions", "dependencies", "children"},
 	}
 	packageSchema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"name":  map[string]any{"type": "string"},
-			"runes": map[string]any{"type": "object", "additionalProperties": runeSchema},
+			"runes": map[string]any{"type": "object", "additionalProperties": runeLeafSchema},
 		},
 		"required": []string{"name", "runes"},
 	}
@@ -57,13 +74,13 @@ func initToolSchemas() {
 		Type: openai.ToolTypeFunction,
 		Function: &openai.FunctionDefinition{
 			Name:        "decompose",
-			Description: "Submit a rune decomposition. Provide a 1-2 sentence summary, a project_package, and optionally a std_package of reusable utilities.",
+			Description: "Submit a rune decomposition encoding the prior contract. Provide a 1-2 sentence summary, a project_package, and optionally a std_package.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"summary": map[string]any{
 						"type":        "string",
-						"description": "A 1-2 sentence narrative shown to the user in the chat. On a fresh decomposition, describe what the feature is and the approach you took. On a refinement pass (when a prior decomposition is included), describe what you changed in response to the user's latest feedback and why. Explain, do not list rune names.",
+						"description": "A 1-2 sentence narrative shown to the user in the chat. Describe what the library does and notable structure. On a refinement, describe what changed and why.",
 					},
 					"project_package": packageSchema,
 					"std_package":     packageSchema,
@@ -76,7 +93,7 @@ func initToolSchemas() {
 		Type: openai.ToolTypeFunction,
 		Function: &openai.FunctionDefinition{
 			Name:        "read_example",
-			Description: "Read the full contents of one or more example decompositions from the corpus. The full list of available example handles is shown in the `Example index` section of your system message — pick the most relevant ones by name and pass them here. Call this before `decompose` to see how similar requirements have been broken down. You may call it more than once if you need additional references.",
+			Description: "Read the full contents of one or more example decompositions from the corpus. The full list of available example handles is shown in the `Example index` section of your system message — pick the most relevant ones by name and pass them here. Call this before `decompose` to see how similar requirements have been encoded. You may call it more than once if you need additional references.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -97,25 +114,26 @@ func initToolSchemas() {
 }
 
 // Decomposer is the shared decomposition client. Construct once with
-// NewDecomposer and reuse across decompose/expand calls.
+// NewDecomposer and reuse across NewSession calls.
 type Decomposer struct {
-	api          *openai.Client
-	examples     *examples.Index
-	manifest     string
-	logger       *toollog.Logger
-	systemPrompt string
+	api              *openai.Client
+	examples         *examples.Index
+	manifest         string
+	logger           *toollog.Logger
+	contractPrompt   string
+	extractionPrompt string
 }
 
-// NewDecomposer constructs a Decomposer. Nil-tolerant: passing nil api
-// or empty examplesDir / toolLogPath still returns a usable value whose
-// Decompose will either succeed (if api is set) or fail with a clear error.
-// This is useful for unit tests that render without running the pipeline.
+// NewDecomposer constructs a Decomposer. Nil-tolerant: passing nil api or
+// empty examplesDir / toolLogPath still returns a usable value whose
+// NewSession will either succeed (if api is set) or fail with a clear error.
 func NewDecomposer(api *openai.Client, examplesDir, toolLogPath string) (*Decomposer, error) {
 	toolSchemaOnce.Do(initToolSchemas)
 
 	d := &Decomposer{
-		api:          api,
-		systemPrompt: strings.TrimSpace(systemPromptText),
+		api:              api,
+		contractPrompt:   strings.TrimSpace(contractPromptText),
+		extractionPrompt: strings.TrimSpace(extractionPromptText),
 	}
 
 	if examplesDir != "" {
@@ -141,20 +159,10 @@ func NewDecomposer(api *openai.Client, examplesDir, toolLogPath string) (*Decomp
 
 // SessionContext is optional refinement context to thread into a /decompose
 // call. When either field is set, the conversation the model sees includes
-// the prior decomposition (as JSON) and a transcript of the chat discussion
-// alongside the original requirement, so the model refines the prior answer
-// instead of starting from scratch.
+// the prior decomposition and a transcript of the chat discussion.
 type SessionContext struct {
-	// Discussion is a pre-formatted transcript of chat turns since the
-	// original requirement was stated, e.g.
-	//   you: add a JSON section
-	//   clank: okay, added json handling...
-	// The caller owns the formatting.
 	Discussion string
-
-	// Prior is the DecompositionResponse from the previous /decompose run,
-	// included verbatim as the starting point for refinement.
-	Prior *DecompositionResponse
+	Prior      *DecompositionResponse
 }
 
 // IsEmpty reports whether this SessionContext carries no refinement data.
@@ -162,76 +170,172 @@ func (c SessionContext) IsEmpty() bool {
 	return c.Discussion == "" && c.Prior == nil
 }
 
-// newConversation builds the initial system+user messages for a fresh
-// decompose call. When sessCtx has discussion or a prior decomposition,
-// the user message is a refinement prompt that embeds both.
-func (d *Decomposer) newConversation(req string, sessCtx SessionContext) []openai.ChatMessage {
-	system := d.systemPrompt
-	if d.manifest != "" {
-		system += "\n\n# Example index\n\nThe following reference decompositions are available. To see the full contents of one, call `read_example` with its handle (tier/slug). Pick the most relevant ones for the current requirement, read them first, then call `decompose` with your answer.\n\n" + d.manifest
+// NewSession starts a two-pass decomposition run. It returns a Session
+// immediately; the producer goroutine runs pass 1 (contract) then pass 2
+// (extraction) in the background, emitting events on sess.Events. Callers
+// must range over sess.Events until it closes.
+//
+// Config is accepted for API stability — the new pipeline produces the
+// full tree in one call, so MaxDepth/RuneCap/ParallelInitial are ignored.
+func (d *Decomposer) NewSession(ctx context.Context, req string, effortLevel int, effortReason string, cfg Config, sessCtx SessionContext) (*Session, error) {
+	_ = cfg
+	if d.api == nil {
+		return nil, fmt.Errorf("decomposer: no openai client configured")
 	}
 
-	userContent := "decompose: " + req
-	if !sessCtx.IsEmpty() {
-		userContent = buildRefinementMessage(req, sessCtx)
-	}
+	sess := newSession(req, effortLevel, effortReason, nil)
+	ch := make(chan DecompositionEvent, 32)
+	runCtx, cancel := context.WithCancel(ctx)
+	sess.setEvents(ch, cancel)
 
-	return []openai.ChatMessage{
-		{Role: openai.RoleSystem, Content: system},
-		{Role: openai.RoleUser, Content: userContent},
-	}
+	go d.run(runCtx, sess, sessCtx, ch)
+
+	return sess, nil
 }
 
-// buildRefinementMessage constructs the user message for a refinement pass.
-// Layout: original requirement, prior decomposition (as JSON), chat
-// discussion, then an instruction that adapts to whether a prior
-// decomposition is present.
-func buildRefinementMessage(req string, sessCtx SessionContext) string {
+// run is the producer goroutine. It drives pass 1, then pass 2, emitting
+// events onto ch. Emits EventDone before closing the channel.
+func (d *Decomposer) run(ctx context.Context, sess *Session, sessCtx SessionContext, ch chan<- DecompositionEvent) {
+	start := time.Now()
+	defer func() {
+		emit := func(evt DecompositionEvent) {
+			sess.Apply(evt)
+			select {
+			case ch <- evt:
+			default:
+			}
+		}
+		emit(EventDone{ElapsedMs: time.Since(start).Milliseconds()})
+		close(ch)
+		sess.clearEvents()
+	}()
+
+	emit := func(evt DecompositionEvent) {
+		sess.Apply(evt)
+		select {
+		case ch <- evt:
+		case <-ctx.Done():
+		}
+	}
+
+	// Pass 1: contract.
+	emit(EventPhaseStarted{Phase: PhaseContract})
+	contract, contractMsgs, err := d.runContract(ctx, sess.Requirement, sessCtx, emit)
+	if err != nil {
+		if ctx.Err() != nil {
+			emit(EventCancelled{})
+			return
+		}
+		emit(EventError{Phase: PhaseContract, Err: err.Error()})
+		return
+	}
+	sess.BaseMessages = contractMsgs
+
+	// Pass 2: extraction.
+	emit(EventPhaseStarted{Phase: PhaseExtraction})
+	resp, err := d.runExtraction(ctx, sess.Requirement, contract, sessCtx, emit)
+	if err != nil {
+		if ctx.Err() != nil {
+			emit(EventCancelled{})
+			return
+		}
+		emit(EventError{Phase: PhaseExtraction, Err: err.Error()})
+		return
+	}
+	emit(EventRunesComplete{Response: resp, ElapsedMs: time.Since(start).Milliseconds()})
+}
+
+// runContract executes pass 1: a streaming content call with the contract
+// system prompt. Emits EventContractChunk on each delta, EventContractComplete
+// at the end. Returns the full contract text and the conversation history.
+func (d *Decomposer) runContract(ctx context.Context, req string, sessCtx SessionContext, emit func(DecompositionEvent)) (string, []openai.ChatMessage, error) {
+	userMsg := buildContractUserMessage(req, sessCtx)
+	msgs := []openai.ChatMessage{
+		{Role: openai.RoleSystem, Content: d.contractPrompt},
+		{Role: openai.RoleUser, Content: userMsg},
+	}
+
+	start := time.Now()
+	chunkCtx := openai.WithContentCallback(ctx, func(delta string) {
+		emit(EventContractChunk{Text: delta})
+	})
+
+	resp, err := d.api.Chat(chunkCtx, &openai.ChatCompletionRequest{
+		Model:    openai.DefaultModel,
+		Messages: msgs,
+	})
+	if err != nil {
+		return "", msgs, fmt.Errorf("contract pass: %w", err)
+	}
+	full := strings.TrimSpace(resp.Choices[0].Message.Content)
+	if full == "" {
+		return "", msgs, fmt.Errorf("contract pass returned empty content")
+	}
+
+	emit(EventContractComplete{Full: full, ElapsedMs: time.Since(start).Milliseconds()})
+
+	history := append(msgs, openai.ChatMessage{
+		Role:    openai.RoleAssistant,
+		Content: full,
+	})
+	return full, history, nil
+}
+
+// buildContractUserMessage assembles the user message for pass 1. On a
+// refinement pass it includes the prior decomposition (as JSON) and the
+// chat discussion so the model can revise.
+func buildContractUserMessage(req string, sessCtx SessionContext) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "decompose: %s\n\n", req)
+	fmt.Fprintf(&b, "Requirement: %s\n\n", req)
 	if sessCtx.Prior != nil {
 		priorJSON, err := json.MarshalIndent(sessCtx.Prior, "", "  ")
 		if err == nil {
-			fmt.Fprintf(&b, "Prior decomposition:\n```json\n%s\n```\n\n", string(priorJSON))
+			fmt.Fprintf(&b, "Prior decomposition (encoded form of a previous contract):\n```json\n%s\n```\n\n", string(priorJSON))
 		}
 	}
 	if sessCtx.Discussion != "" {
-		label := "Conversation with the user leading up to this request:"
+		label := "Conversation with the user leading up to this requirement:"
 		if sessCtx.Prior != nil {
 			label = "Discussion with the user since the prior decomposition:"
 		}
 		fmt.Fprintf(&b, "%s\n%s\n\n", label, strings.TrimSpace(sessCtx.Discussion))
 	}
 	if sessCtx.Prior != nil {
-		b.WriteString("This is a refinement pass. The prior decomposition is the starting point; the discussion describes what the user wants changed. Preserve the parts that still apply, rename or restructure where the discussion asks for it, and add or remove runes as needed. Submit the refined decomposition via the decompose tool.")
+		b.WriteString("This is a refinement pass. Revise the prior decomposition's contract according to the discussion above: preserve what still applies, restructure or rename where the discussion asks for it, and add or remove nodes as needed. Produce the updated contract.")
 	} else {
-		b.WriteString("The conversation above is context for this decomposition. Use it to inform scope, naming, and assumptions, then submit the decomposition via the decompose tool.")
+		b.WriteString("Write the contract now.")
 	}
 	return b.String()
 }
 
-// Decompose drives a multi-turn tool loop. The model may call read_example
-// any number of times (up to maxToolIterations), then calls the decompose
-// tool with its final answer. If it replies in plain text instead, that
-// text is returned as a ClarificationRequest. Returns the parsed
-// DecompositionResponse (as any), the full message history, and any error.
-//
-// emit is called for every read_example tool call. Pass nil for no-op.
-func (d *Decomposer) Decompose(ctx context.Context, messages []openai.ChatMessage, emit func(ExpansionEvent)) (any, []openai.ChatMessage, error) {
-	if d.api == nil {
-		return nil, nil, fmt.Errorf("decomposer: no openai client configured")
+// runExtraction executes pass 2: a tool-loop call with the extraction
+// system prompt, with the contract included as input. Streams tool-arg
+// bytes via EventExtractionProgress. Returns the parsed DecompositionResponse.
+func (d *Decomposer) runExtraction(ctx context.Context, req string, contract string, sessCtx SessionContext, emit func(DecompositionEvent)) (*DecompositionResponse, error) {
+	system := d.extractionPrompt
+	if d.manifest != "" {
+		system += "\n\n# Example index\n\nThe following reference decompositions are available for stylistic anchoring. Call `read_example` with tier/slug handles if you want to see how similar trees have been shaped. Only use it if you need style guidance — the contract is authoritative on structure.\n\n" + d.manifest
+	}
+
+	userMsg := fmt.Sprintf("Requirement: %s\n\nContract:\n%s\n\nEncode this contract by calling the `decompose` tool.", req, contract)
+	_ = sessCtx // refinement context was consumed in pass 1; pass 2 just encodes the produced contract
+	msgs := []openai.ChatMessage{
+		{Role: openai.RoleSystem, Content: system},
+		{Role: openai.RoleUser, Content: userMsg},
 	}
 
 	var parsed *DecompositionResponse
-	if emit == nil {
-		emit = func(ExpansionEvent) {}
-	}
+	var argBytes int
+
+	argsCtx := openai.WithToolArgsCallback(ctx, func(_ int, delta string) {
+		argBytes += len(delta)
+		emit(EventExtractionProgress{Bytes: argBytes})
+	})
 
 	handler := func(ctx context.Context, call openai.ToolCall) (string, bool, error) {
 		switch call.Function.Name {
 		case "read_example":
-			result := d.handleReadExampleCall(call, messages, emit)
-			return result, false, nil
+			return d.handleReadExampleCall(call, req, emit), false, nil
 		case "decompose":
 			var dr DecompositionResponse
 			if err := json.Unmarshal([]byte(call.Function.Arguments), &dr); err != nil {
@@ -249,207 +353,40 @@ func (d *Decomposer) Decompose(ctx context.Context, messages []openai.ChatMessag
 	}
 
 	tools := []openai.Tool{readExampleTool, decomposeTool}
-	final, history, err := d.api.AskToolLoop(ctx, messages, tools, handler, maxToolIterations, nil)
+	final, _, err := d.api.AskToolLoop(argsCtx, msgs, tools, handler, maxToolIterations, nil)
 	if err != nil {
-		return nil, history, fmt.Errorf("chat completion failed: %w", err)
+		return nil, fmt.Errorf("extraction pass: %w", err)
 	}
-
 	if parsed != nil {
-		return *parsed, history, nil
+		return parsed, nil
 	}
 
-	// Plain-text reply without a tool call: the model ignored the decompose
-	// tool schema. Local llama.cpp models pattern-match the prompt's tree
-	// examples and emit trees in prose. Append a corrective user message and
-	// force a tool call on a second pass; if that still fails, fall through
-	// to ClarificationRequest.
+	// Plain-text reply without a tool call: force a retry with required tool use.
 	if len(final.ToolCalls) == 0 && strings.TrimSpace(final.Content) != "" {
-		history = append(history, openai.ChatMessage{
+		msgs = append(msgs, openai.ChatMessage{
+			Role:    openai.RoleAssistant,
+			Content: final.Content,
+		}, openai.ChatMessage{
 			Role: openai.RoleUser,
 			Content: "Your previous response was plain text. You MUST submit your answer " +
-				"by calling the `decompose` tool. Convert the structure you just described " +
-				"into the JSON arguments the tool expects: a `summary` string (1-2 sentence " +
-				"narrative), a `project_package` object, and optionally a `std_package` " +
-				"object. Each package has a `name` and a `runes` map; every rune has " +
-				"`description`, `function_signature`, `positive_tests`, `negative_tests`, " +
-				"and `assumptions` fields. Call `decompose` now.",
+				"by calling the `decompose` tool. Encode the contract above as the tool's " +
+				"nested runes tree. Call `decompose` now.",
 		})
-		retryFinal, retryHistory, retryErr := d.api.AskToolLoop(ctx, history, tools, handler, maxToolIterations, "required")
-		history = retryHistory
+		_, _, retryErr := d.api.AskToolLoop(argsCtx, msgs, tools, handler, maxToolIterations, "required")
 		if retryErr != nil {
-			return nil, history, fmt.Errorf("forced-retry after plain-text reply failed: %w", retryErr)
+			return nil, fmt.Errorf("forced-retry after plain-text reply failed: %w", retryErr)
 		}
-		if parsed != nil && parsed.ProjectPackage.Name != "" && len(parsed.ProjectPackage.Runes) > 0 {
-			return *parsed, history, nil
+		if parsed != nil {
+			return parsed, nil
 		}
-		// Retry produced either more plain text or degenerate JSON. Fall
-		// through to the clarification path using whichever final turn is
-		// useful.
-		if len(retryFinal.ToolCalls) == 0 && strings.TrimSpace(retryFinal.Content) != "" {
-			return ClarificationRequest{Message: retryFinal.Content}, history, nil
-		}
-		return ClarificationRequest{Message: final.Content}, history, nil
 	}
-	return nil, history, fmt.Errorf("model returned neither a decompose tool call nor clarification text")
+	return nil, fmt.Errorf("model returned no decompose tool call")
 }
 
-// MergeAttempts asks the model to merge N independent decompositions into a
-// single consensus. Used when parallel initial attempts come back with
-// slightly different structures.
-func (d *Decomposer) MergeAttempts(ctx context.Context, req string, attempts []DecompositionResponse) (DecompositionResponse, []openai.ChatMessage, error) {
-	var blocks []string
-	for i, a := range attempts {
-		b, err := json.MarshalIndent(a, "", "  ")
-		if err != nil {
-			return DecompositionResponse{}, nil, err
-		}
-		blocks = append(blocks, fmt.Sprintf("Attempt %d:\n%s", i+1, string(b)))
-	}
-
-	userMsg := fmt.Sprintf(`Below are %d independent decompositions of this requirement:
-
-REQUIREMENT: %s
-
-Merge them into a single consensus decomposition. Take the best ideas from each, drop redundancy, prefer the clearest names. The result should be a single project_package (and optional std_package) that captures the agreed-on top-level architecture.
-
-Submit the consensus by calling the decompose tool.
-
-%s`, len(attempts), req, strings.Join(blocks, "\n\n"))
-
-	messages := []openai.ChatMessage{
-		{Role: openai.RoleSystem, Content: d.systemPrompt},
-		{Role: openai.RoleUser, Content: userMsg},
-	}
-
-	response, history, err := d.Decompose(ctx, messages, nil)
-	if err != nil {
-		return DecompositionResponse{}, history, err
-	}
-	decomp, ok := response.(DecompositionResponse)
-	if !ok {
-		return DecompositionResponse{}, history, fmt.Errorf("merge returned non-decomposition: %T", response)
-	}
-	return decomp, history, nil
-}
-
-// parallelInitialDecompose runs n concurrent initial Decompose calls. It
-// returns the successful decompositions and any clarification messages
-// the model produced along the way, so NewSession can fall back to a
-// clarification if every attempt declined to decompose.
-func (d *Decomposer) parallelInitialDecompose(ctx context.Context, req string, n int, sessCtx SessionContext) (successes []DecompositionResponse, clarifications []string) {
-	type attemptResult struct {
-		idx           int
-		resp          DecompositionResponse
-		clarification string
-		err           error
-	}
-	out := make(chan attemptResult, n)
-	var wg sync.WaitGroup
-	for i := range n {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			local := d.newConversation(req, sessCtx)
-			response, _, err := d.Decompose(ctx, local, nil)
-			if err != nil {
-				out <- attemptResult{idx: i, err: err}
-				return
-			}
-			if clar, ok := response.(ClarificationRequest); ok {
-				out <- attemptResult{idx: i, clarification: clar.Message}
-				return
-			}
-			if decomp, ok := response.(DecompositionResponse); ok && decomp.ProjectPackage.Name != "" {
-				out <- attemptResult{idx: i, resp: decomp}
-				return
-			}
-			out <- attemptResult{idx: i, err: fmt.Errorf("non-decomposition response: %T", response)}
-		}(i)
-	}
-	wg.Wait()
-	close(out)
-
-	for r := range out {
-		switch {
-		case r.clarification != "":
-			clarifications = append(clarifications, r.clarification)
-		case r.err == nil:
-			successes = append(successes, r.resp)
-		}
-	}
-	return successes, clarifications
-}
-
-// NewSession runs the initial decomposition for a requirement and returns a
-// Session wrapping the root. Does NOT kick off recursion — callers must
-// invoke ExpandStreaming separately when they want deeper levels.
-//
-// When sessCtx carries refinement context (discussion and/or a prior
-// decomposition), the model sees that context in the user message and
-// treats this call as a refinement pass rather than a fresh decompose.
-// Passing a zero-value SessionContext is equivalent to the first-time
-// decompose behavior.
-func (d *Decomposer) NewSession(ctx context.Context, req string, effortLevel int, effortReason string, cfg Config, sessCtx SessionContext) (*Session, error) {
-	if d.api == nil {
-		return nil, fmt.Errorf("decomposer: no openai client configured")
-	}
-
-	var root DecompositionResponse
-	var baseMessages []openai.ChatMessage
-
-	if cfg.ParallelInitial <= 1 {
-		baseMessages = d.newConversation(req, sessCtx)
-		response, history, err := d.Decompose(ctx, baseMessages, nil)
-		if err != nil {
-			return nil, fmt.Errorf("initial decompose: %w", err)
-		}
-		if clar, isClar := response.(ClarificationRequest); isClar {
-			return nil, &ClarificationNeeded{Message: clar.Message}
-		}
-		decomp, ok := response.(DecompositionResponse)
-		if !ok {
-			return nil, fmt.Errorf("unexpected response type %T", response)
-		}
-		root = decomp
-		baseMessages = history
-	} else {
-		attempts, clarifications := d.parallelInitialDecompose(ctx, req, cfg.ParallelInitial, sessCtx)
-		if len(attempts) == 0 {
-			if len(clarifications) > 0 {
-				return nil, &ClarificationNeeded{Message: clarifications[0]}
-			}
-			return nil, fmt.Errorf("all parallel attempts failed")
-		}
-		if len(attempts) == 1 {
-			root = attempts[0]
-			baseMessages = d.newConversation(req, sessCtx)
-		} else {
-			merged, mergedMsgs, err := d.MergeAttempts(ctx, req, attempts)
-			if err != nil {
-				root = attempts[0]
-				baseMessages = d.newConversation(req, sessCtx)
-			} else {
-				root = merged
-				baseMessages = mergedMsgs
-			}
-		}
-	}
-
-	rootAuto := &AutoDecomposition{
-		Path:       "root",
-		Depth:      0,
-		Response:   &root,
-		ParentPath: "",
-		ChildPaths: make([]string, 0),
-	}
-	return newSession(req, effortLevel, effortReason, rootAuto, baseMessages), nil
-}
-
-// handleReadExampleCall parses the tool call, resolves each handle, logs
-// the call, emits an EventReadExample via the provided emitter, and returns
-// the formatted tool result (which becomes the Content of the next tool
-// message).
-func (d *Decomposer) handleReadExampleCall(call openai.ToolCall, messages []openai.ChatMessage, emit func(ExpansionEvent)) string {
+// handleReadExampleCall parses a read_example tool call, resolves each
+// handle, logs the call, emits EventReadExample via emit, and returns the
+// formatted tool result.
+func (d *Decomposer) handleReadExampleCall(call openai.ToolCall, requirement string, emit func(DecompositionEvent)) string {
 	var args struct {
 		Paths []string `json:"paths"`
 	}
@@ -480,7 +417,7 @@ func (d *Decomposer) handleReadExampleCall(call openai.ToolCall, messages []open
 	if d.logger != nil {
 		_ = d.logger.LogToolCall(
 			time.Now(),
-			requirementFromMessages(messages),
+			requirement,
 			strings.Join(args.Paths, ","),
 			len(args.Paths),
 			foundPaths,
@@ -522,27 +459,4 @@ func (d *Decomposer) handleReadExampleCall(call openai.ToolCall, messages []open
 		}
 	}
 	return b.String()
-}
-
-// requirementFromMessages walks the conversation backward and returns the
-// first user message content that starts with "decompose: " (the convention
-// from newConversation). Falls back to the most recent user message text.
-func requirementFromMessages(messages []openai.ChatMessage) string {
-	for i := len(messages) - 1; i >= 0; i-- {
-		m := messages[i]
-		if m.Role != openai.RoleUser {
-			continue
-		}
-		content := strings.TrimSpace(m.Content)
-		if after, ok := strings.CutPrefix(content, "decompose: "); ok {
-			return after
-		}
-	}
-	for i := len(messages) - 1; i >= 0; i-- {
-		m := messages[i]
-		if m.Role == openai.RoleUser {
-			return strings.TrimSpace(m.Content)
-		}
-	}
-	return ""
 }

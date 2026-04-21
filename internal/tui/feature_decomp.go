@@ -166,9 +166,9 @@ func (m *featureDecompModel) parentOfCol(colIdx int) string {
 
 // normalizeSelection keeps selPath consistent with the current snapshot.
 // It truncates stale entries and clamps focusedCol/colScroll into range.
-// It does NOT auto-extend into children — the user drills in explicitly
-// with the right arrow, so the detail pane shows whatever rune they
-// actually landed on.
+// On initial selection (when selPath is empty) it auto-extends one level
+// deeper so the first item's children appear in column 1 immediately —
+// the user sees the hierarchy without having to press right.
 func (m *featureDecompModel) normalizeSelection() {
 	rootKids := m.snap.ChildrenByName["root"]
 	if len(rootKids) == 0 {
@@ -177,7 +177,8 @@ func (m *featureDecompModel) normalizeSelection() {
 		m.colScroll = 0
 		return
 	}
-	if len(m.selPath) == 0 {
+	freshSelection := len(m.selPath) == 0
+	if freshSelection {
 		m.selPath = []string{rootKids[0]}
 	}
 
@@ -207,7 +208,20 @@ func (m *featureDecompModel) normalizeSelection() {
 
 	if len(m.selPath) == 0 {
 		m.selPath = []string{rootKids[0]}
+		freshSelection = true
 	}
+
+	// Auto-extend one level so the first item shows its children on
+	// initial render. Only on a fresh selection — we don't want to
+	// re-extend every time the user moves up/down in column 0, because
+	// that would clobber any deeper selection they've drilled into.
+	if freshSelection && len(m.selPath) == 1 {
+		first := m.selPath[0]
+		if kids := m.snap.ChildrenByName[first]; len(kids) > 0 {
+			m.selPath = append(m.selPath, kids[0])
+		}
+	}
+
 	if m.focusedCol < 0 {
 		m.focusedCol = 0
 	}
@@ -494,8 +508,13 @@ func renderDecompTop(width, height, kanjiOffset int, snap decomposer.Snapshot) s
 	rawLines := wrapDecompText(topCopy, textMax)
 
 	runesText := fmt.Sprintf("%d runes", snap.TotalRunes)
-	if snap.Expanding {
-		runesText += fmt.Sprintf(" · expanding (depth %d)", snap.MaxDepthReached+1)
+	switch snap.Phase {
+	case decomposer.PhaseContract:
+		runesText = "designing contract…"
+	case decomposer.PhaseExtraction:
+		runesText = fmt.Sprintf("extracting runes… %d bytes", snap.ExtractionBytes)
+	case "error":
+		runesText = fmt.Sprintf("error: %s", snap.ErrorMsg)
 	}
 
 	lines := make([]string, 0, height)
@@ -549,18 +568,13 @@ func wrapDecompText(text string, width int) []string {
 	return lines
 }
 
-// statusTag returns a short human label for a rune status, shown in the
-// detail pane's right-aligned tag slot.
-func statusTag(st decomposer.RuneStatus) string {
-	switch st {
-	case decomposer.StatusInFlight:
-		return "expanding…"
-	case decomposer.StatusDone:
-		return "expanded"
-	case decomposer.StatusLeaf:
+// leafTag returns a short tag shown in the detail pane's right-aligned
+// slot. The 2-pass pipeline produces the whole tree at once, so there is
+// no per-rune lifecycle — the only useful tag is whether the rune is a
+// leaf (no children).
+func leafTag(isLeaf bool) string {
+	if isLeaf {
 		return "leaf"
-	case decomposer.StatusError:
-		return "failed"
 	}
 	return ""
 }
@@ -581,7 +595,7 @@ func statusGlyph(selected, active, blinkOn bool) (string, lipgloss.Style) {
 	return base, lipgloss.NewStyle().Foreground(accent).Background(bgMain)
 }
 
-func renderRuneInfo(name string, r decomposer.Rune, status decomposer.RuneStatus, children []string, maxW int) string {
+func renderRuneInfo(name string, r decomposer.Rune, children []string, maxW int) string {
 	summaryW := min(max(maxW-4, 20), 72)
 	summaryStyle := lipgloss.NewStyle().Foreground(fgBright).Background(bgMain).Italic(true).Width(summaryW)
 	headingStyle := lipgloss.NewStyle().Foreground(fgBody).Background(bgMain).Bold(true)
@@ -624,7 +638,15 @@ func renderRuneInfo(name string, r decomposer.Rune, status decomposer.RuneStatus
 			lines = append(lines, depStyle.Render("  -> ")+bodyStyle.Render(d))
 		}
 	}
-	_ = status
+	if len(r.Dependencies) > 0 {
+		if len(lines) > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, headingStyle.Render("Dependencies"))
+		for _, d := range r.Dependencies {
+			lines = append(lines, depStyle.Render("  -> ")+bodyStyle.Render(d))
+		}
+	}
 	_ = name
 	return strings.Join(lines, "\n")
 }
@@ -768,7 +790,9 @@ func buildColumns(innerW, innerH int, selPath []string, focusedCol, colScroll in
 		total += w
 	}
 	// If nav columns don't fit, steal from the detail pane down to its
-	// minimum; if they still don't fit, shrink the widest nav column.
+	// minimum; if they still don't fit, shrink the deepest navigable
+	// column first so column 0 (the entry-point into the tree) keeps its
+	// full content width.
 	if total > navArea {
 		grab := min(total-navArea, detailW-decompMinRightW)
 		if grab > 0 {
@@ -777,17 +801,18 @@ func buildColumns(innerW, innerH int, selPath []string, focusedCol, colScroll in
 		}
 	}
 	for total > navArea {
-		idx := 0
-		for i, w := range colWidths {
-			if w > colWidths[idx] {
-				idx = i
+		shrunk := false
+		for i := len(colWidths) - 1; i >= 0; i-- {
+			if colWidths[i] > decompMinColW {
+				colWidths[i]--
+				total--
+				shrunk = true
+				break
 			}
 		}
-		if colWidths[idx] <= decompMinColW {
+		if !shrunk {
 			break
 		}
-		colWidths[idx]--
-		total--
 	}
 	// Any slack left over goes to the detail pane so nav columns stay
 	// at their natural content width instead of being stretched out.
@@ -807,12 +832,16 @@ func buildColumns(innerW, innerH int, selPath []string, focusedCol, colScroll in
 		if len(snap.ChildrenByName[p]) > 0 {
 			hint = " ›"
 		}
+		// Use visual column width (lipgloss.Width) rather than byte length —
+		// the glyph and hint are multi-byte UTF-8 but each render to 2 cols.
+		prefixW := lipgloss.Width(prefix)
+		hintW := lipgloss.Width(hint)
 		label := name
-		maxName := contentW - len(prefix) - len(hint)
+		maxName := contentW - prefixW - hintW
 		if maxName < 1 {
 			maxName = 1
 		}
-		if len(label) > maxName {
+		if lipgloss.Width(label) > maxName {
 			if maxName > 1 {
 				label = label[:maxName-1] + "…"
 			} else {
@@ -823,7 +852,7 @@ func buildColumns(innerW, innerH int, selPath []string, focusedCol, colScroll in
 		if hint != "" {
 			line += dimStyle.Render(hint)
 		}
-		if gap := contentW - len(prefix) - len(label) - len(hint); gap > 0 {
+		if gap := contentW - prefixW - lipgloss.Width(label) - hintW; gap > 0 {
 			line += bgSpace.Render(strings.Repeat(" ", gap))
 		}
 		return line
@@ -1017,12 +1046,11 @@ func renderDetailPane(selPath []string, snap decomposer.Snapshot, w int, titled 
 	name := displayName(snap, path)
 
 	r := snap.RuneByPath[path]
-	status := snap.StatusByName[path]
 	childPaths := snap.ChildrenByName[path]
 	shortChildren := make([]string, 0, len(childPaths))
 	for _, cp := range childPaths {
 		shortChildren = append(shortChildren, displayName(snap, cp))
 	}
-	return titled(name, statusTag(status), w, false) + "\n\n" + renderRuneInfo(name, r, status, shortChildren, w)
+	return titled(name, leafTag(len(childPaths) == 0), w, false) + "\n\n" + renderRuneInfo(name, r, shortChildren, w)
 }
 
