@@ -20,5 +20,5 @@ jobs:
       - name: Build
         run: go build ./...
 
-      - name: E2E Tests
-        run: go test ./e2e/ -v
+      - name: Unit Tests
+        run: go test ./...

@@ -37,27 +37,16 @@ type Decomposition struct {
 func stripMarkdownJSON(input string) string {
 	input = strings.TrimSpace(input)
 
-	// Remove ```json ... ``` or ``` ... ``` wrappers
 	if strings.HasPrefix(input, "```") {
-		// Find opening fence end
-		endFence := strings.Index(input, "\n```")
-		if endFence == -1 {
-			endFence = strings.Index(input, "```")
+		openEnd := strings.IndexByte(input, '\n')
+		if openEnd == -1 {
+			return input
 		}
-		if endFence != -1 {
-			content := input[endFence+3:]
-
-			// Find closing fence
-			closeIdx := strings.Index(content, "\n```")
-			if closeIdx == -1 {
-				closeIdx = strings.Index(content, "```")
-			}
-			if closeIdx != -1 {
-				content = content[:closeIdx]
-			}
-
-			return strings.TrimSpace(content)
+		content := strings.TrimSpace(input[openEnd+1:])
+		if strings.HasSuffix(content, "```") {
+			content = strings.TrimSpace(strings.TrimSuffix(content, "```"))
 		}
+		return content
 	}
 
 	return input
@@ -80,6 +69,9 @@ func ParseDecomposition(responseText string) (*Decomposition, error) {
 
 // Validate recursively validates the rune hierarchy
 func (r *Rune) Validate(path string) error {
+	if r == nil {
+		return fmt.Errorf("rune at path '%s' is nil", path)
+	}
 	if r.Path == "" {
 		return fmt.Errorf("rune at path '%s' has empty Path field", path)
 	}

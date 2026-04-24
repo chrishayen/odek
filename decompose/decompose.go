@@ -16,7 +16,7 @@ type DecomposeResult struct {
 // Decompose sends a chat request with system prompt + user message to the API.
 func Decompose(ctx context.Context, client *openai.Client, systemPrompt, userMessage string) (*openai.ChatCompletionResponse, error) {
 	request := &openai.ChatCompletionRequest{
-		Model: "default",
+		Model: openai.DefaultModel,
 		Messages: []openai.ChatMessage{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userMessage},
@@ -45,6 +45,9 @@ func DecomposeStructured(ctx context.Context, client *openai.Client, systemPromp
 
 	if decomposition == nil {
 		return nil, fmt.Errorf("no response content to parse")
+	}
+	if decomposition.RuneTree == nil {
+		return nil, fmt.Errorf("validation failed: rune_tree is required")
 	}
 
 	// Validate the decomposition structure

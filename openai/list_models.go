@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 )
 
 // Client represents the client for interacting with an OpenAI-compatible API.
@@ -15,8 +18,19 @@ type Client struct {
 
 // NewClient creates a new client for the API.
 func NewClient(baseURL string, apiKey ...string) (*Client, error) {
-	if baseURL == "" {
-		baseURL = "http://127.0.0.1:1234" // Default local dev URL
+	return NewClientWithHTTPClient(baseURL, &http.Client{Timeout: 10 * time.Minute}, apiKey...)
+}
+
+// NewClientWithHTTPClient creates a client using the provided HTTP client.
+// It is useful for tests and callers that need custom transports, proxies, or
+// timeout behavior.
+func NewClientWithHTTPClient(baseURL string, httpClient *http.Client, apiKey ...string) (*Client, error) {
+	normalizedBaseURL, err := normalizeBaseURL(baseURL)
+	if err != nil {
+		return nil, err
+	}
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Minute}
 	}
 
 	apiKeyVal := ""
@@ -25,10 +39,33 @@ func NewClient(baseURL string, apiKey ...string) (*Client, error) {
 	}
 
 	return &Client{
-		baseURL: fmt.Sprintf("%s/v1", baseURL),
+		baseURL: normalizedBaseURL,
 		apiKey:  apiKeyVal,
-		client:  &http.Client{},
+		client:  httpClient,
 	}, nil
+}
+
+func normalizeBaseURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		raw = "http://127.0.0.1:1234"
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	raw = strings.TrimRight(raw, "/")
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid API base URL %q: %w", raw, err)
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("invalid API base URL %q: scheme and host are required", raw)
+	}
+	if !strings.HasSuffix(u.Path, "/v1") {
+		u.Path = strings.TrimRight(u.Path, "/") + "/v1"
+	}
+	return u.String(), nil
 }
 
 // ModelInfo represents a model available on the server.

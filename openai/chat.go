@@ -142,8 +142,12 @@ type SystemPromptBuilder struct {
 
 // NewSystemPromptBuilder creates a new builder with an optional base prompt.
 func NewSystemPromptBuilder(base ...string) *SystemPromptBuilder {
+	prompt := ""
+	if len(base) > 0 {
+		prompt = base[0]
+	}
 	return &SystemPromptBuilder{
-		prompt:   "",
+		prompt:   prompt,
 		metadata: make(map[string]string),
 	}
 }
@@ -168,6 +172,7 @@ func (sb *SystemPromptBuilder) Build() ChatMessage {
 		for k, v := range sb.metadata {
 			parts = append(parts, fmt.Sprintf("%s=%s", k, v))
 		}
+		sort.Strings(parts)
 		metadata = " | " + joinParts(parts, ", ")
 	}
 	return ChatMessage{

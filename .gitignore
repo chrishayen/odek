@@ -7,6 +7,9 @@ test
 # Coverage profile
 coverage.out
 
+# Local logs
+*.log
+
 # Compiled Go files (if any)
 *.exe
 *.dll

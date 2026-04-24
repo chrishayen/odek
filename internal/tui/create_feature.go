@@ -43,6 +43,8 @@ type decomposeState struct {
 	thinking    []rune
 }
 
+const maxThinkingRunes = 12000
+
 func (s *decomposeState) get() *decomposer.Session {
 	if s == nil {
 		return nil
@@ -81,6 +83,9 @@ func (s *decomposeState) AppendThinking(chunk string) {
 	}
 	s.mu.Lock()
 	s.thinking = append(s.thinking, []rune(chunk)...)
+	if len(s.thinking) > maxThinkingRunes {
+		s.thinking = s.thinking[len(s.thinking)-maxThinkingRunes:]
+	}
 	s.mu.Unlock()
 }
 
@@ -512,6 +517,8 @@ func pumpExpansionCmd(ch <-chan decomposer.ExpansionEvent) tea.Cmd {
 // text reply is shown as a normal chat reply.
 func chatHandler(ctx context.Context, client *openai.Client, dec *decomposer.Decomposer, state *decomposeState, id int, history []chatMessage) tea.Cmd {
 	return func() tea.Msg {
+		defer state.setDecomposing(false)
+
 		messages := buildChatMessages(history)
 		resp, err := client.Chat(ctx, &openai.ChatCompletionRequest{
 			Model:      openai.DefaultModel,
@@ -551,9 +558,6 @@ func chatHandler(ctx context.Context, client *openai.Client, dec *decomposer.Dec
 		}
 
 		// No decompose tool call; chat LLM replied with plain text.
-		// Clear the decomposing flag here (runDecompose would have done it
-		// on the tool-call path).
-		state.setDecomposing(false)
 		content := strings.TrimSpace(choice.Content)
 		if content == "" {
 			content = "(no reply)"
