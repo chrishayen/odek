@@ -228,7 +228,7 @@ func (m chatModel) renderMessage(msg chatMessage, width int) string {
 		block := lipgloss.JoinVertical(lipgloss.Left, parts...)
 		return chatUserBlockStyle.MaxWidth(width).Render(block)
 	case roleAssistant:
-		label := chatAssistantLabel.Render("clank")
+		label := chatAssistantLabel.Render("odek")
 		if msg.headline != "" {
 			pill := chatHeadlineStyle.Render(msg.headline)
 			label = lipgloss.JoinHorizontal(lipgloss.Top, label, "  ", pill)

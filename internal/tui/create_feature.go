@@ -407,7 +407,7 @@ func makeFeatureSendHandler(ctx context.Context, client *openai.Client, dec *dec
 //   - Assistant turns with an "Effort:" headline are skipped because
 //     their content is a decomposition reply, already carried structurally
 //     in SessionContext.Prior.
-//   - Everything else is rendered as "you: ..." / "clank: ...".
+//   - Everything else is rendered as "you: ..." / "odek: ...".
 //
 // Returns empty string when there is nothing to say beyond the requirement.
 func buildDiscussion(history []chatMessage) string {
@@ -438,9 +438,9 @@ func buildDiscussion(history []chatMessage) string {
 				continue
 			}
 			if msg.headline != "" {
-				fmt.Fprintf(&b, "clank [%s]: %s\n", msg.headline, content)
+				fmt.Fprintf(&b, "odek [%s]: %s\n", msg.headline, content)
 			} else {
-				fmt.Fprintf(&b, "clank: %s\n", content)
+				fmt.Fprintf(&b, "odek: %s\n", content)
 			}
 		}
 	}

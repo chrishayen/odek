@@ -911,7 +911,7 @@ func renderGradientOnBg(text string, stops []colorful.Color, bg string, totalWid
 - textarea for input (alt+enter for newline).
 - viewport for history with soft wrap.
 - User messages: left thick border in accent pink.
-- Assistant messages: left thick border in fgDim; label "clank".
+- Assistant messages: left thick border in fgDim; label "odek".
 - Assistant headlines: small inverted pill (e.g., "Effort: 2/5").
 - Markdown rendering with Chroma syntax highlighting (dracula theme, terminal16m formatter).
 - Inline code: backtick spans get bright-on-dark background.

@@ -148,7 +148,7 @@ type SessionContext struct {
 	// Discussion is a pre-formatted transcript of chat turns since the
 	// original requirement was stated, e.g.
 	//   you: add a JSON section
-	//   clank: okay, added json handling...
+	//   odek: okay, added json handling...
 	// The caller owns the formatting.
 	Discussion string
 
