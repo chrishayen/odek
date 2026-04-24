@@ -2,9 +2,11 @@
 ## "AI-Powered Software Decomposition into Rune Trees"
 
 **Version:** 1.0
-**Language:** Go 1.22+
+**Language:** Go 1.26.1+
 **Target Time:** 3-hour hackathon
 **Module:** `shotgun.dev/odek`
+
+> **Known Issue:** `main.go` declares `var systemPrompt string` (never initialized) and passes the empty string to `decompose.DecomposeStructured()` when using the `-d` flag. The real system prompt lives in `internal/decomposer/decompose.md` (embedded via `//go:embed`). To fix the `-d` flag, load that embedded file or refactor `main.go` to use `decomposer.NewDecomposer` directly.
 
 ---
 
@@ -62,6 +64,13 @@ shotgun.dev/odek
 │   ├── chat.go                  # Rich chat component (markdown, code, thinking)
 │   ├── styles.go                # Colors, kanji pool, help bindings
 │   └── decomp_render.go         # Render decomposition summary text
+│
+├── std/                         # STRUCTURED STDLIB RUNE REGISTRY
+│   ├── concurrency/once/{do}/
+│   ├── http/client_delete/{send}/
+│   ├── http/client_options/{send}/
+│   ├── http/client_patch/{send}/
+│   └── regex/test/1.0.0.md
 │
 └── examples/                    # EXAMPLE CORPUS (~1,000 .md files)
     ├── trivial/*.md             # tiny programs (hello-world, add-two-integers)
@@ -695,7 +704,24 @@ func (d *Decomposer) ExpandStreaming(ctx context.Context, sess *Session, cfg Con
 
 **ExpandStreaming behavior:**
 1. BFS level-by-level expansion of every rune in the session tree.
-2. Each rune gets an isolated prompt: "Forget prior decomposition. Imagine you are seeing <path> for the first time. What 0-3 child units make up its implementation?"
+2. Each rune gets an isolated prompt (exact text):
+```go
+fmt.Sprintf(`Forget the prior decomposition. Imagine you are seeing "%s" for the first time, in isolation, as a function you have to implement.
+
+The user is browsing this decomposition as an interactive hierarchy: each rune is a column in a Miller-column (macOS-Finder-style) view, and the user will drill from parent to child to child. Your job is to continue that hierarchical breakdown by one more level beneath "%s".
+
+Question: what 0–3 child units make up "%s"'s implementation? Each child should be a self-contained step the user would naturally drill into — a private helper, a distinct pipeline stage, or an internal subsystem, depending on the parent's granularity. They will appear as the next column to the right of "%s".
+
+Call the decompose tool. The runes map keys must be of the form "%s.<child_name>". Example, for a different rune: if you were expanding "image.compress", reasonable children would be "image.compress.detect_format", "image.compress.choose_quality", "image.compress.encode_bytes". Each is a verb-phrase describing one internal step.
+
+If "%s" is a single primitive operation (like an arithmetic op or a single syscall) and has no meaningful children, return an empty runes map ({}). That is the correct answer for leaves.
+
+Hard rules:
+- Reply ONLY by calling the decompose tool.
+- Children exist only to serve "%s"; never include sibling-level functions, never repeat existing names, never include "%s" itself.
+- A good child is one the user would click on to see its own next-level breakdown. Prefer 0–3 meaningful children over padding.
+- At most 3 children.`, ri.FullPath, ri.FullPath, ri.FullPath, ri.FullPath, ri.FullPath, ri.FullPath, ri.FullPath, ri.FullPath)
+```
 3. Keys must be of form "<path>.<child_name>".
 4. Empty runes map = leaf node.
 5. Runs up to cfg.MaxDepth deep, stops at cfg.RuneCap total runes.
@@ -742,7 +768,41 @@ func (idx *Index) Manifest() string
 ...
 ```
 
-### 6.3 Corpus Strategy for Hackathon
+### 6.4 The `std/` Structured Rune Registry
+
+Separate from the `examples/` corpus, `std/` holds canonical stdlib rune definitions in a YAML-frontmatter format:
+
+```yaml
+---
+version: 1.0.0
+signature: '(pattern: string, s: string) -> result[bool, string]'
+dependencies:
+  - std.regex.compile
+  - std.regex.match
+responsibility: regex_matching
+---
+
+# std.regex.test
+
+Convenience: compiles a pattern, tests it against the input, returns the boolean result.
+
+## Signature
+
+(pattern: string, s: string) -> result[bool, string]
+
+## Behavior
+...
+```
+
+**Rules:**
+- File path encodes hierarchy: `std/<package>/<unit>/<version>.md`
+- `{}` in paths denotes literal braces in the filesystem (e.g., `std/concurrency/once/{do}/`)
+- Frontmatter fields: `version`, `signature`, `dependencies` (list of fully-qualified paths), `responsibility`
+- Body is free-form markdown following the same DSL as `decompose.md`
+
+For a 3-hour hackathon, create at least one file (e.g., `std/regex/test/1.0.0.md`) to validate the concept.
+
+### 6.5 Corpus Strategy for Hackathon
 
 **Minimum viable:** Create `examples/trivial/` with ~5 files:
 - `hello-world.md`
@@ -801,6 +861,13 @@ func kanjiAt(row, col int) rune
 - Scrolling kanji field: Rows drift horizontally at alternating directions. Kanji under logo mask get warm VHS gradient (yellow to amber to orange to red to brown). Other kanji muted gray.
 - Help bar near bottom center: `n  new  •  q  quit`
 - Keybindings: `n` → new feature; `q` / `esc` / `ctrl+c` → quit.
+
+**Additional rendering helpers:**
+```go
+func renderGradientOnBg(text string, stops []colorful.Color, bg string, totalWidth int) string
+    // Paints a per-character horizontal gradient over text on a solid background.
+    // Used for help-line chars that fall under the logo mask.
+```
 
 ### 8.3 Chat Page (create_feature.go + chat.go)
 
@@ -863,6 +930,53 @@ send a message to start
 
 **Loading state:** When state.decomposing or sess.Snapshot().Expanding, kanji scroll faster and placeholder text changes to "decomposing...".
 
+**Missing function signatures (must be implemented for compilation):**
+```go
+func renderDecompTop(width, height, kanjiOffset int, snap decomposer.Snapshot) string
+func wrapDecompText(text string, width int) []string
+func statusTag(st decomposer.RuneStatus) string
+func statusGlyph(selected, active, blinkOn bool) (string, lipgloss.Style)
+func renderRuneInfo(name string, r decomposer.Rune, status decomposer.RuneStatus, children []string, maxW int) string
+func renderDecompHelp(width int, inputActive, showTabSwitch bool) string
+func renderFeaturePin() string
+func renderDetailPane(selPath []string, snap decomposer.Snapshot, w int, titled func(string, string, int, bool) string) string
+func displayName(snap decomposer.Snapshot, path string) string
+```
+
+**Session navigation methods on `featureDecompModel`:**
+```go
+func (m *featureDecompModel) parentOfCol(colIdx int) string
+    // Returns "root" for column 0, otherwise the selection from the previous column.
+
+func (m *featureDecompModel) normalizeSelection()
+    // Truncates stale selPath entries, clamps focusedCol/colScroll into range,
+    // and ensures the selection always points to a valid child.
+
+func (m *featureDecompModel) ensureColVisible()
+    // Adjusts colScroll so focusedCol is within [colScroll, colScroll+decompMaxVisCols).
+
+func (m *featureDecompModel) steadyCursor()
+    // Sets blinkOn=true and a 500ms grace period so rapid navigation stays visible.
+
+func (m *featureDecompModel) moveSelection(delta int)
+    // Shifts selection in the focused column by delta, truncates deeper selections.
+```
+
+**`buildColumns` exact signature:**
+```go
+func buildColumns(innerW, innerH int, selPath []string, focusedCol, colScroll int, active, blinkOn, decomposing bool, snap decomposer.Snapshot) string
+```
+
+**Internal closures inside `buildColumns`:**
+- `renderRuneRow(path, selected string, focused bool, contentW int) string`
+  - Produces: status glyph (`• `) + rune name + optional `›` drill-in hint.
+  - Truncates names with `…` if they exceed content width.
+- `applyScroll(parts []string, selRow, contentW int) string`
+  - Windows `parts` around `selRow` to fit in `innerH` rows.
+  - Adds `↑`/`↓` chrome rows when content is clipped.
+- `titled(name, tag string, w int, focused bool) string`
+  - Renders a column header: `◆ <name>` left-aligned, `# <tag>` right-aligned, horizontal rule below.
+
 ### 8.5 Split Pane (split_feature.go)
 
 - Activates when terminal width >= 150 columns.
@@ -921,7 +1035,34 @@ When in doubt, prefer discussion: it's cheap to follow up with a spec change, bu
 
 ---
 
-## 9. main.go — Entry Point
+## 9. Alternate Entry Points (cmd/)
+
+The `cmd/` directory contains standalone binaries separate from the main TUI:
+
+### 9.1 `cmd/auto_recurse.go`
+- `package main` — build with `go run ./cmd/auto_recurse.go ./cmd/print.go`
+- Non-TUI CLI flow:
+  1. Prompts for a requirement via stdin.
+  2. Calls `effort.Estimate()` to get complexity level.
+  3. Calls `decomposer.NewSession()` for initial decomposition.
+  4. Prints the initial tree via `printInitialDecomposition()`.
+  5. Prompts `[y/N]` to proceed with recursion.
+  6. Runs `ExpandStreaming` and prints events + final tree.
+
+### 9.2 `cmd/tui/main.go`
+- `package main` — a **hardcoded prototype** of the decomposition browser.
+- Contains static `tomlItems` and `runeInfos` (9 TOML runes) baked into the binary.
+- Demonstrates the 2-column layout + detail pane but does NOT talk to an LLM.
+- Useful as a UI reference, but the real app uses `internal/tui/`.
+
+### 9.3 `cmd/print.go`
+- Shared print helpers for `cmd/auto_recurse.go`:
+  - `printBanner()`, `printInitialDecomposition()`, `printCompleteTree()`, `printRunesIndented()`, `printExpansionEvent()`, `wrapText()`, `plural()`
+
+### 9.4 `cmd/recurse_detailed.go`
+- Entirely commented-out old prototype. Can be ignored.
+
+## 10. main.go — Entry Point
 
 ```go
 func main() {
@@ -939,7 +1080,7 @@ func main() {
 
 ---
 
-## 10. Example Corpus File (Template)
+## 11. Example Corpus File (Template)
 
 Create this file at `examples/trivial/hello-world.md`:
 
@@ -960,7 +1101,7 @@ greeter
 
 ---
 
-## 11. 3-Hour Hackathon Implementation Prompts
+## 12. 3-Hour Hackathon Implementation Prompts
 
 Use these prompts in order with an AI coding agent to rebuild the project from scratch.
 
@@ -1088,9 +1229,17 @@ Verify:
 - Arrow keys navigate the Miller columns
 ```
 
+**Existing test files to preserve/regenerate:**
+- `internal/decomposer/normalize_test.go` — 17 cases for `NormalizeFunctionSig` (strips `fn`, `@`, whitespace)
+- `internal/examples/examples_test.go` — verifies corpus loads all 4 tiers with >=100 entries
+- `internal/tui/split_feature_test.go` — verifies split pane renders at exact dimensions
+- `internal/tui/transition_test.go` — verifies transition animation frame dimensions
+
+**CI note:** `.github/workflows/test.yml` runs `go build ./...` and `go test ./e2e/ -v`. The `e2e/` directory does not currently exist; either create it or remove that step from CI.
+
 ---
 
-## 12. Environment Setup Checklist
+## 13. Environment Setup Checklist
 
 - [ ] Go 1.22+ installed
 - [ ] Local OpenAI-compatible server running (e.g., LM Studio, Ollama, llama.cpp server) on localhost:8080
@@ -1099,7 +1248,7 @@ Verify:
 
 ---
 
-## 13. Key Design Decisions (Do Not Change)
+## 14. Key Design Decisions (Do Not Change)
 
 1. **Library output only.** Never generate main(), CLI args, or process lifecycle. The product is always a reusable library.
 2. **Stdlib-first.** Generic capabilities go in std.* before feature-specific code.
@@ -1111,7 +1260,7 @@ Verify:
 
 ---
 
-## 14. Future Enhancements (Post-Hackathon)
+## 15. Future Enhancements (Post-Hackathon)
 
 - Export decomposition to JSON / Markdown / code stubs
 - Persistent project history (save/load sessions)
