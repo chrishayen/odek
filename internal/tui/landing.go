@@ -418,10 +418,11 @@ func (m model) View() tea.View {
 	return v
 }
 
-func Run(ctx context.Context, client *openai.Client, dec *decomposer.Decomposer) {
+func Run(ctx context.Context, client *openai.Client, dec *decomposer.Decomposer) error {
 	teaModel := model{help: newHelpModel(), ctx: ctx, client: client, decomposer: dec}
 	p := tea.NewProgram(teaModel)
 	if _, err := p.Run(); err != nil {
-		panic(err)
+		return err
 	}
+	return nil
 }

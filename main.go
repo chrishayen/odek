@@ -2,120 +2,157 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
-	"shotgun.dev/odek/decompose"
 	"shotgun.dev/odek/internal/decomposer"
 	"shotgun.dev/odek/internal/tui"
 	openai "shotgun.dev/odek/openai"
 )
 
 const (
-	examplesDir = "examples"
-	toolLogPath = "/tmp/odek-example-log.jsonl"
+	examplesDir    = "examples"
+	toolLogPath    = "/tmp/odek-example-log.jsonl"
+	defaultBaseURL = "http://localhost:8080"
 )
 
-var systemPrompt string
+type cliOptions struct {
+	prompt       string
+	decomposeReq string
+	jsonOutput   bool
+}
 
 func main() {
-	// 1. Initialize the client
-	// You can change this to point to a remote API (e.g., https://api.openai.com/v1)
-	baseURL := os.Getenv("API_BASE_URL")
-	if baseURL == "" {
-		baseURL = "http://localhost:8080" // Default local server
+	opts, err := parseFlags(os.Args[1:])
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	if opts.prompt != "" && opts.decomposeReq != "" {
+		fmt.Fprintln(os.Stderr, "use either -p for chat or -d for decomposition, not both")
+		os.Exit(2)
 	}
 
-	client, err := openai.NewClient(baseURL)
+	client, err := newAPIClient()
 	if err != nil {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 
 	ctx := context.Background()
 
-	// 2. Check for -p flag and process prompt if present
-	prompt := ""
-	for i, arg := range os.Args {
-		if (i > 0 && strings.HasPrefix(arg, "-p=")) || arg == "-p" {
-			prompt = os.Args[i+1]
-			break
-		}
-	}
-
-	// 3. Check for -d flag
-	var dValue string
-	for i, arg := range os.Args {
-		if (i > 0 && strings.HasPrefix(arg, "-d=")) || arg == "-d" {
-			dValue = os.Args[i+1]
-			break
-		}
-	}
-
-	// 4. Check for -j flag (structured output mode)
-	structuredOutput := false
-	for _, arg := range os.Args {
-		if arg == "-j" || arg == "--json" || strings.HasPrefix(arg, "-j=") {
-			structuredOutput = true
-			break
-		}
-	}
-
-	// 5. Check for -d flag (decompose feature)
-	if dValue != "" {
-		_ = structuredOutput
-		result, err := decompose.DecomposeStructured(ctx, client, systemPrompt, dValue)
+	if opts.decomposeReq != "" {
+		dec, err := decomposer.NewDecomposer(client, examplesDir, toolLogPath)
 		if err != nil {
+			log.Fatalf("Failed to create decomposer: %v", err)
+		}
+		if err := runDirectDecompose(ctx, dec, opts.decomposeReq); err != nil {
 			log.Fatalf("Decompose failed: %v", err)
 		}
-
-		jsonOutput, marshalErr := result.Decomposition.FormatJSON()
-		if marshalErr != nil {
-			log.Fatalf("Failed to format JSON: %v", marshalErr)
-		}
-		fmt.Println(jsonOutput)
-
-		if result.Response.Usage != nil {
-			fmt.Fprintf(os.Stderr, "\nTokens: prompt=%d, completion=%d, total=%d\n",
-				result.Response.Usage.PromptTokens,
-				result.Response.Usage.CompletionTokens,
-				result.Response.Usage.TotalTokens)
-		}
-
 		return
 	}
 
-	if prompt != "" {
-		// Build chat request with the prompt
-		request := &openai.ChatCompletionRequest{
-			Model:    "default",
-			Messages: []openai.ChatMessage{{Role: "user", Content: prompt}},
-		}
-
-		response, err := client.Chat(ctx, request)
-		if err != nil {
+	if opts.prompt != "" {
+		if err := runDirectPrompt(ctx, client, opts.prompt, opts.jsonOutput); err != nil {
 			log.Fatalf("Chat failed: %v", err)
 		}
-
-		// Print the result
-		for _, choice := range response.Choices {
-			fmt.Printf("\n=== Response ===\n%s\n", choice.Message.Content)
-			if response.Usage != nil {
-				fmt.Printf("Tokens: prompt=%d, completion=%d, total=%d\n",
-					response.Usage.PromptTokens,
-					response.Usage.CompletionTokens,
-					response.Usage.TotalTokens)
-			}
-		}
-
-		return // Exit after processing prompt
+		return
 	}
 
-	// 3. Launch TUI when no arguments provided
 	dec, err := decomposer.NewDecomposer(client, examplesDir, toolLogPath)
 	if err != nil {
 		log.Printf("decomposer init failed: %v — /decompose will be unavailable", err)
 	}
-	tui.Run(ctx, client, dec)
+	if err := tui.Run(ctx, client, dec); err != nil {
+		log.Fatalf("TUI failed: %v", err)
+	}
+}
+
+func parseFlags(args []string) (cliOptions, error) {
+	var opts cliOptions
+	fs := flag.NewFlagSet("odek", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	fs.StringVar(&opts.prompt, "p", "", "send one prompt and print the model response")
+	fs.StringVar(&opts.decomposeReq, "d", "", "decompose one requirement and print the structured rune tree as JSON")
+	fs.BoolVar(&opts.jsonOutput, "j", false, "print direct chat responses as raw JSON")
+	fs.BoolVar(&opts.jsonOutput, "json", false, "print direct chat responses as raw JSON")
+	if err := fs.Parse(args); err != nil {
+		return opts, err
+	}
+	if fs.NArg() > 0 {
+		return opts, fmt.Errorf("unexpected positional arguments: %v", fs.Args())
+	}
+	return opts, nil
+}
+
+func newAPIClient() (*openai.Client, error) {
+	baseURL := os.Getenv("API_BASE_URL")
+	if baseURL == "" {
+		baseURL = defaultBaseURL
+	}
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		apiKey = os.Getenv("API_KEY")
+	}
+	return openai.NewClient(baseURL, apiKey)
+}
+
+func runDirectDecompose(ctx context.Context, dec *decomposer.Decomposer, requirement string) error {
+	cfg := decomposer.ConfigForEffort(2)
+	cfg.ParallelInitial = 1
+	cfg.MaxDepth = 0
+	cfg.RuneCap = 0
+	cfg.Recurse = false
+
+	sess, err := dec.NewSession(ctx, requirement, 2, "direct CLI decomposition", cfg, decomposer.SessionContext{})
+	if err != nil {
+		return err
+	}
+	if sess == nil || sess.Root == nil || sess.Root.Response == nil {
+		return fmt.Errorf("decomposer returned no root response")
+	}
+	jsonOutput, err := json.MarshalIndent(sess.Root.Response, "", "  ")
+	if err != nil {
+		return fmt.Errorf("format response JSON: %w", err)
+	}
+	fmt.Println(string(jsonOutput))
+	return nil
+}
+
+func runDirectPrompt(ctx context.Context, client *openai.Client, prompt string, jsonOutput bool) error {
+	request := &openai.ChatCompletionRequest{
+		Model:    openai.DefaultModel,
+		Messages: []openai.ChatMessage{{Role: openai.RoleUser, Content: prompt}},
+	}
+
+	response, err := client.Chat(ctx, request)
+	if err != nil {
+		return err
+	}
+
+	if jsonOutput {
+		data, err := json.MarshalIndent(response, "", "  ")
+		if err != nil {
+			return fmt.Errorf("format response JSON: %w", err)
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+
+	for _, choice := range response.Choices {
+		fmt.Printf("\n=== Response ===\n%s\n", choice.Message.Content)
+		if response.Usage != nil {
+			fmt.Printf("Tokens: prompt=%d, completion=%d, total=%d\n",
+				response.Usage.PromptTokens,
+				response.Usage.CompletionTokens,
+				response.Usage.TotalTokens)
+		}
+	}
+	return nil
 }

@@ -6,7 +6,9 @@
 **Target Time:** 3-hour hackathon
 **Module:** `shotgun.dev/odek`
 
-> **Known Issue:** `main.go` declares `var systemPrompt string` (never initialized) and passes the empty string to `decompose.DecomposeStructured()` when using the `-d` flag. The real system prompt lives in `internal/decomposer/decompose.md` (embedded via `//go:embed`). To fix the `-d` flag, load that embedded file or refactor `main.go` to use `decomposer.NewDecomposer` directly.
+> **v1 Note:** The root CLI uses `internal/decomposer.NewDecomposer`, so direct
+> `-d` decomposition and the TUI share the same embedded system prompt,
+> example-corpus lookup, and tool-call schema.
 
 ---
 
@@ -86,7 +88,7 @@ shotgun.dev/odek
 ```go
 module shotgun.dev/odek
 
-go 1.22
+go 1.26.1
 
 require (
     charm.land/bubbles/v2 v2.1.0
@@ -1095,8 +1097,8 @@ func main() {
     // 1. API_BASE_URL env var or default http://localhost:8080
     // 2. Parse -p=<prompt> or -p <prompt> for direct chat
     // 3. Parse -d=<requirement> for direct structured decompose
-    // 4. Parse -j or --json for structured output flag
-    // 5. If -d: call decompose.DecomposeStructured, print JSON + token usage
+    // 4. Parse -j or --json for direct chat JSON output
+    // 5. If -d: call internal/decomposer.NewSession, print JSON
     // 6. If -p: call client.Chat with user prompt, print response + token usage
     // 7. Otherwise: launch TUI
     dec, _ := decomposer.NewDecomposer(client, "examples", "/tmp/odek-example-log.jsonl")
@@ -1261,7 +1263,7 @@ Verify:
 - `internal/tui/split_feature_test.go` — verifies split pane renders at exact dimensions
 - `internal/tui/transition_test.go` — verifies transition animation frame dimensions
 
-**CI note:** `.github/workflows/test.yml` runs `go build ./...` and `go test ./e2e/ -v`. The `e2e/` directory does not currently exist; either create it or remove that step from CI.
+**CI note:** `.github/workflows/test.yml` runs `go build ./...` and `go test ./...`.
 
 ---
 

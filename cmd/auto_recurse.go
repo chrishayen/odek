@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	BASE_URL      = "http://localhost:8080"
-	EXAMPLES_DIR  = "examples"
-	TOOL_LOG_PATH = "/tmp/odek-example-log.jsonl"
+	DEFAULT_BASE_URL = "http://localhost:8080"
+	EXAMPLES_DIR     = "examples"
+	TOOL_LOG_PATH    = "/tmp/odek-example-log.jsonl"
 )
 
 func getRequirement(reader *bufio.Reader) (string, error) {
@@ -30,7 +30,7 @@ func main() {
 	ctx := context.Background()
 	printBanner()
 
-	api, err := openai.NewClient(BASE_URL)
+	api, err := openai.NewClient(apiBaseURL(), apiKey())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to create openai client: %v\n", err)
 		os.Exit(1)
@@ -99,6 +99,20 @@ func main() {
 	fmt.Printf("📊 SUMMARY: %d decompositions, %d runes discovered (max depth %d)\n",
 		len(sess.AllDecompositions()), sess.Snapshot().TotalRunes, cfg.MaxDepth)
 	fmt.Printf("%s\n", strings.Repeat("=", 70))
+}
+
+func apiBaseURL() string {
+	if v := os.Getenv("API_BASE_URL"); v != "" {
+		return v
+	}
+	return DEFAULT_BASE_URL
+}
+
+func apiKey() string {
+	if v := os.Getenv("OPENAI_API_KEY"); v != "" {
+		return v
+	}
+	return os.Getenv("API_KEY")
 }
 
 func confirm(reader *bufio.Reader, prompt string) bool {
