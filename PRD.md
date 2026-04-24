@@ -688,6 +688,32 @@ func (d *Decomposer) MergeAttempts(ctx context.Context, req string, attempts []D
 func (d *Decomposer) ExpandStreaming(ctx context.Context, sess *Session, cfg Config) <-chan ExpansionEvent
 ```
 
+**Private helpers (must exist for compilation):**
+```go
+func buildRefinementMessage(req string, sessCtx SessionContext) string
+    // Stitches: original requirement + prior decomposition JSON + discussion transcript + refinement instruction.
+
+func requirementFromMessages(messages []openai.ChatMessage) string
+    // Walks conversation backward to find the first user message starting with "decompose: ".
+
+func handleReadExampleCall(call openai.ToolCall, messages []openai.ChatMessage, emit func(ExpansionEvent)) string
+    // Parses the tool call, resolves each handle via examples.Index.Lookup, logs via toollog,
+    // emits EventReadExample, and returns formatted results. Handles 3 lookup kinds:
+    // LookupHit (exact), LookupTierCorrected (slug matched in different tier), LookupMiss (with suggestions).
+
+func collectRunesForExpansion(resp *DecompositionResponse) []RuneExpansionInfo
+func countTotalRunes(resp *DecompositionResponse) int
+func normalizePackageSignatures(pkg *PackageNode)
+func NormalizeFunctionSig(s string) string
+```
+
+**String utilities (in types.go):**
+```go
+func qualify(pkgName, runeName string) string   // pkgName + "." + runeName, or runeName if already qualified
+func lastSegment(path string) string            // substring after final '.'
+func dedupeSorted(in []string) []string         // collapse consecutive duplicates in a sorted slice
+```
+
 **NewSession behavior:**
 1. If `cfg.ParallelInitial <= 1`: single Decompose call.
 2. If `cfg.ParallelInitial > 1`: run N concurrent initial decomposes, then merge successes via MergeAttempts.
